@@ -252,11 +252,15 @@ class MlxScheduler:
         redo_ema = 0.0
         sync_streak = 0
         while True:
-            speculate = redo_ema < 0.5 or sync_streak >= 32
+            state.prefetch_predicted()  # last token's routing predicts this one's
+            # Speculation wins whenever a redo round-trip (fast zero-sync forward)
+            # beats 40 per-layer syncs — in practice almost always; the sync mode
+            # remains as an escape hatch for pathological non-convergence.
+            speculate = redo_ema < 0.9 or sync_streak >= 32
             state.speculating = speculate
             if speculate:
                 sync_streak = 0
-                redone = False
+                redos = 0
                 for _attempt in range(len(state.glus) + 1):
                     state.begin_token()
                     snaps = [self._cache_snapshot(c) for c in cache]
@@ -268,12 +272,13 @@ class MlxScheduler:
                     mx.eval(y_next, *state.pending_oks())
                     if state.commit_token():
                         break
-                    redone = True
+                    redos += 1
                     for c, snap in zip(cache, snaps, strict=True):
                         self._cache_rollback(c, snap)
                 else:  # pragma: no cover -- each round installs at least one layer
                     raise RuntimeError("expert cache failed to converge on a decode step")
-                redo_ema = 0.85 * redo_ema + (0.15 if redone else 0.0)
+                # EMA over EXTRA forwards per token; > ~2 sustained means sync wins.
+                redo_ema = 0.85 * redo_ema + 0.15 * min(redos / 2.5, 1.0)
             else:
                 sync_streak += 1
                 state.begin_token()  # sync path installs inline; nothing pends

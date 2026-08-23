@@ -46,6 +46,10 @@ logger = init_logger(__name__)
 
 _NP_DTYPES = {"U32": np.uint32, "F16": np.float16, "BF16": np.uint16, "F32": np.float32}
 
+# Experimental: inline-serve first-offense decode misses instead of admitting
+# them (see the call site in OffloadSwitchGLU.__call__ for the measured tradeoff).
+_ADMIT_FILTER = os.environ.get("FREETOKEN_MLX_ADMIT_FILTER", "") == "1"
+
 _PROJS = ("gate_proj", "up_proj", "down_proj")
 _PARTS = ("weight", "scales", "biases")
 
@@ -209,27 +213,57 @@ class ExpertStore:
         shard, offset, nbytes = rng
         return os.pread(self._fd(shard), nbytes, offset)
 
+    def read_jobs(self, expert: int) -> List[Any]:
+        """Submit the 9 preads of one expert to the I/O pool; returns the futures."""
+        return [self._pool.submit(self._read_one, rng) for rng in self._ranges(expert)]
+
+    def arrays_from(self, jobs: List[Any]) -> List[Any]:
+        """The 9 mx arrays of one expert from its read futures."""
+        mx = self._mx
+        arrs = []
+        for job, shape, dtype in zip(
+            jobs, self.part_shapes, self.part_dtypes, strict=True
+        ):
+            np_arr = np.frombuffer(job.result(), dtype=_NP_DTYPES[dtype]).reshape(shape)
+            arr = mx.array(np_arr)
+            if dtype == "BF16":
+                arr = arr.view(mx.bfloat16)
+            arrs.append(arr)
+        return arrs
+
     def fetch(self, experts: List[int]) -> List[List[Any]]:
         """For each expert: its 9 arrays in (proj x part) order. Reads run on the
         I/O pool (SSDs want queue depth); mx.array wrapping stays on the caller."""
+        all_jobs = [self.read_jobs(e) for e in experts]
+        return [self.arrays_from(jobs) for jobs in all_jobs]
+
+    def fetch_stacked(
+        self, experts: List[int], jobs_by_expert: Dict[int, List[Any]]
+    ) -> List[Any]:
+        """The 9 parts of ``experts`` stacked to [m, ...] — ONE mx array per part.
+
+        Per-expert wrapping costs ~9 mx.array creations per expert per layer and
+        dominated the miss path (Python, not I/O); stacking the raw bytes in numpy
+        first turns that into 9 creations per *layer*."""
         mx = self._mx
-        jobs = [
-            self._pool.submit(self._read_one, rng)
-            for e in experts
-            for rng in self._ranges(e)
+        all_jobs = [
+            jobs_by_expert.pop(e, None) or self.read_jobs(e) for e in experts
         ]
-        out: List[List[Any]] = []
-        it = iter(jobs)
-        for _e in experts:
-            arrs = []
-            for shape, dtype in zip(self.part_shapes, self.part_dtypes, strict=True):
-                buf = next(it).result()
-                np_arr = np.frombuffer(buf, dtype=_NP_DTYPES[dtype]).reshape(shape)
-                arr = mx.array(np_arr)
-                if dtype == "BF16":
-                    arr = arr.view(mx.bfloat16)
-                arrs.append(arr)
-            out.append(arrs)
+        out = []
+        for i, (shape, dtype) in enumerate(
+            zip(self.part_shapes, self.part_dtypes, strict=True)
+        ):
+            np_dt = _NP_DTYPES[dtype]
+            stacked = np.stack(
+                [
+                    np.frombuffer(jobs[i].result(), dtype=np_dt).reshape(shape)
+                    for jobs in all_jobs
+                ]
+            )
+            arr = mx.array(stacked)
+            if dtype == "BF16":
+                arr = arr.view(mx.bfloat16)
+            out.append(arr)
         return out
 
     def load_full_lazy(self) -> List[Any]:
@@ -278,7 +312,18 @@ class SlotCache:
         self.lru = LruTracker(num_slots)
         self.hits = 0
         self.misses = 0
+        # expert -> in-flight read futures, issued ahead of demand (predictive
+        # prefetch keyed on the previous token's routing). Consumed by acquire.
+        self._inflight: Dict[int, List[Any]] = {}
+        # Admission filter (decode): a FIRST miss (none in the last _ADMIT_WINDOW
+        # tokens) is served inline without a slot; a recurring miss earns one.
+        # One-off tail experts would otherwise evict genuinely hot slots (cache
+        # thrash) and pay an install copy for a single use.
+        self._last_miss: Dict[int, int] = {}
+        self._token_tick = 0
         self._alloc(num_slots)
+
+    _ADMIT_WINDOW = 64  # tokens: "recurring" means a second miss within this many
 
     def _alloc(self, num_slots: int) -> None:
         mx = self._mx
@@ -305,35 +350,71 @@ class SlotCache:
         assert not missing, "touch() on experts that are not resident"
         self.hits += len(hits)
 
+    def prefetch(self, experts: List[int]) -> None:
+        """Issue reads for experts predicted to be needed soon (not resident, not
+        already in flight). By the time demand arrives the bytes are usually in."""
+        for e in experts:
+            if e not in self.lru.slot_of and e not in self._inflight:
+                if len(self._inflight) > 4 * self.lru.num_slots:
+                    self._inflight.pop(next(iter(self._inflight)))
+                self._inflight[e] = self.store.read_jobs(e)
+
+    def install(self, missing: List[int]) -> Dict[int, int]:
+        """Fetch ``missing`` from disk and install them into slots (batched: one
+        stacked read + one scatter per part). Returns expert -> slot."""
+        mx = self._mx
+        stacked = self.store.fetch_stacked(missing, self._inflight)
+        assigned: Dict[int, int] = {}
+        slots = []
+        for e in missing:
+            slot = self.lru.assign(e)
+            slots.append(slot)
+            assigned[e] = slot
+        slot_idx = mx.array(slots, dtype=mx.uint32)
+        for buf, part in zip(self.buffers, stacked, strict=True):
+            buf[slot_idx] = part
+        expert_idx = mx.array(missing, dtype=mx.uint32)
+        self.owner[slot_idx] = expert_idx.astype(mx.int32)
+        self.lut[expert_idx] = slot_idx
+        return assigned
+
     def acquire(self, experts: List[int]) -> Dict[int, int]:
         """expert -> slot for every requested expert, fetching misses from disk."""
-        mx = self._mx
         hits, missing = self.lru.lookup(experts)
         self.hits += len(hits)
         self.misses += len(missing)
         if missing:
-            fetched = self.store.fetch(missing)
-            slots = []
-            for e in missing:
-                slot = self.lru.assign(e)
-                slots.append(slot)
-                hits[e] = slot
-            # One scatter per buffer (not per expert): m single-slot writes each
-            # rewrite the buffer's lazy graph; batching keeps the miss cost at the
-            # I/O read plus one stacked copy.
-            slot_idx = mx.array(slots, dtype=mx.uint32)
-            for i, buf in enumerate(self.buffers):
-                buf[slot_idx] = mx.stack([arrs[i] for arrs in fetched])
-            expert_idx = mx.array(missing, dtype=mx.uint32)
-            self.owner[slot_idx] = expert_idx.astype(mx.int32)
-            self.lut[expert_idx] = slot_idx
+            hits.update(self.install(missing))
         return hits
+
+    def split_admission(self, experts: List[int]) -> Tuple[List[int], List[int]]:
+        """(experts to admit into slots, experts to serve inline this step).
+        Callers must have looked residency up already: ``experts`` are misses."""
+        admit: List[int] = []
+        inline: List[int] = []
+        now = self._token_tick
+        for e in experts:
+            last = self._last_miss.get(e)
+            self._last_miss[e] = now
+            (admit if last is not None and now - last <= self._ADMIT_WINDOW else inline).append(e)
+        return admit, inline
+
+    def decay_streaks(self) -> None:
+        """Once per token: advance the admission clock; occasionally drop stale
+        miss timestamps so the dict stays bounded."""
+        self._token_tick += 1
+        if self._token_tick % (8 * self._ADMIT_WINDOW) == 0:
+            horizon = self._token_tick - 2 * self._ADMIT_WINDOW
+            self._last_miss = {
+                e: t for e, t in self._last_miss.items() if t >= horizon
+            }
 
     def resize(self, num_slots: int) -> None:
         """Elastic resize; the most recently used experts survive."""
         mx = self._mx
         keep = self.lru.most_recent(num_slots)
         old_buffers = self.buffers
+        self._inflight.clear()
         self._alloc(num_slots)
         self.lru.reset(num_slots)
         for expert, old_slot in keep:
@@ -363,8 +444,21 @@ class OffloadSwitchGLU:
         self.cache = cache
         self.activation = activation
         self.state = state
+        # Unique experts this layer routed to on the most recent token — the
+        # predictor for the next token's prefetch (MoE routing is sticky).
+        self.last_routed: Any = None
 
     # -- the two serving paths ------------------------------------------------
+
+    def _qmm(self, x, w, s, b):
+        """Single-expert quantized matmul (inline miss serving)."""
+        return self._mx.quantized_matmul(
+            x, w, s, b,
+            transpose=True,
+            group_size=self.state.group_size,
+            bits=self.state.bits,
+            mode=self.state.mode,
+        )
 
     def _gather(self, x, w, s, b, indices, sorted_indices=False):
         return self._mx.gather_qmm(
@@ -398,14 +492,53 @@ class OffloadSwitchGLU:
         if len(uniq) > self.cache.num_slots:
             return self._forward_streamed(x, indices, np_inds)
 
-        slot_map = self.cache.acquire([int(e) for e in uniq])
-        lut = np.zeros(self.store.num_experts, dtype=np.uint32)
-        for e, slot in slot_map.items():
-            lut[e] = slot
-        slot_inds = mx.array(lut[np_inds])
-        b = self.cache.buffers
+        self.last_routed = uniq
+        cache = self.cache
+        hits, missing = cache.lru.lookup([int(e) for e in uniq])
+        cache.hits += len(hits)
+        cache.misses += len(missing)
+        inline: List[int] = []
+        if missing:
+            # Admission filter (opt-in, FREETOKEN_MLX_ADMIT_FILTER=1): serve a
+            # first-offense miss inline and only give recurring misses a slot.
+            # Measured: helps small expert pools with tight caches (OLMoE 64
+            # experts @ 37% slots: +22%), hurts long-tail pools (Ornith 256
+            # experts @ 35%: -30%, recurrence outruns the window) — so the
+            # predictable admit-all is the default.
+            if n_tokens == 1 and _ADMIT_FILTER:
+                admit, inline = cache.split_admission(missing)
+            else:
+                admit = missing
+            if admit:
+                cache.install(admit)
+        # Map expert -> slot through the device lut (install just refreshed it):
+        # no per-layer host lut rebuild or upload.
+        slot_inds = mx.take(cache.lut, indices)
+        b = cache.buffers
         bufs = ((b[0], b[1], b[2]), (b[3], b[4], b[5]), (b[6], b[7], b[8]))
-        return self._run(x, slot_inds, bufs)
+        if not inline:
+            return self._run(x, slot_inds, bufs)
+        # Inline-served misses (first offense, decode): the slot gather covers the
+        # resident experts; positions routed to a non-resident expert are masked
+        # out and replaced by a direct compute on weights read for this step only
+        # (no slot eviction, no install copy) — the unified-memory analogue of
+        # FreeToken's hybrid miss serving.
+        mask = mx.take(cache.owner, slot_inds) == indices.astype(mx.int32)
+        y = self._run(x, slot_inds, bufs) * mask[..., None].astype(x.dtype)
+        flat = np_inds.reshape(-1)
+        for e in inline:
+            arrs = self.store.arrays_from(
+                cache._inflight.pop(e, None) or self.store.read_jobs(e)
+            )
+            (gw, gs_, gb), (uw, us, ub), (dw, ds_, db_) = (
+                arrs[0:3], arrs[3:6], arrs[6:9],
+            )
+            x_up = self._qmm(x, uw, us, ub)
+            x_gate = self._qmm(x, gw, gs_, gb)
+            y_e = self._qmm(self.activation(x_up, x_gate), dw, ds_, db_)
+            pos = int(np.nonzero(flat == e)[0][0])
+            y[..., pos, :] = y_e
+        return y
 
     def _forward_speculative(self, x, indices):
         """Decode path: fully lazy, zero CPU synchronization.
@@ -494,7 +627,9 @@ class OffloadState:
         here so the re-run is guaranteed all-hit."""
         all_ok = True
         for glu, indices, ok in self.pending:
-            experts = [int(e) for e in np.unique(np.array(indices, copy=False))]
+            uniq = np.unique(np.array(indices, copy=False))
+            glu.last_routed = uniq
+            experts = [int(e) for e in uniq]
             if bool(ok.item()):
                 glu.cache.touch(experts)
             else:
@@ -505,6 +640,16 @@ class OffloadState:
 
     def pending_oks(self) -> List[Any]:
         return [ok for _, _, ok in self.pending]
+
+    def prefetch_predicted(self) -> None:
+        """Per-token housekeeping before the forward: age the admission streaks,
+        and issue reads for each layer's previously routed, currently non-resident
+        experts (inline-served misses in particular) — routing is sticky enough
+        that many of the coming misses are already in flight when demanded."""
+        for glu in self.glus:
+            glu.cache.decay_streaks()
+            if glu.last_routed is not None:
+                glu.cache.prefetch([int(e) for e in glu.last_routed])
 
     # -- prefill double buffering ---------------------------------------------
 

@@ -112,6 +112,13 @@ uses.
 - Remaining CUDA-specific flags (`--attention-backend`, `--cuda-graph-*`,
   `--num-pages`, …) are accepted but ignored by the MLX scheduler;
   `--moe-backend offload` and the `--moe-cache-*` sizing flags are honored.
+- Offload decode cost is bounded by miss *density*, not I/O bandwidth: every miss
+  needs a CPU-side routing decision (file reads cannot be issued from the GPU
+  graph), so a fine-grained MoE routing ~25+ fresh experts per token pays either
+  per-layer syncs or speculative re-runs. `FREETOKEN_MLX_ADMIT_FILTER=1` enables
+  an experimental admission filter (inline-serve first-offense misses) that helps
+  small expert pools with tight caches and hurts long-tail pools — measure before
+  keeping it on.
 
 ## Tests on macOS
 
