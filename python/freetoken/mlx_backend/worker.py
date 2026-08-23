@@ -129,6 +129,29 @@ class MlxScheduler:
                 local_files_only=True,
                 allow_patterns=["*.safetensors", "*.json"],
             )
+        explicit_budget = (
+            getattr(config, "moe_cache_size", 0) > 0
+            or getattr(config, "moe_cache_rate", None)
+        )
+        if not explicit_budget:
+            # Default offload on MLX: the zero-copy mmapped expert store. Serving
+            # runs at resident-kernel speed with OS-managed residency (page
+            # cache); no slot cache, no budget knob. An explicit --moe-cache-*
+            # size selects the slot-cache path below with its hard budget.
+            from .ftw_mlx import attach_mapped_experts
+
+            try:
+                attach_mapped_experts(self.model, model_dir)
+            except ValueError as exc:
+                logger.warning(
+                    f"mapped expert store unavailable ({exc}); serving fully resident"
+                )
+            mx.eval(self.model.parameters())
+            logger.info(
+                f"dense+mapped resident: {mx.get_active_memory() / 2**30:.2f} GiB "
+                "active (expert pages are file-backed page cache on top)"
+            )
+            return
         try:
             # Attach with minimal slots first: auto-sizing needs the resident
             # (dense-weights) footprint, which exists only after the surgery

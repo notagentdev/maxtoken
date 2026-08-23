@@ -7,11 +7,24 @@ usage accounting) are identical between the two backends — only the scheduler 
 differs: on macOS it executes models via [mlx-lm](https://github.com/ml-explore/mlx-lm)
 on the Metal GPU.
 
-The backend has two serving modes:
+The backend has three serving modes:
 
 - **resident** (default): the whole model lives in unified memory, plain mlx-lm
   execution.
-- **expert offload** (`--moe-backend offload`): FreeToken's core idea on Apple
+- **zero-copy mapped experts** (`--moe-backend offload`, the offload default):
+  the switch-GLU expert tensors are repacked once into a page-aligned store
+  (FTW-MLX, the Apple-silicon analogue of the CUDA engine's FTW format) and
+  memory-mapped straight into MLX via DLPack — the GPU reads the file-backed
+  pages through unified memory, the same trick llama.cpp's Metal backend uses.
+  Serving is a plain `gather_qmm` over the mapped store: **resident-kernel
+  speed**, zero copies, no cache management. Residency is OS-managed: hot
+  experts live in the page cache, cold ones fault in from SSD once, and under
+  memory pressure clean pages are evicted (never swapped) — graceful
+  degradation instead of OOM. The repack lives under
+  `~/.cache/freetoken/mlx-ftw/` (`FREETOKEN_MLX_FTW_DIR` overrides) and costs
+  one streaming copy of the expert weights on first serve.
+- **expert slot cache** (`--moe-backend offload` plus an explicit
+  `--moe-cache-size`/`--moe-cache-rate`): FreeToken's core idea on Apple
   silicon. Only the dense weights stay resident; the MoE experts are served from a
   per-layer LRU **slot cache** (`mx.gather_qmm` over the slots — the same kernel as
   resident serving, validated bit-identical), with misses fetched from the
@@ -45,11 +58,15 @@ pass `--backend mlx` to be explicit. Any model in the mlx-lm model zoo works —
 models pick a quantized `mlx-community/...-4bit` checkpoint that fits your unified
 memory.
 
-To serve a MoE model **larger than the memory you want to give it**, enable the
-expert cache (this is what FreeToken is for):
+To serve a MoE model **larger than the memory you want to commit to it**, enable
+expert offload (this is what FreeToken is for):
 
 ```bash
-# ~12 GiB total instead of ~18 GiB resident (Ornith-1.5 is a 35B-A3B MoE):
+# Zero-copy mapped store (default): resident-speed serving, experts live in
+# reclaimable page cache instead of allocated memory:
+ft serve --model ornith-ai/Ornith-1.5-35B-A3B-MLX-4bit --moe-backend offload
+
+# Hard memory budget via the expert slot cache (~12 GiB total instead of ~18):
 ft serve --model ornith-ai/Ornith-1.5-35B-A3B-MLX-4bit \
     --moe-backend offload --moe-cache-rate 0.6
 ```
@@ -84,16 +101,21 @@ prompt, 256 decode tokens:
 |---|---|---|---|---|
 | OLMoE-1B-7B-Instruct | resident | 214.7 | 73 ms | 3.7 GiB |
 | Qwen3-30B-A3B-Instruct-2507 | resident | 63.9 | 268 ms | 16.1 GiB |
-| Ornith-1.5-35B-A3B | resident | 66.6 | 205 ms | 18.3 GiB |
-| Ornith-1.5-35B-A3B | offload, cache 60% | 15.1 | 6.9 s | **11.9 GiB** |
-| Ornith-1.5-35B-A3B | offload, cache 35% | 9.1 | 41.8 s¹ | **7.7 GiB** |
+| Ornith-1.5-35B-A3B | resident | 66.6 | 205 ms | 18.3 GiB allocated |
+| Ornith-1.5-35B-A3B | **offload, mapped (default)** | **67.8** | **209 ms** | ~1.3 GiB dirty + page cache² |
+| Ornith-1.5-35B-A3B | offload, slot cache 60% | 15.1 | 6.9 s | **11.9 GiB** hard budget |
+| Ornith-1.5-35B-A3B | offload, slot cache 35% | 8.9 | 21 s¹ | **7.7 GiB** hard budget |
 
-¹ cold page cache (first pass over the weights right after download); warm prefill
-streams at SSD/page-cache speed, see the 60% row.
+¹ cold page cache (first pass over the weights); warm prefill streams at
+SSD/page-cache speed.
+² the mapped store is file-backed: only the dense weights are dirty memory; the
+expert pages are clean page cache the OS reclaims under pressure (the resident
+row's 18.3 GiB would swap instead). `mx.get_active_memory` still *reports* the
+mapped bytes, so `/v1/stats` shows ~18 GiB — the reclaimable kind.
 
-The offload rows are the point: the same 18 GiB checkpoint serving inside a
-choose-your-own memory budget on a 32 GiB machine that the resident row nearly
-fills — the cache size dials memory against decode speed.
+The offload rows are the point: the same 18 GiB checkpoint at full speed with
+OS-elastic residency (mapped), or inside a chosen hard budget (slot cache),
+on a 32 GiB machine the resident mode nearly fills.
 
 The reported `vram` figure is `mx.get_active_memory()` from the serving process —
 live Metal allocations, surfaced through the same `/v1/stats` field the CUDA engine
