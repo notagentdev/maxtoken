@@ -138,8 +138,18 @@ uses.
 
 ## Behavior and limitations vs. the CUDA engine
 
-- Concurrent requests are stepped round-robin (one token each per turn), so several
-  streams progress together; each request owns its KV cache.
+- **Continuous batching** (resident and mapped-expert serving): concurrent
+  requests decode in one batched forward per step, with new prompts joining
+  mid-flight (mlx-lm's `BatchGenerator`; per-request sampling params, stop
+  sequences, aborts and prefix-cache donation all work per row). Measured on
+  Ornith-1.5-35B (mapped): aggregate decode 62 → 94 → 116 tok/s at batch
+  1 → 2 → 4 (engine-level); through the full HTTP server 58 → 47 → 74 →
+  99 tok/s at 1 → 2 → 4 → 8 concurrent streams — the server path currently
+  adds per-round overhead at batch ≥ 2 (~40 ms vs 24 ms per round in-process;
+  under investigation, `FREETOKEN_MLX_TRACE=1` logs per-round timings).
+  Greedy requests keep the batched argmax fast path even when sampling
+  defaults fill in top-p/top-k. The slot-cache offload path remains
+  round-robin (its speculate/verify loop is per-request).
 - Tensor parallelism (`--tp-size > 1`) is rejected — MLX uses the unified memory of
   one chip.
 - Runtime cache rebuilds (`/v1/cache/rebuild`) resize the expert slot cache live

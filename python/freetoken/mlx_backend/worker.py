@@ -93,6 +93,25 @@ class MlxScheduler:
             self._attach_offload(config)
         else:
             self.model, self.tokenizer = load(config.model_path)
+        # Continuous batching (resident and mapped-expert serving): concurrent
+        # requests decode in ONE batched forward per step instead of one forward
+        # per request per token. The slot-cache offload path keeps its own
+        # speculate/verify loop and stays round-robin.
+        self.batch_gen = None
+        self._batch_uid: dict[int, int] = {}  # our uid -> engine uid
+        self._our_uid: dict[int, int] = {}  # engine uid -> our uid
+        if self.offload_state is None:
+            from mlx_lm.generate import BatchGenerator
+
+            self.batch_gen = BatchGenerator(
+                self.model,
+                completion_batch_size=max(1, config.max_running_req),
+                prefill_batch_size=min(4, max(1, config.max_running_req)),
+            )
+            logger.info(
+                f"continuous batching: up to {max(1, config.max_running_req)} "
+                "concurrent decodes per forward"
+            )
         hf_tokenizer = getattr(self.tokenizer, "_tokenizer", self.tokenizer)
         self.eos_token_ids = frozenset(load_eos_token_ids(config.model_path, hf_tokenizer))
         self.config = config
@@ -218,7 +237,11 @@ class MlxScheduler:
     def _build_sampler(self, sp: SamplingParams):
         from mlx_lm.sample_utils import make_sampler
 
-        if sp.is_greedy:
+        # Greedy needs no sampler even when top_p/top_k defaults are filled in
+        # (they can never remove the argmax token). Returning None matters for
+        # batching: any per-row sampler forces the engine off the batched
+        # argmax fast path into a per-sequence sampling loop.
+        if sp.is_greedy or sp.temperature <= 0.0 or sp.top_k == 1:
             return None
         return make_sampler(
             **_filter_kwargs(
@@ -405,6 +428,10 @@ class MlxScheduler:
                     f"expert cache: {slots} slots, lifetime miss rate {rate:.1%} "
                     f"({m}/{h + m}), active mem {gpu_mem / 2**30:.2f} GiB"
                 )
+        if self.batch_gen is not None:
+            self._step_batched(reply, gpu_mem)
+            self._reply(reply)
+            return
         for req in list(self.active.values()):
             try:
                 token, _logprobs = next(req.generator)
@@ -448,14 +475,99 @@ class MlxScheduler:
                 del self.active[req.uid]
         self._reply(reply)
 
-    def _remember(self, req: _MlxRequest) -> None:
+    def _step_batched(self, reply: List[BaseTokenizerMsg], gpu_mem: int) -> None:
+        """One continuous-batching round: at most one decode token per active
+        request plus a slice of prompt processing, all in batched forwards."""
+        import os as _os
+        import time as _time
+
+        trace = _os.environ.get("FREETOKEN_MLX_TRACE") == "1"
+        t0 = _time.perf_counter() if trace else 0.0
+        prompt_resps, gen_resps = self.batch_gen.next()
+        if trace:
+            t1 = _time.perf_counter()
+            logger.info(
+                f"trace: next()={1e3*(t1-t0):.1f}ms B={len(gen_resps)} "
+                f"P={len(prompt_resps)}"
+            )
+
+        if self.prefix_store is not None:
+            for pr in prompt_resps:
+                # Mid-prompt segment boundaries are the prefix store's restore
+                # points; the final split into generation is covered by the
+                # end-of-request donation instead.
+                if pr.end_of_segment and not pr.end_of_prompt:
+                    uid = self._our_uid.get(pr.uid)
+                    req = self.active.get(uid)
+                    if req is None:
+                        continue
+                    done = pr.progress[0]
+                    cached_prefix = len(req.prompt_ids) - pr.progress[1]
+                    n = cached_prefix + done
+                    extracted = self.batch_gen.extract_cache([pr.uid]).get(pr.uid)
+                    if extracted is not None:
+                        self.prefix_store.insert(req.prompt_ids[:n], extracted[0])
+
+        for r in gen_resps:
+            uid = self._our_uid.get(r.uid)
+            req = self.active.get(uid)
+            if req is None:
+                continue
+            next_token = int(r.token)
+            req.output_ids.append(next_token)
+            sp = req.sampling_params
+            hit_eos = not sp.ignore_eos and next_token in self.eos_token_ids
+            matched_stop = self._match_stop_str(req) if not hit_eos else None
+            engine_done = r.finish_reason is not None  # "length" (cap or context)
+            finished = engine_done or hit_eos or matched_stop is not None
+            finish_reason = (
+                ("stop" if (hit_eos or matched_stop is not None) else "length")
+                if finished
+                else None
+            )
+            reply.append(
+                DetokenizeMsg(
+                    uid=req.uid,
+                    next_token=next_token,
+                    finished=finished,
+                    finish_reason=finish_reason,
+                    matched_stop=matched_stop,
+                    stop_strs=sp.stop_strs or None,
+                    gpu_mem_bytes=gpu_mem,
+                )
+            )
+            if finished:
+                if engine_done:  # the engine already removed it and returned the cache
+                    donated = r.prompt_cache
+                else:
+                    donated = self._batch_remove(req.uid)
+                self._remember(req, donated)
+                self._batch_forget(req.uid)
+                del self.active[req.uid]
+
+    def _batch_remove(self, uid: int):
+        """Take a request out of the engine; returns its cache (or None)."""
+        buid = self._batch_uid.get(uid)
+        if buid is None:
+            return None
+        caches = self.batch_gen.remove([buid], return_prompt_caches=True)
+        extracted = caches.get(buid)
+        return extracted[0] if extracted else None
+
+    def _batch_forget(self, uid: int) -> None:
+        buid = self._batch_uid.pop(uid, None)
+        if buid is not None:
+            self._our_uid.pop(buid, None)
+
+    def _remember(self, req: _MlxRequest, cache: Any = None) -> None:
         """Donate a finished/aborted request's cache to the prefix store. The
         cache covers the prompt plus all but the last emitted token (the last
         one was sampled but never fed back through the model)."""
-        if self.prefix_store is None or req.cache is None:
+        cache = cache if cache is not None else req.cache
+        if self.prefix_store is None or cache is None:
             return
         tokens = req.prompt_ids + req.output_ids[:-1]
-        self.prefix_store.insert(tokens, req.cache)
+        self.prefix_store.insert(tokens, cache)
 
     def _finish(
         self,
@@ -496,7 +608,13 @@ class MlxScheduler:
                 )
             ]
         try:
-            generator, cache, cached = self._make_generator(input_ids, msg.sampling_params)
+            if self.batch_gen is not None:
+                cached = self._batch_admit(msg.uid, input_ids, msg.sampling_params)
+                generator, cache = None, None
+            else:
+                generator, cache, cached = self._make_generator(
+                    input_ids, msg.sampling_params
+                )
         except Exception as exc:  # noqa: BLE001 -- surface as a request error, keep serving
             logger.warning(f"could not start request {msg.uid}: {exc!r}")
             return [ErrorReplyMsg(uid=msg.uid, error=f"could not start generation: {exc}")]
@@ -513,6 +631,33 @@ class MlxScheduler:
                 uid=msg.uid, prompt_tokens=len(input_ids), cached_tokens=cached
             )
         ]
+
+    def _batch_admit(self, uid: int, input_ids: List[int], sp: SamplingParams) -> int:
+        """Insert a request into the continuous-batching engine; returns the
+        prefix-cache hit length. The prompt remainder is segmented at snapshot
+        boundaries so the engine pauses there and mid-prompt states can be
+        donated to the prefix store."""
+        from .prefix_cache import BOUNDARY_TOKENS
+
+        cache, cached = self._lookup_prefix(input_ids)
+        segments = []
+        pos = cached
+        while pos < len(input_ids):
+            end = min(len(input_ids), (pos // BOUNDARY_TOKENS + 1) * BOUNDARY_TOKENS)
+            segments.append(input_ids[pos:end])
+            pos = end
+        # Output budget: the request's own cap plus the model context ceiling;
+        # the engine reports "length" and hands the cache back at the boundary.
+        cap = max(1, min(sp.max_tokens, self.max_seq_len - len(input_ids)))
+        buid = self.batch_gen.insert_segments(
+            [segments],
+            max_tokens=[cap],
+            caches=[cache],
+            samplers=[self._build_sampler(sp)],
+        )[0]
+        self._batch_uid[uid] = buid
+        self._our_uid[buid] = uid
+        return cached
 
     def _handle(self, msg: BaseBackendMsg) -> tuple[List[BaseTokenizerMsg], bool]:
         """Returns (replies, exit_requested)."""
@@ -531,7 +676,9 @@ class MlxScheduler:
             # so no message goes back from here (same as the CUDA scheduler).
             req = self.active.pop(msg.uid, None)
             if req is not None:
-                self._remember(req)
+                donated = self._batch_remove(msg.uid) if self.batch_gen else None
+                self._batch_forget(msg.uid)
+                self._remember(req, donated)
             return [], False
         if isinstance(msg, CacheRebuildBackendMsg):
             return [self._handle_cache_rebuild(msg)], False
