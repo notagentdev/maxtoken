@@ -111,11 +111,22 @@ SSD/page-cache speed.
 ² no free lunch: at full speed the expert weights occupy RAM in the mapped mode
 too (that is why it is fast). The difference is the KIND of memory — the store
 is clean file-backed page cache the OS can *drop* under pressure and re-fault
-from SSD later (cold experts get slower, the system stays healthy), while the
-resident row's 18.3 GiB are dirty allocations that would have to *swap*. Only
-~1.3 GiB (dense weights + KV) is owned, non-reclaimable memory.
-`mx.get_active_memory` reports the mapped bytes as well, so `/v1/stats` shows
-~18 GiB either way.
+from SSD later, while the resident row's 18.3 GiB are dirty allocations that
+have to be *written to swap* first. Only ~1.3 GiB (dense weights + KV) is
+owned, non-reclaimable memory. `mx.get_active_memory` reports the mapped bytes
+as well, so `/v1/stats` shows ~18 GiB either way.
+
+Measured under memory pressure (a competing process holding 10 GiB of dirty
+memory on the 32 GiB machine): with a *passive* competitor both modes recover
+to full speed after one slow request (the OS pages the idle competitor out).
+With a competitor *actively using* its 10 GiB, both modes stall — the working
+sets genuinely don't fit and the SSD becomes the bottleneck for everyone; the
+mapped store is not magic against that. Its demonstrated advantages are on the
+edges: the serving process survives even an extreme storm (14 GiB hot
+aggressor) without crashing, returns to full speed within seconds of the
+pressure ending (13.7 -> 64.2 tok/s across two requests, no restart), and its
+17 GiB of experts never cause swap *writes* — eviction is free, refault is a
+read.
 
 The offload rows are the point: the same 18 GiB checkpoint at full speed with
 OS-elastic residency (mapped), or inside a chosen hard budget (slot cache),
