@@ -102,16 +102,20 @@ prompt, 256 decode tokens:
 | OLMoE-1B-7B-Instruct | resident | 214.7 | 73 ms | 3.7 GiB |
 | Qwen3-30B-A3B-Instruct-2507 | resident | 63.9 | 268 ms | 16.1 GiB |
 | Ornith-1.5-35B-A3B | resident | 66.6 | 205 ms | 18.3 GiB allocated |
-| Ornith-1.5-35B-A3B | **offload, mapped (default)** | **67.8** | **209 ms** | ~1.3 GiB dirty + page cache² |
+| Ornith-1.5-35B-A3B | **offload, mapped (default)** | **67.8** | **209 ms** | ~18 GiB borrowed² (1.3 GiB owned) |
 | Ornith-1.5-35B-A3B | offload, slot cache 60% | 15.1 | 6.9 s | **11.9 GiB** hard budget |
 | Ornith-1.5-35B-A3B | offload, slot cache 35% | 8.9 | 21 s¹ | **7.7 GiB** hard budget |
 
 ¹ cold page cache (first pass over the weights); warm prefill streams at
 SSD/page-cache speed.
-² the mapped store is file-backed: only the dense weights are dirty memory; the
-expert pages are clean page cache the OS reclaims under pressure (the resident
-row's 18.3 GiB would swap instead). `mx.get_active_memory` still *reports* the
-mapped bytes, so `/v1/stats` shows ~18 GiB — the reclaimable kind.
+² no free lunch: at full speed the expert weights occupy RAM in the mapped mode
+too (that is why it is fast). The difference is the KIND of memory — the store
+is clean file-backed page cache the OS can *drop* under pressure and re-fault
+from SSD later (cold experts get slower, the system stays healthy), while the
+resident row's 18.3 GiB are dirty allocations that would have to *swap*. Only
+~1.3 GiB (dense weights + KV) is owned, non-reclaimable memory.
+`mx.get_active_memory` reports the mapped bytes as well, so `/v1/stats` shows
+~18 GiB either way.
 
 The offload rows are the point: the same 18 GiB checkpoint at full speed with
 OS-elastic residency (mapped), or inside a chosen hard budget (slot cache),
