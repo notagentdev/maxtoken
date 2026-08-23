@@ -112,6 +112,17 @@ def _run_scheduler(args: ServerArgs, ack_queue: mp.Queue[str]) -> None:
             scheduler.shutdown()
 
 
+def _run_mlx_scheduler(args: ServerArgs, ack_queue: mp.Queue) -> None:
+    """Apple-silicon counterpart of ``_run_scheduler``: same ack protocol, same ZMQ
+    endpoints, but model execution goes through freetoken.mlx_backend (mlx-lm)."""
+    if args.shell_mode:
+        _detach_process_group()
+
+    from freetoken.mlx_backend import mlx_scheduler_worker
+
+    mlx_scheduler_worker(args, ack_queue)
+
+
 def launch_server(
     run_shell: bool = False,
     argv: list[str] | None = None,
@@ -139,16 +150,27 @@ def launch_server(
         ack_queue: mp.Queue = mp.Queue()
         processes: list[mp.Process] = []
 
-        for i in range(world_size):
-            new_args = replace(server_args, tp_info=DistributedInfo(i, world_size))
+        if server_args.backend == "mlx":
+            # Single scheduler process; parse_args rejects tp_size > 1 for mlx.
             p = mp.Process(
-                target=_run_scheduler,
-                args=(new_args, ack_queue),
+                target=_run_mlx_scheduler,
+                args=(server_args, ack_queue),
                 daemon=False,
-                name=f"freetoken-TP{i}-scheduler",
+                name="freetoken-mlx-scheduler",
             )
             p.start()
             processes.append(p)
+        else:
+            for i in range(world_size):
+                new_args = replace(server_args, tp_info=DistributedInfo(i, world_size))
+                p = mp.Process(
+                    target=_run_scheduler,
+                    args=(new_args, ack_queue),
+                    daemon=False,
+                    name=f"freetoken-TP{i}-scheduler",
+                )
+                p.start()
+                processes.append(p)
 
         num_tokenizers = server_args.num_tokenizer
         p = mp.Process(

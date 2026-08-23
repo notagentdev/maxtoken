@@ -103,7 +103,10 @@ class StatsTracker:
 
 def derive_model_card(config: Any) -> dict:
     """attn enum + moe bool + ctx from the model config."""
-    mc = config.model_config
+    try:
+        mc = config.model_config
+    except Exception:  # noqa: BLE001 -- arch outside the registry (e.g. mlx-lm-only model)
+        mc = None
     if getattr(mc, "has_linear_attention", False):
         attn = "hybrid_linear"
     elif getattr(mc, "has_swa_attention", False):
@@ -121,7 +124,9 @@ def derive_model_card(config: Any) -> dict:
 def _swa_page_size(config: Any) -> int:
     """The window pool's own page unit: P (window_size) for DSV4, 1 token for radix-SWA.
     Mirrors compute_cache_pools' swa_page_size."""
-    dsv4 = getattr(getattr(config, "model_config", None), "dsv4_args", None)
+    from .model_meta import model_config_or_none
+
+    dsv4 = getattr(model_config_or_none(config), "dsv4_args", None)
     if dsv4 is not None:
         return int(getattr(dsv4, "window_size", 0) or 1)
     return 1

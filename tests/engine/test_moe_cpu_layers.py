@@ -9,6 +9,10 @@ from types import SimpleNamespace
 
 import pytest
 
+# CPU-only logic, but the module it lives in pulls the CUDA kernel stack in on
+# import; on machines without it (macOS/MLX) skip instead of failing collection.
+pytest.importorskip("flashlib", reason="freetoken.engine.engine needs the CUDA stack")
+
 from freetoken.engine.engine import _parse_cpu_layers_spec as parse
 from freetoken.engine.engine import _resolve_cpu_layers as resolve
 

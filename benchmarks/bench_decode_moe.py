@@ -77,7 +77,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument(
         "--backend",
         default="offload",
-        help="comma list of offload|cpu|hybrid; one server per backend",
+        help=(
+            "comma list of offload|cpu|hybrid|mlx; one server per backend "
+            "(mlx: Apple-silicon execution backend, --backend mlx on the server)"
+        ),
     )
     p.add_argument(
         "--aime",
@@ -172,6 +175,18 @@ def free_port() -> int:
 
 
 def serve_cmd(args: argparse.Namespace, backend: str, port: int) -> list[str]:
+    if backend == "mlx":
+        # Execution backend, not a MoE-offload flavor: no expert cache, CUDA graphs
+        # or PCIe fetch knobs. Everything downstream (streaming, usage, stats) is the
+        # same serving path, so the measurement itself is unchanged.
+        return [
+            sys.executable, "-m", "freetoken.cli", "serve",
+            "--model", args.model,
+            "--host", "127.0.0.1", "--port", str(port),
+            "--backend", "mlx",
+            "--max-running-requests", "1",
+            "--max-seq-len-override", str(8192 + args.decode),
+        ]
     cmd = [
         sys.executable, "-m", "freetoken.cli", "serve",
         "--model", args.model,
@@ -378,7 +393,7 @@ def run_one(args: argparse.Namespace, backend: str) -> dict:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     backends = [b.strip() for b in args.backend.split(",") if b.strip()]
-    unknown = [b for b in backends if b not in ("offload", "cpu", "hybrid")]
+    unknown = [b for b in backends if b not in ("offload", "cpu", "hybrid", "mlx")]
     if unknown:
         sys.exit(f"unknown backend(s): {unknown}")
 

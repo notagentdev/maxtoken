@@ -869,6 +869,9 @@ def test_stray_closer_one_shot_matches_streaming():
 def test_mixed_quant_groups_rejected_in_any_order():
     """R3 small: a {nvfp4, mxfp4} mixed checkpoint must raise regardless of the
     groups' key order (the first-group short-circuit accepted one order)."""
+    # The models test module imports the muse_glimmer model, which pulls the CUDA
+    # kernel stack in; on machines without it (macOS/MLX) skip, don't fail.
+    pytest.importorskip("flashlib", reason="model import needs the CUDA stack")
     import tests.models.test_muse_glimmer as m
 
     for order in (("group_0", "group_1"), ("group_1", "group_0")):

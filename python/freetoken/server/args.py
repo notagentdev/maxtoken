@@ -15,6 +15,10 @@ from freetoken.utils import init_logger
 class ServerArgs(SchedulerConfig):
     server_host: str = "127.0.0.1"
     server_port: int = 1919
+    # Execution backend for the scheduler worker: "cuda" (the native engine) or "mlx"
+    # (Apple-silicon, mlx-lm model zoo). "auto" resolves to mlx on Darwin, cuda elsewhere.
+    # The API server, tokenizer workers and shell are shared between both.
+    backend: str = "auto"
     num_tokenizer: int = 0
     silent_output: bool = False
     # The terminal shell is attached to this server (ft shell --model / ft serve --shell-mode).
@@ -203,6 +207,18 @@ def parse_args(
         type=str,
         required=True,
         help="The path of the model weights. This can be a local folder or a Hugging Face repo ID.",
+    )
+
+    parser.add_argument(
+        "--backend",
+        type=str,
+        default=ServerArgs.backend,
+        choices=["auto", "cuda", "mlx"],
+        help=(
+            "Scheduler execution backend. 'cuda' runs the native engine; 'mlx' runs "
+            "models via mlx-lm on Apple silicon. 'auto' picks mlx on macOS, cuda "
+            "elsewhere."
+        ),
     )
 
     parser.add_argument(
@@ -619,6 +635,31 @@ def parse_args(
     if kwargs["model_path"].startswith("~"):
         kwargs["model_path"] = os.path.expanduser(kwargs["model_path"])
 
+    if kwargs["backend"] == "auto":
+        import platform
+
+        kwargs["backend"] = "mlx" if platform.system() == "Darwin" else "cuda"
+    if kwargs["backend"] == "mlx":
+        if kwargs["tensor_parallel_size"] != 1:
+            raise ValueError("--backend mlx does not support tensor parallelism")
+        # The mlx-lm model zoo covers architectures freetoken's own model registry may
+        # not; ``max_seq_len`` walks that registry. Pin the override from the HF config
+        # so the frontend (context-length metadata, prompt-length guard) works for any
+        # mlx-lm-served model.
+        if kwargs["max_seq_len_override"] is None:
+            from freetoken.utils import cached_load_hf_config
+
+            try:
+                cfg = cached_load_hf_config(kwargs["model_path"]).to_dict()
+            except Exception:  # noqa: BLE001 -- fall through to the registry path
+                cfg = {}
+            text_cfg = cfg.get("text_config") or {}
+            max_pos = cfg.get("max_position_embeddings") or text_cfg.get(
+                "max_position_embeddings"
+            )
+            if max_pos:
+                kwargs["max_seq_len_override"] = int(max_pos)
+
     if kwargs["served_model_name"] is None:
         kwargs["served_model_name"] = (
             os.path.basename(os.path.normpath(kwargs["model_path"])) or kwargs["model_path"]
@@ -643,7 +684,12 @@ def parse_args(
         and not kwargs["moe_cache_auto"]
         and (kwargs["moe_cache_rate"] is None or kwargs["moe_cache_rate"] == 0)
     )
-    if is_offload_moe_backend(kwargs["moe_backend"]) and _no_cache_flag:
+    # mlx: unified memory, no expert slot cache -- the sizing default is meaningless there.
+    if (
+        is_offload_moe_backend(kwargs["moe_backend"])
+        and _no_cache_flag
+        and kwargs["backend"] != "mlx"
+    ):
         kwargs["moe_cache_auto"] = True
 
     if kwargs["model_source"] == "modelscope":

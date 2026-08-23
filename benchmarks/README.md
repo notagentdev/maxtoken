@@ -11,6 +11,12 @@ include the full serving path. AIME-25 prompt, checkpoint-recommended sampling.
 python benchmarks/bench_decode_moe.py --model /path/to/model --backend offload,cpu,hybrid
 ```
 
+On Apple silicon the same script benchmarks the MLX backend (no CUDA pinning needed):
+
+```bash
+python benchmarks/bench_decode_moe.py --model mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit --backend mlx
+```
+
 **`bench_load_weight_generic.py`** — expert-bank load time: serial vs parallel O_DIRECT
 vs pre-repacked FTW, each mode in its own subprocess. Linux-only; stages the FTW under
 `/var/tmp` (`--ftw-dir` overrides; roughly checkpoint-sized).

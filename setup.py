@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import sys
 from pathlib import Path
 
 from setuptools import setup
@@ -31,12 +32,10 @@ def _cuda_runtime_paths() -> tuple[list[str], list[str]]:
     return [str(cuda_home / "include")], library_dirs
 
 
-cuda_include_dirs, cuda_library_dirs = _cuda_runtime_paths()
-_check_toolchain()
-
-
-setup(
-    ext_modules=[
+def _cuda_extensions() -> list[CppExtension]:
+    cuda_include_dirs, cuda_library_dirs = _cuda_runtime_paths()
+    _check_toolchain()
+    return [
         CppExtension(
             name="freetoken.kernel._pinned_tensor",
             sources=[
@@ -62,6 +61,16 @@ setup(
             libraries=["cudart"],
             extra_compile_args=["-O3", "-std=c++17", "-pthread"],
         ),
-    ],
-    cmdclass={"build_ext": BuildExtension.with_options(use_ninja=True)},
-)
+    ]
+
+
+# macOS (Apple silicon): no CUDA toolchain exists, and both extensions above link
+# cudart. The MLX backend replaces the CUDA execution path there, so ship a pure
+# Python package instead of failing the install.
+if sys.platform == "darwin":
+    setup(ext_modules=[])
+else:
+    setup(
+        ext_modules=_cuda_extensions(),
+        cmdclass={"build_ext": BuildExtension.with_options(use_ninja=True)},
+    )

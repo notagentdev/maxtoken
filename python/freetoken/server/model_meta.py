@@ -119,6 +119,17 @@ def effort_toggle_kwargs(
     return mapped
 
 
+def model_config_or_none(config: Any) -> Any:
+    """``config.model_config``, or None when it is absent OR raises. A plain
+    ``getattr(config, "model_config", None)`` only covers absence: the property
+    raises for architectures outside the model registry (e.g. an mlx-lm-only
+    model on the MLX backend), and that must read as "no model config", not 500."""
+    try:
+        return config.model_config
+    except Exception:  # noqa: BLE001 -- unregistered arch / dummy config
+        return None
+
+
 def moe_total_experts(config: Any) -> int:
     """Total routed-expert slots the model has: experts per layer x MoE layers. Matches the
     engine's own basis (``Engine._resolve_auto_moe_cache_size``), so a residency rate derived

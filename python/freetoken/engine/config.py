@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, List
 
 import torch
 from freetoken.distributed import DistributedInfo
-from freetoken.models.register import _load_attr, get_model_spec
 from freetoken.utils import cached_load_hf_config
 
 if TYPE_CHECKING:
@@ -87,6 +86,11 @@ class EngineConfig:
 
     @cached_property
     def model_config(self) -> ModelConfig:
+        # Deferred: importing freetoken.models pulls the CUDA layer/kernel stack
+        # (flashlib etc.), which platforms on the MLX backend don't have. Config
+        # objects must stay importable there; only accessing model_config needs it.
+        from freetoken.models.register import _load_attr, get_model_spec
+
         spec = get_model_spec(self.hf_config.architectures[0])
         parse_config = _load_attr(spec.module, spec.parse_config)
         return parse_config(self.hf_config)

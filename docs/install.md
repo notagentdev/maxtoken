@@ -2,7 +2,8 @@
 
 ## Requirements
 
-- Linux x86_64, NVIDIA GPU, driver r580+ (CUDA 13)
+- Linux x86_64, NVIDIA GPU, driver r580+ (CUDA 13) — or macOS on Apple silicon
+  via the [MLX backend](mlx.md) (`pip install -e ".[mlx]"`)
 - Python >= 3.10, with [uv](https://docs.astral.sh/uv/) recommended (plain
   `pip` + `venv` works too)
 

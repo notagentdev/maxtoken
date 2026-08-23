@@ -34,11 +34,14 @@ classifiers = [
 # resolve, tight enough to bar a silent breaking bump). These ranges are the contract;
 # there is no lockfile.
 dependencies = [
-    "apache-tvm-ffi==0.1.13.post3", # pin it
+    # Linux-only: ships no macOS wheels; the CUDA kernel cache it backs does not run
+    # on Apple silicon anyway (the MLX backend replaces that path there).
+    "apache-tvm-ffi==0.1.13.post3; platform_system == 'Linux'", # pin it
     "einops>=0.8,<1",
     "fastapi>=0.115,<1",
     # slot_cache: the device-side LRU admission kernel behind the MoE expert cache.
-    "flashlib==0.3.0", # pin it
+    # Linux-only (CUDA); the macOS/MLX backend never touches the slot cache.
+    "flashlib==0.3.0; platform_system == 'Linux'", # pin it
     "gguf>=0.19,<1",
     "huggingface_hub>=1.5,<2",
     "msgpack>=1.1,<2",
@@ -78,6 +81,13 @@ fi = ["flashinfer-python[cu13]>=0.6,<0.7"]
 # renamed from sgl-kernel at 0.4; still imports as `sgl_kernel`, so never co-install both
 sgl = ["sglang-kernel==0.4.5"]
 accel = ["freetoken[fi,sgl]"]
+# Apple-silicon backend: model execution via MLX (mlx-lm model zoo). The server,
+# tokenizer workers and APIs are shared; only the scheduler process differs
+# (--backend mlx, auto-selected on Darwin). See docs/mlx.md.
+mlx = [
+    "mlx>=0.30; platform_system == 'Darwin'",
+    "mlx-lm>=0.28,<1; platform_system == 'Darwin'",
+]
 # NOTE: the Marlin W4A16 NVFP4 expert-GEMM path (sm_80-99) borrows vLLM's AOT wheel
 # (vllm>=0.14,<0.15), which pins transformers>=4.56,<5 and so is INCOMPATIBLE with the
 # core transformers>=5.5 requirement. It is therefore not a lockable extra and is left
