@@ -54,6 +54,10 @@ class _MlxRequest:
     generator: Iterator[Any]
     prompt_len: int
     output_ids: List[int] = field(default_factory=list)
+    # For the prefix store: the exact prompt tokens and the live cache objects
+    # (None when prefix caching is off). See MlxScheduler._remember.
+    prompt_ids: List[int] = field(default_factory=list)
+    cache: Any = None
 
 
 def _filter_kwargs(fn: Any, kwargs: Dict[str, Any]) -> Dict[str, Any]:
@@ -94,6 +98,23 @@ class MlxScheduler:
         self.config = config
         self.max_seq_len = int(config.max_seq_len)
         self._decode_steps = 0
+        self.prefix_store = None
+        if getattr(config, "cache_type", "radix") != "naive":
+            import os as _os
+
+            from .prefix_cache import PrefixStore
+
+            budget = int(_os.environ.get("FREETOKEN_MLX_PREFIX_CACHE_MB", "0")) * 2**20
+            if budget <= 0:
+                try:
+                    budget = int(0.15 * mx.metal.device_info()["memory_size"])
+                except Exception:  # noqa: BLE001 -- conservative fallback
+                    budget = 2 << 30
+            self.prefix_store = PrefixStore(budget)
+            logger.info(
+                f"prefix cache: on ({budget / 2**30:.1f} GiB budget; "
+                "--cache-type naive disables)"
+            )
 
         self._recv = ZmqPullQueue(
             config.zmq_backend_addr, create=True, decoder=BaseBackendMsg.decoder
@@ -211,18 +232,55 @@ class MlxScheduler:
             )
         )
 
-    def _make_generator(self, input_ids: List[int], sp: SamplingParams) -> Iterator[Any]:
-        from mlx_lm.generate import generate_step
+    def _lookup_prefix(self, input_ids: List[int]) -> tuple:
+        """(restored cache | None, cached_tokens) from the prefix store."""
+        if self.prefix_store is None:
+            return None, 0
+        hit = self.prefix_store.lookup(input_ids)
+        if hit is None:
+            return None, 0
+        entry, n = hit
+        return self.prefix_store.restore(self.model, entry, n), n
+
+    def _prefill_into(self, cache, input_ids: List[int], start: int) -> None:
+        """Process input_ids[start:-1] into ``cache`` in chunks, snapshotting at
+        BOUNDARY_TOKENS multiples so hybrid models (whose recurrent state cannot
+        be trimmed) have exact restore points for future prefix hits."""
+        from .prefix_cache import BOUNDARY_TOKENS
 
         mx = self._mx
+        pos = start
+        end = len(input_ids) - 1
+        next_boundary = (pos // BOUNDARY_TOKENS + 1) * BOUNDARY_TOKENS
+        while pos < end:
+            n = min(2048, end - pos, next_boundary - pos)
+            logits = self.model(mx.array(input_ids[pos:pos + n])[None], cache=cache)
+            mx.eval(logits)
+            pos += n
+            if pos == next_boundary and pos < end and self.prefix_store is not None:
+                self.prefix_store.insert(input_ids[:pos], cache)
+                next_boundary += BOUNDARY_TOKENS
+
+    def _make_generator(self, input_ids: List[int], sp: SamplingParams) -> tuple:
+        """(token generator, live cache list | None, cached prefix tokens)."""
+        from mlx_lm.generate import generate_step
+        from mlx_lm.models.cache import make_prompt_cache
+
+        mx = self._mx
+        cache, cached = self._lookup_prefix(input_ids)
         if self.offload_state is not None:
-            return self._offload_generate(input_ids, sp)
+            cache = cache or make_prompt_cache(self.model)
+            return self._offload_generate(input_ids, sp, cache, cached), cache, cached
+        cache = cache or make_prompt_cache(self.model)
+        self._prefill_into(cache, input_ids, cached)
         # max_tokens=-1 -> unbounded; EOS/length/stop are all enforced in _step so
         # ignore_eos and the exact CUDA-scheduler semantics stay in one place.
         kwargs = _filter_kwargs(
-            generate_step, {"max_tokens": -1, "sampler": self._build_sampler(sp)}
+            generate_step,
+            {"max_tokens": -1, "sampler": self._build_sampler(sp), "prompt_cache": cache},
         )
-        return generate_step(mx.array(input_ids), self.model, **kwargs)
+        gen = generate_step(mx.array(input_ids[-1:]), self.model, **kwargs)
+        return gen, cache, cached
 
     @staticmethod
     def _cache_snapshot(c) -> Any:
@@ -241,7 +299,9 @@ class MlxScheduler:
         else:
             c.state = snap
 
-    def _offload_generate(self, input_ids: List[int], sp: SamplingParams) -> Iterator[Any]:
+    def _offload_generate(
+        self, input_ids: List[int], sp: SamplingParams, cache, start: int = 0
+    ) -> Iterator[Any]:
         """Decode loop for expert-offload serving: speculate-and-verify.
 
         Each step runs fully lazily against the device-side slot LUT (zero CPU
@@ -250,22 +310,27 @@ class MlxScheduler:
         step, installs the missing experts and re-runs — so misses cost one extra
         forward, and the steady state runs at resident-model speed.
         """
-        from mlx_lm.models.cache import make_prompt_cache
+        from .prefix_cache import BOUNDARY_TOKENS
 
         mx = self._mx
         state = self.offload_state
         sampler = self._build_sampler(sp)
-        cache = make_prompt_cache(self.model)
 
-        # Prefill (all tokens but the last): per-layer sync/streamed serving.
-        y = mx.array(input_ids)
+        # Prefill (all tokens but the last): per-layer sync/streamed serving,
+        # with prefix-store snapshots at restore-safe boundaries.
         state.speculating = False
-        while y.size > 1:
-            n = min(2048, y.size - 1)
+        pos, end = start, len(input_ids) - 1
+        next_boundary = (pos // BOUNDARY_TOKENS + 1) * BOUNDARY_TOKENS
+        while pos < end:
+            n = min(2048, end - pos, next_boundary - pos)
             state.begin_token()
-            logits = self.model(y[:n][None], cache=cache)
+            logits = self.model(mx.array(input_ids[pos:pos + n])[None], cache=cache)
             mx.eval(logits)
-            y = y[n:]
+            pos += n
+            if pos == next_boundary and pos < end and self.prefix_store is not None:
+                self.prefix_store.insert(input_ids[:pos], cache)
+                next_boundary += BOUNDARY_TOKENS
+        y = mx.array(input_ids[-1:])
 
         # Adaptive serving: speculation wins when redos are rare (cache covers the
         # decode working set); per-layer sync serving wins when they are not.
@@ -379,8 +444,18 @@ class MlxScheduler:
                 )
             )
             if finished:
+                self._remember(req)
                 del self.active[req.uid]
         self._reply(reply)
+
+    def _remember(self, req: _MlxRequest) -> None:
+        """Donate a finished/aborted request's cache to the prefix store. The
+        cache covers the prompt plus all but the last emitted token (the last
+        one was sampled but never fed back through the model)."""
+        if self.prefix_store is None or req.cache is None:
+            return
+        tokens = req.prompt_ids + req.output_ids[:-1]
+        self.prefix_store.insert(tokens, req.cache)
 
     def _finish(
         self,
@@ -389,6 +464,7 @@ class MlxScheduler:
         next_token: int | None,
         finish_reason: str,
     ) -> None:
+        self._remember(req)
         del self.active[req.uid]
         if next_token is None:
             # No token to carry the terminal signal on: use an eos id so the
@@ -420,7 +496,7 @@ class MlxScheduler:
                 )
             ]
         try:
-            generator = self._make_generator(input_ids, msg.sampling_params)
+            generator, cache, cached = self._make_generator(input_ids, msg.sampling_params)
         except Exception as exc:  # noqa: BLE001 -- surface as a request error, keep serving
             logger.warning(f"could not start request {msg.uid}: {exc!r}")
             return [ErrorReplyMsg(uid=msg.uid, error=f"could not start generation: {exc}")]
@@ -429,8 +505,14 @@ class MlxScheduler:
             sampling_params=msg.sampling_params,
             generator=generator,
             prompt_len=len(input_ids),
+            prompt_ids=input_ids,
+            cache=cache,
         )
-        return [PromptAdmittedMsg(uid=msg.uid, prompt_tokens=len(input_ids), cached_tokens=0)]
+        return [
+            PromptAdmittedMsg(
+                uid=msg.uid, prompt_tokens=len(input_ids), cached_tokens=cached
+            )
+        ]
 
     def _handle(self, msg: BaseBackendMsg) -> tuple[List[BaseTokenizerMsg], bool]:
         """Returns (replies, exit_requested)."""
@@ -447,7 +529,9 @@ class MlxScheduler:
         if isinstance(msg, AbortBackendMsg):
             # Terminal for the uid; the frontend's abort ack is the client-facing reply,
             # so no message goes back from here (same as the CUDA scheduler).
-            self.active.pop(msg.uid, None)
+            req = self.active.pop(msg.uid, None)
+            if req is not None:
+                self._remember(req)
             return [], False
         if isinstance(msg, CacheRebuildBackendMsg):
             return [self._handle_cache_rebuild(msg)], False

@@ -54,11 +54,12 @@ def make_scheduler(script: dict[int, List[int]] | None = None) -> MlxScheduler:
     sched.offload_state = None
     sched._decode_steps = 0
     sched.config = SimpleNamespace(decode_log_interval=40)
+    sched.prefix_store = None
     script = script or {}
 
-    def fake_make_generator(input_ids: List[int], sp: SamplingParams) -> Iterator:
+    def fake_make_generator(input_ids: List[int], sp: SamplingParams):
         uid = input_ids[0]  # tests encode the uid as the first prompt token
-        return iter((t, None) for t in script.get(uid, []))
+        return iter((t, None) for t in script.get(uid, [])), None, 0
 
     sched._make_generator = fake_make_generator
     return sched

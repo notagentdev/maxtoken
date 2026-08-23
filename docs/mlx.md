@@ -145,7 +145,20 @@ uses.
 - Runtime cache rebuilds (`/v1/cache/rebuild`) resize the expert slot cache live
   (`moe_cache_size` only); KV is per-request on MLX, so there is no page pool to
   resize.
-- No prefix cache yet: `cached_tokens` is always 0.
+- **Prefix cache** (on by default; `--cache-type naive` disables): generation
+  caches are snapshotted at 256-token boundaries during prefill and at request
+  end, and a new request restores the longest token-prefix match, prefilling
+  only the remainder. This includes **hybrid models** (GDN/SSM + attention),
+  whose recurrent state cannot be trimmed to arbitrary positions and for which
+  prefix reuse is broken upstream (mlx-lm#980) — boundary snapshots restore
+  exactly at a snapshot instead. Restoration is bit-identical to having kept
+  the original cache alive (a cold recompute can differ in bf16 rounding —
+  inherent to chunked prefill, as in every serving engine's prefix cache).
+  Snapshots are copy-on-write references, budgeted at 15% of unified memory
+  (`FREETOKEN_MLX_PREFIX_CACHE_MB` overrides), LRU-evicted. Report the reuse
+  per request with `--enable-cache-report` (usage `cached_tokens`). Measured
+  on Ornith-1.5-35B with a 2.4k-token system prompt: first request 19.5 s,
+  follow-ups **1.0 s** (`cached_tokens=2304`).
 - Remaining CUDA-specific flags (`--attention-backend`, `--cuda-graph-*`,
   `--num-pages`, …) are accepted but ignored by the MLX scheduler;
   `--moe-backend offload` and the `--moe-cache-*` sizing flags are honored.
