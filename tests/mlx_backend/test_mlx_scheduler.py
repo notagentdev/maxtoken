@@ -51,6 +51,9 @@ def make_scheduler(script: dict[int, List[int]] | None = None) -> MlxScheduler:
     sched._mx = SimpleNamespace(get_active_memory=lambda: 0)
     sched.sent = []
     sched._reply = lambda replies: sched.sent.extend(replies)
+    sched.offload_state = None
+    sched._decode_steps = 0
+    sched.config = SimpleNamespace(decode_log_interval=40)
     script = script or {}
 
     def fake_make_generator(input_ids: List[int], sp: SamplingParams) -> Iterator:

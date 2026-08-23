@@ -77,11 +77,23 @@ class MlxScheduler:
         # mlx-lm resolves both local paths and hub ids (through the HF cache),
         # matching the tokenizer workers' resolution.
         logger.info(f"Loading MLX model from {config.model_path}")
-        self.model, self.tokenizer = load(config.model_path)
+        self.offload_state = None
+        offload_wanted = (
+            getattr(config, "moe_backend", "auto") in ("offload", "cpu", "hybrid")
+            or getattr(config, "moe_cache_size", 0) > 0
+            or getattr(config, "moe_cache_rate", None) is not None
+            or getattr(config, "moe_cache_auto", False)
+        ) and getattr(config, "moe_backend", "auto") != "fused"
+        if offload_wanted:
+            self.model, self.tokenizer = load(config.model_path, lazy=True)
+            self._attach_offload(config)
+        else:
+            self.model, self.tokenizer = load(config.model_path)
         hf_tokenizer = getattr(self.tokenizer, "_tokenizer", self.tokenizer)
         self.eos_token_ids = frozenset(load_eos_token_ids(config.model_path, hf_tokenizer))
         self.config = config
         self.max_seq_len = int(config.max_seq_len)
+        self._decode_steps = 0
 
         self._recv = ZmqPullQueue(
             config.zmq_backend_addr, create=True, decoder=BaseBackendMsg.decoder
@@ -93,32 +105,186 @@ class MlxScheduler:
         )
         self.active: Dict[int, _MlxRequest] = {}
 
+    # ------------------------------------------------------------------ offload
+
+    def _attach_offload(self, config: SchedulerConfig) -> None:
+        """Wire the expert slot cache in (FreeToken's core: serve a model whose
+        experts don't fit the memory budget). Falls back to fully resident when
+        the checkpoint has no offloadable experts (dense model)."""
+        import os
+
+        from .offload import attach_expert_offload
+
+        mx = self._mx
+        if os.path.isdir(config.model_path):
+            model_dir = config.model_path
+        else:
+            # Same resolution mlx_lm.load uses (weights are already cached by it);
+            # restricted patterns so a snapshot without README/.gitattributes
+            # still validates offline.
+            from huggingface_hub import snapshot_download
+
+            model_dir = snapshot_download(
+                config.model_path,
+                local_files_only=True,
+                allow_patterns=["*.safetensors", "*.json"],
+            )
+        try:
+            # Attach with minimal slots first: auto-sizing needs the resident
+            # (dense-weights) footprint, which exists only after the surgery
+            # dropped the expert stacks and the rest got evaluated.
+            self.offload_state = attach_expert_offload(self.model, model_dir, 1)
+        except ValueError as exc:
+            logger.warning(f"expert offload unavailable ({exc}); serving fully resident")
+            mx.eval(self.model.parameters())
+            return
+        mx.eval(self.model.parameters())
+        dense_bytes = mx.get_active_memory()
+        per_layer = self._resolve_slots_per_layer(config, dense_bytes)
+        total = self.offload_state.resize_total(per_layer * len(self.offload_state.glus))
+        st = self.offload_state
+        logger.info(
+            f"MoE expert cache: {total} slots "
+            f"({st.cache_bytes() / 2**30:.2f} GiB), dense-resident "
+            f"{dense_bytes / 2**30:.2f} GiB"
+        )
+
+    def _resolve_slots_per_layer(self, config: SchedulerConfig, dense_bytes: int) -> int:
+        st = self.offload_state
+        n_layers = len(st.glus)
+        num_experts = st.glus[0].store.num_experts
+        per_expert = st.glus[0].store.expert_nbytes
+        if getattr(config, "moe_cache_size", 0) > 0:
+            per_layer = config.moe_cache_size // n_layers
+        elif getattr(config, "moe_cache_rate", None):
+            per_layer = int(config.moe_cache_rate * num_experts)
+        else:
+            # Auto: fill the memory budget with experts, like the CUDA engine's
+            # --moe-cache-auto (KV gets a flat reserve; MLX KV is per-request).
+            try:
+                total_mem = self._mx.metal.device_info()["memory_size"]
+            except Exception:  # noqa: BLE001 -- conservative fallback
+                total_mem = 16 * 2**30
+            budget = int(config.memory_ratio * total_mem) - dense_bytes - 2 * 2**30
+            per_layer = max(1, budget // per_expert // n_layers)
+        return max(16, min(num_experts, per_layer))
+
     # ------------------------------------------------------------------ generation
+
+    def _build_sampler(self, sp: SamplingParams):
+        from mlx_lm.sample_utils import make_sampler
+
+        if sp.is_greedy:
+            return None
+        return make_sampler(
+            **_filter_kwargs(
+                make_sampler,
+                {
+                    "temp": max(sp.temperature, 0.0),
+                    # mlx-lm encodes "disabled" as 0 (freetoken: 1.0 / -1).
+                    "top_p": sp.top_p if 0.0 < sp.top_p < 1.0 else 0.0,
+                    "top_k": sp.top_k if sp.top_k > 0 else 0,
+                },
+            )
+        )
 
     def _make_generator(self, input_ids: List[int], sp: SamplingParams) -> Iterator[Any]:
         from mlx_lm.generate import generate_step
-        from mlx_lm.sample_utils import make_sampler
 
         mx = self._mx
-        sampler = None
-        if not sp.is_greedy:
-            sampler = make_sampler(
-                **_filter_kwargs(
-                    make_sampler,
-                    {
-                        "temp": max(sp.temperature, 0.0),
-                        # mlx-lm encodes "disabled" as 0 (freetoken: 1.0 / -1).
-                        "top_p": sp.top_p if 0.0 < sp.top_p < 1.0 else 0.0,
-                        "top_k": sp.top_k if sp.top_k > 0 else 0,
-                    },
-                )
-            )
+        if self.offload_state is not None:
+            return self._offload_generate(input_ids, sp)
         # max_tokens=-1 -> unbounded; EOS/length/stop are all enforced in _step so
         # ignore_eos and the exact CUDA-scheduler semantics stay in one place.
         kwargs = _filter_kwargs(
-            generate_step, {"max_tokens": -1, "sampler": sampler}
+            generate_step, {"max_tokens": -1, "sampler": self._build_sampler(sp)}
         )
         return generate_step(mx.array(input_ids), self.model, **kwargs)
+
+    @staticmethod
+    def _cache_snapshot(c) -> Any:
+        """Cheap per-step rollback point for one mlx-lm cache object. Trimmable
+        caches (KV) roll back by rewinding their offset; recurrent caches (GDN
+        conv/state) roll back by restoring the previous arrays — mx arrays are
+        immutable, so holding the refs is enough."""
+        if c.is_trimmable():
+            return None
+        return list(c.state)
+
+    @staticmethod
+    def _cache_rollback(c, snap) -> None:
+        if snap is None:
+            c.trim(1)
+        else:
+            c.state = snap
+
+    def _offload_generate(self, input_ids: List[int], sp: SamplingParams) -> Iterator[Any]:
+        """Decode loop for expert-offload serving: speculate-and-verify.
+
+        Each step runs fully lazily against the device-side slot LUT (zero CPU
+        syncs). One eval per token also brings back the per-layer "were all routed
+        experts resident" flags; a miss rolls the KV/recurrent caches back one
+        step, installs the missing experts and re-runs — so misses cost one extra
+        forward, and the steady state runs at resident-model speed.
+        """
+        from mlx_lm.models.cache import make_prompt_cache
+
+        mx = self._mx
+        state = self.offload_state
+        sampler = self._build_sampler(sp)
+        cache = make_prompt_cache(self.model)
+
+        # Prefill (all tokens but the last): per-layer sync/streamed serving.
+        y = mx.array(input_ids)
+        state.speculating = False
+        while y.size > 1:
+            n = min(2048, y.size - 1)
+            state.begin_token()
+            logits = self.model(y[:n][None], cache=cache)
+            mx.eval(logits)
+            y = y[n:]
+
+        # Adaptive serving: speculation wins when redos are rare (cache covers the
+        # decode working set); per-layer sync serving wins when they are not.
+        # Track a redo EMA, switch on a threshold, and probe speculation again
+        # after a sync streak so a phase change (topic shift ends, cache warmed)
+        # is noticed.
+        redo_ema = 0.0
+        sync_streak = 0
+        while True:
+            speculate = redo_ema < 0.5 or sync_streak >= 32
+            state.speculating = speculate
+            if speculate:
+                sync_streak = 0
+                redone = False
+                for _attempt in range(len(state.glus) + 1):
+                    state.begin_token()
+                    snaps = [self._cache_snapshot(c) for c in cache]
+                    logits = self.model(y[None], cache=cache)
+                    logprobs = logits[:, -1, :] - mx.logsumexp(
+                        logits[:, -1, :], keepdims=True
+                    )
+                    y_next = sampler(logprobs) if sampler else mx.argmax(logprobs, axis=-1)
+                    mx.eval(y_next, *state.pending_oks())
+                    if state.commit_token():
+                        break
+                    redone = True
+                    for c, snap in zip(cache, snaps, strict=True):
+                        self._cache_rollback(c, snap)
+                else:  # pragma: no cover -- each round installs at least one layer
+                    raise RuntimeError("expert cache failed to converge on a decode step")
+                redo_ema = 0.85 * redo_ema + (0.15 if redone else 0.0)
+            else:
+                sync_streak += 1
+                state.begin_token()  # sync path installs inline; nothing pends
+                logits = self.model(y[None], cache=cache)
+                logprobs = logits[:, -1, :] - mx.logsumexp(
+                    logits[:, -1, :], keepdims=True
+                )
+                y_next = sampler(logprobs) if sampler else mx.argmax(logprobs, axis=-1)
+                mx.eval(y_next)
+            yield int(y_next.item()), logprobs
+            y = y_next
 
     def _match_stop_str(self, req: _MlxRequest) -> str | None:
         """First stop string in the generated tail, else None. Same bound as the CUDA
@@ -137,6 +303,15 @@ class MlxScheduler:
         """Advance every active request by one token and ship the replies."""
         reply: List[BaseTokenizerMsg] = []
         gpu_mem = int(self._mx.get_active_memory())
+        if self.offload_state is not None:
+            self._decode_steps += 1
+            if self._decode_steps % self.config.decode_log_interval == 0:
+                h, m, slots = self.offload_state.totals()
+                rate = m / max(1, h + m)
+                logger.info(
+                    f"expert cache: {slots} slots, lifetime miss rate {rate:.1%} "
+                    f"({m}/{h + m}), active mem {gpu_mem / 2**30:.2f} GiB"
+                )
         for req in list(self.active.values()):
             try:
                 token, _logprobs = next(req.generator)
@@ -247,17 +422,39 @@ class MlxScheduler:
             self.active.pop(msg.uid, None)
             return [], False
         if isinstance(msg, CacheRebuildBackendMsg):
-            return [
-                CacheRebuildResultMsg(
-                    request_id=msg.request_id,
-                    status="failed",
-                    error="cache rebuild is not supported by the MLX backend",
-                )
-            ], False
+            return [self._handle_cache_rebuild(msg)], False
         if isinstance(msg, ExitMsg):
             return [], True
         logger.warning(f"MLX scheduler ignoring unexpected message {type(msg).__name__}")
         return [], False
+
+    def _handle_cache_rebuild(self, msg: CacheRebuildBackendMsg) -> BaseTokenizerMsg:
+        """Elastic memory management, FreeToken's runtime cache resize: change the
+        expert slot-cache size without restarting or reloading the model."""
+        if self.offload_state is None:
+            return CacheRebuildResultMsg(
+                request_id=msg.request_id,
+                status="failed",
+                error="no expert cache to rebuild (serving fully resident); "
+                "start with --moe-backend offload",
+            )
+        if not msg.moe_cache_size:
+            return CacheRebuildResultMsg(
+                request_id=msg.request_id,
+                status="failed",
+                error="the MLX backend can only rebuild moe_cache_size "
+                "(KV is per-request, not pooled)",
+            )
+        if self.active:
+            return CacheRebuildResultMsg(request_id=msg.request_id, status="busy")
+        total = self.offload_state.resize_total(int(msg.moe_cache_size))
+        logger.info(
+            f"expert cache resized to {total} slots "
+            f"({self.offload_state.cache_bytes() / 2**30:.2f} GiB)"
+        )
+        return CacheRebuildResultMsg(
+            request_id=msg.request_id, status="ok", moe_cache_size=total
+        )
 
     def _reply(self, replies: List[BaseTokenizerMsg]) -> None:
         if len(replies) == 1:

@@ -78,8 +78,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--backend",
         default="offload",
         help=(
-            "comma list of offload|cpu|hybrid|mlx; one server per backend "
-            "(mlx: Apple-silicon execution backend, --backend mlx on the server)"
+            "comma list of offload|cpu|hybrid|mlx|mlx-offload; one server per "
+            "backend (mlx: Apple-silicon, fully resident; mlx-offload: expert "
+            "slot cache, sized by --cache/--cache-rate or auto)"
         ),
     )
     p.add_argument(
@@ -175,18 +176,30 @@ def free_port() -> int:
 
 
 def serve_cmd(args: argparse.Namespace, backend: str, port: int) -> list[str]:
-    if backend == "mlx":
-        # Execution backend, not a MoE-offload flavor: no expert cache, CUDA graphs
-        # or PCIe fetch knobs. Everything downstream (streaming, usage, stats) is the
-        # same serving path, so the measurement itself is unchanged.
-        return [
+    if backend in ("mlx", "mlx-offload"):
+        # Apple-silicon execution backend. Plain "mlx" serves fully resident;
+        # "mlx-offload" serves the experts from the slot cache (--cache /
+        # --cache-rate size it; neither = auto-size from the memory budget).
+        # Everything downstream (streaming, usage, stats) is the same serving
+        # path, so the measurement itself is unchanged.
+        cmd = [
             sys.executable, "-m", "freetoken.cli", "serve",
             "--model", args.model,
             "--host", "127.0.0.1", "--port", str(port),
             "--backend", "mlx",
             "--max-running-requests", "1",
             "--max-seq-len-override", str(8192 + args.decode),
+            "--memory-ratio", str(args.mem_ratio),
         ]
+        if backend == "mlx-offload":
+            cmd += ["--moe-backend", "offload"]
+            if args.cache > 0:
+                cmd += ["--moe-cache-size", str(args.cache)]
+            elif args.cache_rate is not None:
+                cmd += ["--moe-cache-rate", str(args.cache_rate)]
+            else:
+                cmd += ["--moe-cache-auto"]
+        return cmd
     cmd = [
         sys.executable, "-m", "freetoken.cli", "serve",
         "--model", args.model,
@@ -393,7 +406,9 @@ def run_one(args: argparse.Namespace, backend: str) -> dict:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     backends = [b.strip() for b in args.backend.split(",") if b.strip()]
-    unknown = [b for b in backends if b not in ("offload", "cpu", "hybrid", "mlx")]
+    unknown = [
+        b for b in backends if b not in ("offload", "cpu", "hybrid", "mlx", "mlx-offload")
+    ]
     if unknown:
         sys.exit(f"unknown backend(s): {unknown}")
 
