@@ -160,6 +160,34 @@ def parse_args(
             return "mistral"
         return "llama3"
 
+    def _chat_template_text(model_path: str) -> str:
+        """Raw text of every chat-template carrier the checkpoint ships
+        (tokenizer_config.json inlines it; newer exports use chat_template.jinja
+        or chat_template.json). "" when none can be read — callers treat that as
+        "unknown", not "no template"."""
+        import os
+
+        candidates = ("tokenizer_config.json", "chat_template.jinja", "chat_template.json")
+        if os.path.isdir(model_path):
+            model_dir = model_path
+        else:
+            try:
+                from huggingface_hub import snapshot_download
+
+                model_dir = snapshot_download(
+                    model_path, local_files_only=True, allow_patterns=list(candidates)
+                )
+            except Exception:
+                return ""
+        parts = []
+        for name in candidates:
+            try:
+                with open(os.path.join(model_dir, name), encoding="utf-8") as fh:
+                    parts.append(fh.read())
+            except OSError:
+                continue
+        return "\n".join(parts)
+
     def _infer_reasoning_parser(model_path: str) -> str | None:
         try:
             from freetoken.utils import cached_load_hf_config
@@ -184,6 +212,22 @@ def parse_args(
         ):
             return "deepseekv32"
         if "qwen3" in marker or "qwen3.5" in marker or "qwen3_5" in marker:
+            # The qwen3 family spans thinking checkpoints (the template's
+            # generation prompt opens an implicit <think>, the completion starts
+            # inside reasoning) and never-thinking ones (Coder, Instruct-2507)
+            # that end the generation prompt at a bare assistant header.
+            # Attaching the parser to the latter routes the ENTIRE completion
+            # into reasoning_content (force_reasoning fires, </think> never
+            # arrives). A whole-template substring is not a usable signal —
+            # Instruct-2507 mentions <think> while parsing prior turns — so look
+            # only at the add_generation_prompt block, which every ChatML-family
+            # template puts last. No template found leaves the parser on (the
+            # pre-2507 hybrid default).
+            template = _chat_template_text(model_path)
+            if template:
+                _, sep, gen_tail = template.rpartition("add_generation_prompt")
+                if sep and "<think>" not in gen_tail:
+                    return None
             return "qwen3"
         if "glm" in marker:
             return "glm"

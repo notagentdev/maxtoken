@@ -120,9 +120,19 @@ prompt, 256 decode tokens:
 | Ornith-1.5-35B-A3B | **offload, mapped (default)** | **67.8** | **209 ms** | ~18 GiB borrowed² (1.3 GiB owned) |
 | Ornith-1.5-35B-A3B | offload, slot cache 60% | 15.1 | 6.9 s | **11.9 GiB** hard budget |
 | Ornith-1.5-35B-A3B | offload, slot cache 35% | 8.9 | 21 s¹ | **7.7 GiB** hard budget |
+| Qwen3-Coder-Next-80B³ | offload, slot cache 20% | 8.4 | 5.1 s | **10.3 GiB** hard budget |
+| Qwen3-Coder-Next-80B³ | offload, slot cache 5% | 5.3 | 6.5 s | **3.4 GiB** hard budget |
 
 ¹ cold page cache (first pass over the weights); warm prefill streams at
 SSD/page-cache speed.
+³ a **42 GiB checkpoint on the 32 GiB machine** — the model genuinely does not
+fit, which is the case the slot cache exists for (Qwen3-Next: 48 layers ×
+512 experts × top-10; 40.5 GiB of experts over a 1.3 GiB dense core). Decode
+scales with the budget: 5.3 / 6.4 / 8.4 / 8.6 tok/s at 5 / 10 / 20 / 30%
+cache (3.4 / 5.5 / 10.3 / 13.5 GiB active) — diminishing returns past 20%.
+Prefill streams every expert layer, so TTFT has a ~5 s floor regardless of
+prompt length (the full 40 GiB pass; the SSD covers 42 GiB in ~12 s).
+
 ² no free lunch: at full speed the expert weights occupy RAM in the mapped mode
 too (that is why it is fast). The difference is the KIND of memory — the store
 is clean file-backed page cache the OS can *drop* under pressure and re-fault
