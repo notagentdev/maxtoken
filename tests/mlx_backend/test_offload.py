@@ -239,3 +239,77 @@ def test_long_chunk_still_streams(tmp_path, monkeypatch):
     inds = mlx.array([[[0, 5], [3, 6], [1, 5], [7, 2]]], dtype=mlx.uint32)
     glu(x, inds)
     assert called.get("streamed")
+
+
+# --------------------------------------- rebalance + cross-layer read-ahead
+
+
+def _build_state(tmp_path, num_layers=3, num_experts=8, slots=4):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from freetoken.mlx_backend.offload import (
+        ExpertStore,
+        OffloadState,
+        OffloadSwitchGLU,
+        SlotCache,
+    )
+
+    d = _quantized_glu_dir(tmp_path, num_experts)
+    ix = SafetensorsIndex(str(tmp_path))
+    state = OffloadState(32, 4)
+    pool = ThreadPoolExecutor(2)
+    activation = lambda up, gate: up * mlx.sigmoid(gate)  # noqa: E731
+    for _ in range(num_layers):
+        store = ExpertStore(ix, "model.mlp.switch_mlp", pool)
+        glu = OffloadSwitchGLU(store, SlotCache(store, slots), activation, state)
+        state.glus.append(glu)
+    return state, d
+
+
+def test_rebalance_moves_slots_to_miss_pressure(tmp_path):
+    state, _ = _build_state(tmp_path, num_layers=3, num_experts=8, slots=4)
+    assert state.rebalance(floor=2) is False  # first call only sets the baseline
+    state.glus[0].cache.misses += 10
+    state.glus[1].cache.misses += 0
+    state.glus[2].cache.misses += 2
+    assert state.rebalance(floor=2) is True
+    slots = [g.cache.num_slots for g in state.glus]
+    assert sum(slots) == 12  # total budget preserved
+    assert min(slots) >= 2  # floor respected
+    assert slots[0] > slots[1]  # pressure got the spread
+    # quiet window -> no further movement
+    assert state.rebalance(floor=2) is False
+
+
+def test_rebalance_caps_at_num_experts(tmp_path):
+    state, _ = _build_state(tmp_path, num_layers=2, num_experts=8, slots=7)
+    state.rebalance(floor=2)
+    state.glus[0].cache.misses += 100
+    state.rebalance(floor=2)
+    assert all(g.cache.num_slots <= 8 for g in state.glus)
+
+
+def test_read_ahead_prefetches_next_layer(tmp_path):
+    state, d = _build_state(tmp_path, num_layers=2, num_experts=8, slots=4)
+    g0, g1 = state.glus
+    g0.next_glu = g1
+
+    def fake_gate(x):
+        # favor experts 6 and 7 for the next layer
+        scores = np.zeros((1, 1, 8), dtype=np.float16)
+        scores[..., 6] = 5.0
+        scores[..., 7] = 4.0
+        return mlx.array(scores)
+
+    g0.next_gate = fake_gate
+    x = mlx.random.normal((1, 3, d)).astype(mlx.float16)
+    # 6 uniq > 4 slots, 3 tokens <= bank gate: the banked path fires read-ahead
+    inds = mlx.array([[[0, 1], [2, 3], [4, 5]]], dtype=mlx.uint32)
+    g0(x, inds)
+    inflight = set(g1.cache._inflight)
+    assert 6 in inflight and 7 in inflight
+    # ... and the prefetched bytes satisfy the next layer's install
+    misses_before = g1.cache.misses
+    g1(x, mlx.array([[[6, 7]]], dtype=mlx.uint32))
+    assert g1.cache.misses == misses_before + 2
+    assert 6 in g1.cache.lru.slot_of and 7 in g1.cache.lru.slot_of

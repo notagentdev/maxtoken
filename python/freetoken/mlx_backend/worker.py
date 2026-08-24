@@ -531,6 +531,27 @@ class MlxScheduler:
             yield int(y_next.item()), logprobs
             y = y_next
 
+    def _maybe_rebalance(self) -> None:
+        """Between requests: redistribute the slot budget by observed per-layer
+        miss pressure (FREETOKEN_MLX_REBALANCE=0 disables). Idle-only — resize
+        rebuilds the device lut/owner arrays and must not race a forward."""
+        import os as _os
+
+        if self.offload_state is None:
+            return
+        if _os.environ.get("FREETOKEN_MLX_REBALANCE", "1") == "0":
+            return
+        floor = 16
+        if self.draft is not None:
+            top_k = int(
+                getattr(getattr(self.model, "args", None), "num_experts_per_tok", 0)
+                or 8
+            )
+            floor = max(floor, self.offload_state.spec_window * top_k)
+        if self.offload_state.rebalance(floor=floor) and self.draft is not None:
+            self.draft.k = self._clamp_draft_k(self.draft.k)
+            self.offload_state.spec_window = self.draft.k + 1
+
     def _match_stop_str(self, req: _MlxRequest) -> str | None:
         """First stop string in the generated tail, else None. Same bound as the CUDA
         scheduler's ``_match_stop_str``: a stop of N chars spans at most N tokens."""
@@ -905,6 +926,7 @@ class MlxScheduler:
             while True:
                 pending: List[BaseBackendMsg] = []
                 if not self.active:
+                    self._maybe_rebalance()  # idle: safe to rebuild slot buffers
                     pending.append(self._recv.get())  # idle: block for work
                 while not self._recv.empty():
                     pending.append(self._recv.get())

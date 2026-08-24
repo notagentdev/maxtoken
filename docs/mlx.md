@@ -135,8 +135,18 @@ stream every expert layer (a full 40 GiB pass — a multi-second TTFT floor
 regardless of prompt length; the SSD covers 42 GiB in ~12 s), but chunks of
 ≤ 32 tokens (`FREETOKEN_MLX_BANK_TOKENS`) — the short rest-prompt after a
 prefix-cache restore — are served from a transient bank of only the routed
-non-resident experts: a chat follow-up's TTFT drops from ~7 s to 2–3 s and
-now scales with the remainder, not with the model.
+non-resident experts: a chat follow-up's TTFT drops from ~7 s to ~2 s and
+now scales with the remainder, not with the model. On that path a
+cross-layer read-ahead additionally overlaps the next layer's fetches with
+the current layer's compute (layer L+1's gate scores layer L's hidden,
+re-based to L+1's RMSNorm — recall 0.946 measured; `FREETOKEN_MLX_XLAYER=0`
+disables): banked TTFT −23%. The same machinery measured *negative* on the
+single-token decode path (the ~1 ms compute window cannot hide what the
+extra python/graph breaks cost), so decode deliberately stays clean.
+Between requests the scheduler also rebalances the slot budget by observed
+per-layer miss pressure (`FREETOKEN_MLX_REBALANCE=0` disables) — layers
+differ widely in routing diversity, and an even split starves the diverse
+ones.
 
 ² no free lunch: at full speed the expert weights occupy RAM in the mapped mode
 too (that is why it is fast). The difference is the KIND of memory — the store
