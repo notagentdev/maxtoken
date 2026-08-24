@@ -145,8 +145,16 @@ uses.
   Ornith-1.5-35B (mapped): aggregate decode 62 → 94 → 116 tok/s at batch
   1 → 2 → 4 (engine-level); through the full HTTP server 58 → 47 → 74 →
   99 tok/s at 1 → 2 → 4 → 8 concurrent streams — the server path currently
-  adds per-round overhead at batch ≥ 2 (~40 ms vs 24 ms per round in-process;
-  under investigation, `FREETOKEN_MLX_TRACE=1` logs per-round timings).
+  adds per-round overhead at batch ≥ 2 (~40 ms vs 24 ms per round in-process).
+  An extensive investigation ruled out: spawn QoS (workers now self-promote to
+  USER_INTERACTIVE anyway), ZMQ polling and reply IPC, the prefix store, disk
+  I/O (0 MB/s during slow runs), GPU idle downclocking, CPU core contention
+  with the frontend/detokenizer, and buffer-pool churn from mlx-lm's
+  per-admission `mx.clear_cache` (worth ~10-15%, together with staggered
+  admissions). Profiling places the remaining delta inside the mx evals
+  themselves when the worker runs as part of the full server; the dominant
+  factor is still open. Diagnosis knobs: `FREETOKEN_MLX_TRACE=1` (per-round
+  timings), `FREETOKEN_MLX_PROFILE=<path>` (cProfile of the scheduler loop).
   Greedy requests keep the batched argmax fast path even when sampling
   defaults fill in top-p/top-k. The slot-cache offload path remains
   round-robin (its speculate/verify loop is per-request).

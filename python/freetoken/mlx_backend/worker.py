@@ -486,9 +486,13 @@ class MlxScheduler:
         prompt_resps, gen_resps = self.batch_gen.next()
         if trace:
             t1 = _time.perf_counter()
+            self._mx.synchronize()
+            t2 = _time.perf_counter()
+            outside = 1e3 * (t0 - self._trace_prev) if hasattr(self, "_trace_prev") else 0
+            self._trace_prev = t2
             logger.info(
-                f"trace: next()={1e3*(t1-t0):.1f}ms B={len(gen_resps)} "
-                f"P={len(prompt_resps)}"
+                f"trace: next()={1e3*(t1-t0):.1f}ms sync={1e3*(t2-t1):.1f}ms "
+                f"outside={outside:.1f}ms B={len(gen_resps)} P={len(prompt_resps)}"
             )
 
         if self.prefix_store is not None:
@@ -716,6 +720,10 @@ class MlxScheduler:
         )
 
     def _reply(self, replies: List[BaseTokenizerMsg]) -> None:
+        import os as _os
+
+        if _os.environ.get("FREETOKEN_MLX_NO_REPLY") == "1":  # diagnosis only
+            return
         if len(replies) == 1:
             self._send.put(replies[0])
         elif len(replies) > 1:
@@ -750,6 +758,28 @@ class MlxScheduler:
         self._send.stop()
 
 
+def _raise_qos() -> None:
+    """Promote this thread's macOS QoS class before MLX spawns its workers.
+
+    A worker spawned from the server's launcher can inherit a throttled QoS
+    band; the threads MLX creates then run at reduced priority (observed as
+    priority-20 threads doing all the compute), which serializes the decode
+    pipeline and roughly doubles batched step time. Threads inherit the QoS of
+    the thread that creates them, so raising the main thread FIRST fixes every
+    MLX thread spawned afterwards."""
+    import ctypes
+    import sys as _sys
+
+    if _sys.platform != "darwin":
+        return
+    try:
+        libsystem = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        QOS_CLASS_USER_INTERACTIVE = 0x21
+        libsystem.pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0)
+    except Exception:  # noqa: BLE001 -- a nicety; never block startup on it
+        pass
+
+
 def mlx_scheduler_worker(config: SchedulerConfig, ack_queue: Any) -> None:
     """Process target: build the scheduler, ack readiness, serve until exit.
 
@@ -757,6 +787,7 @@ def mlx_scheduler_worker(config: SchedulerConfig, ack_queue: Any) -> None:
     while loading, a single readiness string, and ("error", reason) before dying on
     a startup failure so the supervisor can report the real cause.
     """
+    _raise_qos()
     try:
         ack_queue.put(("progress", "Loading weights (MLX)", 0, 0))
         scheduler = MlxScheduler(config)
@@ -769,7 +800,24 @@ def mlx_scheduler_worker(config: SchedulerConfig, ack_queue: Any) -> None:
             pass
         raise
     ack_queue.put("Scheduler is ready")
+    import os as _os
+
+    profile_path = _os.environ.get("FREETOKEN_MLX_PROFILE")
     try:
-        scheduler.run_forever()
+        if profile_path:
+            import cProfile
+            import signal
+
+            def _graceful(_sig, _frm):  # let finally run so the dump is written
+                raise KeyboardInterrupt
+
+            signal.signal(signal.SIGTERM, _graceful)
+            prof = cProfile.Profile()
+            try:
+                prof.runcall(scheduler.run_forever)
+            finally:
+                prof.dump_stats(profile_path)
+        else:
+            scheduler.run_forever()
     finally:
         scheduler.shutdown()
