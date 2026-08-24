@@ -32,6 +32,14 @@ the prefix cache and short-remainder banked prefill. The workload is memory- and
 I/O-bound, not compute-bound: it runs cool enough for fanless MacBooks that CPU
 runtimes grill at 100 °C.
 
+> **An informal experiment, not a controlled benchmark:** we copied the same
+> two checkpoints into LM Studio (a resident-only MLX runtime) on the same
+> machine. The 35B served, about 10 tok/s slower than MaxToken; the 42 GiB 80B
+> could not be loaded at all — resident-only runtimes need the entire model
+> inside Metal's working-set limit, which is exactly the constraint MaxToken's
+> expert offload removes. One run, default settings on both sides; read it as
+> an illustration of the category difference, not as a measured comparison.
+
 Everything is served through **OpenAI- and Anthropic-compatible APIs** (Claude
 Code and Codex point at it directly), with a built-in single-file **web console**
 (chat, live throughput, request log, elastic cache slider) at the server root.
