@@ -140,6 +140,12 @@
   .sliderrow .top { display: flex; align-items: baseline; gap: 10px; }
   .sliderrow .lbl { font-weight: 600; font-size: 13px; }
   .sliderrow .hint { font-size: 11.5px; color: var(--text-3); }
+  .apirow { display: flex; align-items: center; gap: 10px; margin-top: 9px; }
+  .apirow .apilbl { flex: 0 0 130px; font-size: 12px; color: var(--text-3); }
+  .apirow code { flex: 1; font: 12px var(--mono); color: var(--text-1);
+    background: var(--bg); border: 1px solid var(--border); border-radius: 7px;
+    padding: 6px 10px; overflow-x: auto; white-space: nowrap; }
+  .apirow .copybtn { flex: 0 0 auto; padding: 5px 12px; font-size: 12px; }
   .sliderrow .val { margin-left: auto; font: 600 13px var(--mono); }
   input[type=range] { width: 100%; margin: 12px 0 4px; accent-color: var(--accent); }
   .sliderrow .scale { display: flex; justify-content: space-between; font: 10px var(--mono); color: var(--text-3); }
@@ -299,6 +305,20 @@
           <button class="btn ghost" id="ctxApply">Apply</button><span id="ctxMsg"></span>
         </div>
       </div>
+
+      <div class="panelcard">
+        <div class="title">API access
+          <span class="tag teal">OpenAI + Anthropic</span>
+          <span class="synced" id="apiCopyMsg"></span>
+        </div>
+        <div class="desc">Point any client or coding agent here — the model name is what
+          <code>/v1/models</code> reports, but both APIs also accept any name and serve the loaded model.</div>
+        <div class="apirow"><span class="apilbl">OpenAI base URL</span><code id="apiOpenai">–</code><button class="btn ghost copybtn" data-copy="apiOpenai">Copy</button></div>
+        <div class="apirow"><span class="apilbl">Anthropic base URL</span><code id="apiAnthropic">–</code><button class="btn ghost copybtn" data-copy="apiAnthropic">Copy</button></div>
+        <div class="apirow"><span class="apilbl">Model name</span><code id="apiModel">–</code><button class="btn ghost copybtn" data-copy="apiModel">Copy</button></div>
+        <div class="apirow"><span class="apilbl">Claude Code</span><code id="apiClaude">–</code><button class="btn ghost copybtn" data-copy="apiClaude">Copy</button></div>
+        <div class="apirow"><span class="apilbl">OpenAI SDK</span><code id="apiSdk">–</code><button class="btn ghost copybtn" data-copy="apiSdk">Copy</button></div>
+      </div>
     </div>
 
     <!-- ================= CHAT ================= -->
@@ -365,9 +385,36 @@ async function pollHealth() {
 }
 const upStr = s => !s ? "0m" : (s >= 3600 ? Math.floor(s/3600) + "h " : "") + Math.floor(s % 3600 / 60) + "m";
 
+function fillApiCard() {
+  const base = window.location.origin;
+  const model = stats.model?.id || "";
+  $("apiOpenai").textContent = base + "/v1";
+  $("apiAnthropic").textContent = base;
+  $("apiModel").textContent = model || "–";
+  $("apiClaude").textContent =
+    `ANTHROPIC_BASE_URL=${base} ANTHROPIC_API_KEY=local claude`;
+  $("apiSdk").textContent =
+    `client = OpenAI(base_url="${base}/v1", api_key="local")  # model="${model}"`;
+}
+document.querySelectorAll(".copybtn").forEach(b => b.onclick = async () => {
+  try {
+    await navigator.clipboard.writeText($(b.dataset.copy).textContent);
+    $("apiCopyMsg").textContent = "copied";
+  } catch {
+    // clipboard API needs a secure context; fall back to a selection the
+    // user can copy with Cmd+C
+    const range = document.createRange();
+    range.selectNodeContents($(b.dataset.copy));
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(range);
+    $("apiCopyMsg").textContent = "selected — press Cmd+C";
+  }
+  setTimeout(() => { $("apiCopyMsg").textContent = ""; }, 2000);
+});
+
 async function pollStats() {
   try {
     stats = await (await fetch("/v1/stats")).json();
+    fillApiCard();
     const r = stats.requests || {}, t = stats.throughput || {};
     const tin = r.prompt_tokens_total || 0, tout = r.completion_tokens_total || 0;
     const saved = tin * PRICE_IN + tout * PRICE_OUT;
