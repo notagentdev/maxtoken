@@ -136,7 +136,13 @@ regardless of prompt length; the SSD covers 42 GiB in ~12 s), but chunks of
 ≤ 32 tokens (`FREETOKEN_MLX_BANK_TOKENS`) — the short rest-prompt after a
 prefix-cache restore — are served from a transient bank of only the routed
 non-resident experts: a chat follow-up's TTFT drops from ~7 s to ~2 s and
-now scales with the remainder, not with the model. On that path a
+now scales with the remainder, not with the model. The 32-token gate is
+measured, not guessed: novel text densifies fast (64 fresh tokens already
+route ~350 of 512 experts/layer), and a sweep over delta sizes 64–2048
+shows the full-layer stream beating the bank at EVERY size from 64 up
+(0.76x at 64, 0.2–0.3x at 256+) — so mid-size agent deltas (a pasted file,
+a tool result) correctly stay on the streamed path at ~5–10 s per 2k
+tokens, and raising the gate would make them slower, not faster. On that path a
 cross-layer read-ahead additionally overlaps the next layer's fetches with
 the current layer's compute (layer L+1's gate scores layer L's hidden,
 re-based to L+1's RMSNorm — recall 0.946 measured; `FREETOKEN_MLX_XLAYER=0`
