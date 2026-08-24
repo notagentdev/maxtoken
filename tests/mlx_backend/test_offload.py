@@ -129,3 +129,113 @@ def test_expert_store_fetch_matches_disk(tmp_path, stacked):
     assert full[0].shape == (5, 4, 2)
     got_full = np.array(full[0][3])
     assert got_full.tolist() == want.tolist()
+
+
+# ------------------------------------------------ banked short-chunk serving
+
+
+def _quantized_glu_dir(tmp_path, num_experts, d=32, h=32, group=32):
+    """A real 4-bit quantized switch-GLU checkpoint dir gather_qmm can serve."""
+    import json as _json
+
+    mlx.random.seed(7)
+    tensors = {}
+    for proj, shape in (
+        ("gate_proj", (h, d)),
+        ("up_proj", (h, d)),
+        ("down_proj", (d, h)),
+    ):
+        ws, ss, bs = [], [], []
+        for _ in range(num_experts):
+            w = mlx.random.normal(shape).astype(mlx.float16)
+            wq, sc, bi = mlx.quantize(w, group_size=group, bits=4)
+            ws.append(wq)
+            ss.append(sc)
+            bs.append(bi)
+        tensors[f"model.mlp.switch_mlp.{proj}.weight"] = np.array(
+            mlx.stack(ws), copy=False
+        )
+        tensors[f"model.mlp.switch_mlp.{proj}.scales"] = np.array(
+            mlx.stack(ss).astype(mlx.float16), copy=False
+        )
+        tensors[f"model.mlp.switch_mlp.{proj}.biases"] = np.array(
+            mlx.stack(bs).astype(mlx.float16), copy=False
+        )
+    write_safetensors(tmp_path / "m.safetensors", tensors)
+    (tmp_path / "config.json").write_text(
+        _json.dumps({"quantization": {"group_size": group, "bits": 4}})
+    )
+    return d
+
+
+def _build_glu(tmp_path, num_experts=8, slots=3):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from freetoken.mlx_backend.offload import (
+        ExpertStore,
+        OffloadState,
+        OffloadSwitchGLU,
+        SlotCache,
+    )
+
+    d = _quantized_glu_dir(tmp_path, num_experts)
+    ix = SafetensorsIndex(str(tmp_path))
+    store = ExpertStore(ix, "model.mlp.switch_mlp", ThreadPoolExecutor(2))
+    state = OffloadState(32, 4)
+    cache = SlotCache(store, slots)
+    activation = lambda up, gate: up * mlx.sigmoid(gate)  # noqa: E731
+    glu = OffloadSwitchGLU(store, cache, activation, state)
+    state.glus.append(glu)
+    return glu, cache, d
+
+
+def test_banked_serving_matches_full_bank(tmp_path):
+    """A short chunk routing more experts than the cache has slots must produce
+    exactly what serving from the fully materialized layer produces."""
+    glu, cache, d = _build_glu(tmp_path, num_experts=8, slots=3)
+    x = mlx.random.normal((1, 4, d)).astype(mlx.float16)
+    # 4 tokens x top-2, 7 unique experts > 3 slots -> banked path
+    inds = mlx.array([[[0, 5], [3, 6], [1, 5], [7, 2]]], dtype=mlx.uint32)
+    got = glu(x, inds)
+
+    full = glu.store.load_full_lazy()
+    want = glu._run(
+        x, inds,
+        ((full[0], full[1], full[2]), (full[3], full[4], full[5]),
+         (full[6], full[7], full[8])),
+    )
+    assert np.array_equal(np.array(got), np.array(want))
+
+
+def test_banked_serving_admits_hottest_and_reuses_slots(tmp_path):
+    glu, cache, d = _build_glu(tmp_path, num_experts=8, slots=3)
+    x = mlx.random.normal((1, 4, d)).astype(mlx.float16)
+    # expert 5 is routed twice -> hottest -> must be admitted
+    inds = mlx.array([[[0, 5], [3, 6], [1, 5], [7, 2]]], dtype=mlx.uint32)
+    glu(x, inds)
+    assert 5 in cache.lru.slot_of
+    misses_first = cache.misses
+    # a second identical chunk serves the admitted experts from slots
+    glu(x, inds)
+    assert cache.misses < misses_first * 2
+    assert cache.hits > 0
+
+
+def test_long_chunk_still_streams(tmp_path, monkeypatch):
+    """Chunks beyond the bank-token gate keep the full-layer streaming path."""
+    import freetoken.mlx_backend.offload as off
+
+    glu, cache, d = _build_glu(tmp_path, num_experts=8, slots=3)
+    monkeypatch.setattr(off, "_BANK_TOKENS", 2)
+    called = {}
+    orig = glu._forward_streamed
+
+    def spy(x, indices, np_inds):
+        called["streamed"] = True
+        return orig(x, indices, np_inds)
+
+    glu._forward_streamed = spy
+    x = mlx.random.normal((1, 4, d)).astype(mlx.float16)
+    inds = mlx.array([[[0, 5], [3, 6], [1, 5], [7, 2]]], dtype=mlx.uint32)
+    glu(x, inds)
+    assert called.get("streamed")

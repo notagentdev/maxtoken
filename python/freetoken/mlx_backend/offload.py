@@ -50,6 +50,14 @@ _NP_DTYPES = {"U32": np.uint32, "F16": np.float16, "BF16": np.uint16, "F32": np.
 # them (see the call site in OffloadSwitchGLU.__call__ for the measured tradeoff).
 _ADMIT_FILTER = os.environ.get("FREETOKEN_MLX_ADMIT_FILTER", "") == "1"
 
+# Chunks up to this many tokens that route more experts than the slot cache
+# holds are served from a transient bank of ONLY the routed non-resident
+# experts instead of streaming the whole layer stack. This is the short
+# rest-prompt after a prefix-cache restore: a 20-token remainder routes ~150
+# of 512 experts, so the full-layer stream reads 3-6x more bytes than needed
+# and TTFT pays a multi-second floor regardless of prompt length.
+_BANK_TOKENS = int(os.environ.get("FREETOKEN_MLX_BANK_TOKENS", "32"))
+
 _PROJS = ("gate_proj", "up_proj", "down_proj")
 _PARTS = ("weight", "scales", "biases")
 
@@ -490,6 +498,8 @@ class OffloadSwitchGLU:
         np_inds = np.array(indices, copy=False)  # forces evaluation up to the router
         uniq = np.unique(np_inds)
         if len(uniq) > self.cache.num_slots:
+            if n_tokens <= _BANK_TOKENS:
+                return self._forward_banked(x, indices, np_inds, uniq)
             return self._forward_streamed(x, indices, np_inds)
 
         self.last_routed = uniq
@@ -603,6 +613,67 @@ class OffloadSwitchGLU:
             buf[slot_idx] = stacked[expert_idx]
         cache.owner[slot_idx] = expert_idx.astype(mx.int32)
         cache.lut[expert_idx] = slot_idx
+
+    def _forward_banked(self, x, indices, np_inds, uniq):
+        """Short chunk routing more experts than the cache has slots: serve
+        resident experts from the slot cache and fetch ONLY the non-resident
+        ones into a transient bank — no full-layer stream, no install churn.
+        Two gathers (slots + bank) combined by the residency mask; the hottest
+        bank experts are then admitted device-side so decode starts warm, and
+        the bank is dropped before the next layer runs."""
+        mx = self._mx
+        cache = self.cache
+        self.last_routed = uniq
+        experts = [int(e) for e in uniq]
+        hits, missing = cache.lru.lookup(experts)
+        cache.hits += len(hits)
+        cache.misses += len(missing)
+        b = cache.buffers
+        slot_inds = mx.take(cache.lut, indices)
+        y = self._run(
+            x, slot_inds, ((b[0], b[1], b[2]), (b[3], b[4], b[5]), (b[6], b[7], b[8]))
+        )
+        if not missing:
+            return y
+        in_slot = mx.take(cache.owner, slot_inds) == indices.astype(mx.int32)
+        bank = self.store.fetch_stacked(missing, cache._inflight)
+        remap = np.zeros(self.store.num_experts, dtype=np.uint32)
+        remap[missing] = np.arange(len(missing), dtype=np.uint32)
+        bank_inds = mx.array(remap[np_inds])
+        y_bank = self._run(
+            x,
+            bank_inds,
+            ((bank[0], bank[1], bank[2]), (bank[3], bank[4], bank[5]),
+             (bank[6], bank[7], bank[8])),
+        )
+        y = mx.where(in_slot[..., None], y, y_bank)
+        self._admit_from_bank(bank, missing, np_inds)
+        # The bank must be droppable right now (like _forward_streamed): the
+        # admission scatter would otherwise keep it referenced from the cache
+        # buffers' lazy graph across every remaining layer.
+        mx.eval(y, *cache.buffers, cache.owner, cache.lut)
+        return y
+
+    def _admit_from_bank(self, bank, missing, np_inds) -> None:
+        """Admit the chunk's hottest fetched experts into the slot cache (they
+        predict the routing of the decode tokens that follow), sourcing the
+        copies from the already-materialized bank rows."""
+        mx = self._mx
+        cache = self.cache
+        counts = np.bincount(np_inds.reshape(-1), minlength=self.store.num_experts)
+        hot = [e for e in missing if counts[e] > 0]
+        hot.sort(key=lambda e: counts[e])  # hottest last = most recently used
+        hot = hot[-cache.num_slots :]
+        if not hot:
+            return
+        remap = {e: i for i, e in enumerate(missing)}
+        slots = [cache.lru.assign(e) for e in hot]
+        slot_idx = mx.array(slots, dtype=mx.uint32)
+        bank_idx = mx.array([remap[e] for e in hot], dtype=mx.uint32)
+        for buf, stacked in zip(cache.buffers, bank, strict=True):
+            buf[slot_idx] = stacked[bank_idx]
+        cache.owner[slot_idx] = mx.array(hot, dtype=mx.int32)
+        cache.lut[mx.array(hot, dtype=mx.uint32)] = slot_idx
 
 
 class OffloadState:

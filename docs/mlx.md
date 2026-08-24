@@ -130,9 +130,13 @@ fit, which is the case the slot cache exists for (Qwen3-Next: 48 layers ×
 512 experts × top-10; 40.5 GiB of experts over a 1.3 GiB dense core). Decode
 scales with the budget: 5.3 / 6.4 / 8.4 / 8.6 tok/s engine-level at 5 / 10 /
 20 / 30% cache (3.4 / 5.5 / 10.3 / 13.5 GiB active) — diminishing returns
-past 20%; through the HTTP server 7.6 tok/s at 20%. Prefill streams every
-expert layer, so TTFT has a ~5 s floor regardless of prompt length (the full
-40 GiB pass; the SSD covers 42 GiB in ~12 s).
+past 20%; through the HTTP server 7.6 tok/s at 20%. Long prefill chunks
+stream every expert layer (a full 40 GiB pass — a multi-second TTFT floor
+regardless of prompt length; the SSD covers 42 GiB in ~12 s), but chunks of
+≤ 32 tokens (`FREETOKEN_MLX_BANK_TOKENS`) — the short rest-prompt after a
+prefix-cache restore — are served from a transient bank of only the routed
+non-resident experts: a chat follow-up's TTFT drops from ~7 s to 2–3 s and
+now scales with the remainder, not with the model.
 
 ² no free lunch: at full speed the expert weights occupy RAM in the mapped mode
 too (that is why it is fast). The difference is the KIND of memory — the store
