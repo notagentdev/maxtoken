@@ -10,16 +10,16 @@ def _print_help(file: TextIO) -> None:
         """usage: ft <command> [args]
 
 Commands:
-  serve       Start the FreeToken API server
-  shell       Chat with a FreeToken server in the terminal
-  ctl         Query and manage a running FreeToken server
-  daemon      Run the FreeToken supervisor (persistent engine service)
-  launch      Configure and launch an agent against a FreeToken server
+  serve       Start the MaxToken API server
+  shell       Chat with a MaxToken server in the terminal
+  ctl         Query and manage a running MaxToken server
+  daemon      Run the MaxToken supervisor (persistent engine service)
+  launch      Configure and launch an agent against a MaxToken server
   checkpoint  Convert an HF safetensors checkpoint to FTW
   bench       Run a micro-benchmark (e.g. "bench bw" = CPU vs PCIe bandwidth)
 
 Use "ft <command> --help" for command-specific options.
-Use "ft --version" to print the FreeToken version.""",
+Use "ft --version" to print the MaxToken version.""",
         file=file,
     )
 
@@ -112,7 +112,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args[0] in {"-V", "--version"}:
         from freetoken.version import __version__
 
-        print(f"freetoken version {__version__}")
+        print(f"maxtoken version {__version__}")
         return 0
 
     command = args[0]

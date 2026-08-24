@@ -132,7 +132,7 @@ class ModelCard(BaseModel):
     id: str
     object: str = "model"
     created: int = Field(default_factory=lambda: int(time.time()))
-    owned_by: str = "FreeToken"
+    owned_by: str = "MaxToken"
     root: str
     # The model's own limit, not the KV budget in force. Two spellings of the same number:
     # `max_model_len` is vLLM/SGLang's, `context_length` what most other clients look for.

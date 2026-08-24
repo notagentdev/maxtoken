@@ -417,7 +417,7 @@ def install_cors(app: FastAPI, origins_csv: str) -> None:
     )
 
 
-app = FastAPI(title="FreeToken API Server", version=__version__, lifespan=lifespan)
+app = FastAPI(title="MaxToken API Server", version=__version__, lifespan=lifespan)
 register_openai_routes(app, get_global_state, lambda: _MODEL_SAMPLING)
 register_anthropic_routes(app, get_global_state, lambda: _MODEL_SAMPLING)
 register_responses_routes(app, get_global_state, lambda: _MODEL_SAMPLING)

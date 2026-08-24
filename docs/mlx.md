@@ -1,6 +1,6 @@
 # macOS / Apple silicon (MLX backend)
 
-On Apple-silicon Macs, FreeToken serves models through [MLX](https://github.com/ml-explore/mlx)
+On Apple-silicon Macs, MaxToken serves models through [MLX](https://github.com/ml-explore/mlx)
 instead of the CUDA engine. The API server, tokenizer workers, terminal shell and both
 client APIs (OpenAI- and Anthropic-compatible, including streaming, stop sequences and
 usage accounting) are identical between the two backends — only the scheduler process
@@ -31,7 +31,7 @@ The backend has three serving modes:
   prefills, inspired by llama.cpp's second-stream expert uploads) measured
   net-negative on this hardware and stays off by default.
 - **expert slot cache** (`--moe-backend offload` plus an explicit
-  `--moe-cache-size`/`--moe-cache-rate`): FreeToken's core idea on Apple
+  `--moe-cache-size`/`--moe-cache-rate`): MaxToken's core idea on Apple
   silicon. Only the dense weights stay resident; the MoE experts are served from a
   per-layer LRU **slot cache** (`mx.gather_qmm` over the slots — the same kernel as
   resident serving, validated bit-identical), with misses fetched from the
@@ -74,7 +74,7 @@ models pick a quantized `mlx-community/...-4bit` checkpoint that fits your unifi
 memory.
 
 To serve a MoE model **larger than the memory you want to commit to it**, enable
-expert offload (this is what FreeToken is for):
+expert offload (this is what MaxToken is for):
 
 ```bash
 # Zero-copy mapped store (default): resident-speed serving, experts live in

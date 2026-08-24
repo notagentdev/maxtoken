@@ -1,65 +1,79 @@
 <div align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/FlashML-org/FreeToken/main/assets/freetoken-logo-dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/FlashML-org/FreeToken/main/assets/freetoken-logo-light.svg">
-    <img alt="FreeToken" src="https://raw.githubusercontent.com/FlashML-org/FreeToken/main/assets/freetoken-logo.svg" width=65%>
-  </picture>
+
+# MaxToken
+
+**Serve MoE models bigger than your memory — on the Mac you already own.**
+
+An independent fork of [FlashML's FreeToken](https://github.com/FlashML-org/FreeToken)
+that turns the edge-native MoE serving engine into an Apple-silicon-first runtime:
+maximum tokens out of minimum memory.
+
 </div>
 
-<p align="center">
-| <a href="https://www.flashml.ai/"><b>Download</b></a> | <a href="https://arxiv.org/abs/2608.16157"><b>Paper</b></a> | <a href="https://join.slack.com/t/flashml/shared_invite/zt-3zpdh5j10-9dwTXrgLiqpVxizhA9KVbA"><b>Developer Slack</b></a> | <a href="https://discord.gg/xzwSnMdsX"><b>Community Discord</b></a> | <a href="https://github.com/FlashML-org/FreeToken/blob/main/assets/freetoken-wechatgroup.png"><b>Community WeChat</b></a> |
-</p>
+## What it does
 
+MaxToken serves Mixture-of-Experts models whose weights do not fit the memory you
+want to give them. On Apple silicon it executes via [MLX](https://github.com/ml-explore/mlx),
+keeping only the dense core resident and serving the routed experts from an
+elastic, hard-budgeted slot cache backed by direct SSD reads — or, when the model
+fits, from a zero-copy memory-mapped store at resident-kernel speed.
 
-Unlock datacenter-class intelligence on the hardware you already own — Run 290B+ frontier MoE models locally on your gaming PC at blistering interactive speeds.
+Measured on a 32 GB M1 Max (all through the real HTTP serving path):
 
-## About
+| model (4-bit) | memory | decode |
+|---|---|---|
+| Qwen3-Coder-Next-**80B** (42 GiB checkpoint) | **10 GiB** hard budget | ~10 tok/s |
+| Qwen3-Coder-Next-**80B** | **3.4 GiB** hard budget | ~5 tok/s |
+| Ornith-1.5-**35B**-A3B (18 GiB checkpoint) | 1.3 GiB owned + page cache | ~67 tok/s |
 
-FreeToken is an edge-native Mixture-of-Experts (MoE) serving engine designed for running frontier-scale open-weight models on personal and consumer hardware. It treats heterogeneous edge resources—GPUs, CPUs, host memory, and interconnects—as a unified, elastic inference platform. Its core features include:  
+The 80B rows are the point: a checkpoint 1.3× the machine's total RAM, serving
+usable tokens inside a quarter of its size — with follow-up TTFT of ~2-3 s via
+the prefix cache and short-remainder banked prefill. The workload is memory- and
+I/O-bound, not compute-bound: it runs cool enough for fanless MacBooks that CPU
+runtimes grill at 100 °C.
 
-- **Fast Edge-Native Runtime**: Provides efficient MoE serving with bandwidth-adaptive CPU–GPU co-execution ($q^\star$ policy), full-layer double-buffered prefill streaming, global LRU expert caching, graph-compatible execution, and the FTW fast weight format.  
-- **Semantic-Aware Caching**: Features semantic anchor checkpoints for recurrent state and KV caches, allowing agentic context edits (e.g., tool calls, thinking blocks) to avoid redundant context recomputation.  
-- **Elastic Memory Management**: Supports dynamic, runtime VRAM re-allocation between expert caches and KV memory without engine restarts or weight reloading.  
-- **Broad MoE & Ecosystem Support**: Supports frontier open-weight MoE models (e.g., DeepSeek-V4-Flash, Qwen3.6-35B-A3B, GLM-5.2) across various parameter scales and quantization formats (e.g., MXFP4, NVFP4, FP8, BF16), with Anthropic/OpenAI-compatible APIs for seamless integration with real-world coding and tool-calling agents (e.g., Codex, Claude Code, OpenCode, OpenClaw, DeepSeek Harness). 
-- **Diverse Consumer Hardware**: Scales across consumer laptops, gaming desktops, and workstation GPUs, with native support for NVIDIA RTX 30, RTX 40, and RTX 50 series GPUs.  
+Everything is served through **OpenAI- and Anthropic-compatible APIs** (Claude
+Code and Codex point at it directly), with a built-in single-file **web console**
+(chat, live throughput, request log, elastic cache slider) at the server root.
 
-## Getting Started
-
-### Desktop app
-
-Download FreeToken for Windows or Linux at [flashml.ai](https://www.flashml.ai/). It sets the engine up for you and gives you a GUI for running models, chatting, and tuning the engine.
-
-<div align="center">
-  <img alt="FreeToken Desktop" src="https://raw.githubusercontent.com/FlashML-org/FreeToken/main/assets/desktop-console.png" width=92%>
-</div>
-
-### CLI
-
-Install FreeToken with [uv](https://docs.astral.sh/uv/) (recommended) or pip:
+## Quick start
 
 ```bash
-uv pip install "freetoken[accel]"
+git clone <this-repo> && cd maxtoken
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e ".[mlx]"
+
+# a model that fits: zero-copy mapped experts, resident speed
+ft serve --model ornith-ai/Ornith-1.5-35B-A3B-MLX-4bit --moe-backend offload
+
+# a model that does NOT fit: hard memory budget via the expert slot cache
+ft serve --model mlx-community/Qwen3-Coder-Next-4bit \
+    --moe-backend offload --moe-cache-rate 0.2
 ```
 
-Or build from source:
+Then open `http://localhost:1919/` for the console, or point any OpenAI/Anthropic
+client at it. The cache budget resizes live (`/v1/cache/rebuild` or the console
+slider), and between requests the scheduler rebalances slots across layers by
+observed miss pressure. See **[docs/mlx.md](docs/mlx.md)** for the full macOS
+guide: serving modes, benchmarks, speculative decoding (`--draft-model`), and
+the honest negative results.
 
-```bash
-git clone https://github.com/FlashML-org/FreeToken.git && cd FreeToken
-uv venv && source .venv/bin/activate
-uv pip install -e ".[accel]"
-```
+The CUDA engine inherited from upstream remains intact for Linux/NVIDIA
+machines; the API server, tokenizer workers, shell and both client APIs are
+shared between the backends.
 
-For More details:
+## Relationship to FreeToken
 
-- [Install FreeToken](https://github.com/FlashML-org/FreeToken/blob/main/docs/install.md)
-- [Quick start](https://github.com/FlashML-org/FreeToken/blob/main/docs/quickstart.md)
-- [macOS / Apple silicon (MLX backend)](https://github.com/FlashML-org/FreeToken/blob/main/docs/mlx.md)
-- [Supported models](https://github.com/FlashML-org/FreeToken/blob/main/docs/models.md)
-- [CLI reference](https://github.com/FlashML-org/FreeToken/blob/main/docs/cli.md)
+MaxToken began as the upstream FreeToken engine and diverged into its own
+project: the MLX backend, the FTW-MLX zero-copy mapped store, the MLX expert
+slot cache with speculate-and-verify decode, the hybrid-capable prefix cache,
+continuous batching on MLX, banked short-chunk prefill with cross-layer
+read-ahead, miss-pressure slot rebalancing, draft-model speculative decoding,
+and the web console were developed here. The distribution is `maxtoken`; the
+import package deliberately stays `freetoken` so upstream diffs remain readable.
 
-## Citation
-
-If you use FreeToken for your research, please cite our [paper](https://arxiv.org/abs/2608.16157):
+If you use the underlying engine for research, cite the FreeToken
+[paper](https://arxiv.org/abs/2608.16157):
 
 ```bibtex
 @article{yang2026freetoken,
@@ -72,14 +86,15 @@ If you use FreeToken for your research, please cite our [paper](https://arxiv.or
 
 ## Acknowledgment
 
-FreeToken was deeply inspired by [mini-sglang](https://github.com/sgl-project/mini-sglang), and
-learned the design and reused code from the following projects:
-[SGLang](https://github.com/sgl-project/sglang),
-[vLLM](https://github.com/vllm-project/vllm),
-[FlashInfer](https://github.com/flashinfer-ai/flashinfer),
+Upstream FreeToken was deeply inspired by [mini-sglang](https://github.com/sgl-project/mini-sglang)
+and reused design and code from [SGLang](https://github.com/sgl-project/sglang),
+[vLLM](https://github.com/vllm-project/vllm), [FlashInfer](https://github.com/flashinfer-ai/flashinfer),
 [flash-linear-attention](https://github.com/fla-org/flash-linear-attention),
 [LightLLM](https://github.com/ModelTC/lightllm) and [llama.cpp](https://github.com/ggml-org/llama.cpp).
+The MLX backend additionally learned from [mlx-lm](https://github.com/ml-explore/mlx-lm),
+llama.cpp's Metal mmap path, and the measured ablations of
+[Vates](https://github.com/AMOS144/Vates).
 
 ## License
 
-[Apache License 2.0](https://github.com/FlashML-org/FreeToken/blob/main/LICENSE).
+[Apache License 2.0](LICENSE).

@@ -10,7 +10,7 @@ def test_console_served():
     r = client.get("/console")
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/html")
-    assert "FreeToken Console" in r.text
+    assert "MaxToken Console" in r.text
     # the page drives exactly these same-origin endpoints
     for path in ("/health", "/v1/stats", "/v1/cache/status", "/v1/requests"):
         assert path in r.text

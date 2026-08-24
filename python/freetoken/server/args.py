@@ -243,7 +243,7 @@ def parse_args(
             return "gemma4"
         return None
 
-    parser = argparse.ArgumentParser(prog=prog, description="FreeToken Server Arguments")
+    parser = argparse.ArgumentParser(prog=prog, description="MaxToken Server Arguments")
 
     parser.add_argument(
         "--model-path",
