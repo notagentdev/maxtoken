@@ -280,8 +280,13 @@ class FrontendManager:
             "num_pages": msg.num_pages,
             "mamba_slots": msg.mamba_slots,
             "num_swa_pages": msg.num_swa_pages,
+            "max_seq_len": getattr(msg, "max_seq_len", 0),
             "error": msg.error,
         }
+        if msg.status == "ok" and getattr(msg, "max_seq_len", 0):
+            # The scheduler accepted a new context ceiling: /v1/models publishes
+            # it from here on (state.config is frozen; the override lives here).
+            self.context_length_override = int(msg.max_seq_len)
         fut = self.rebuild_futures.pop(msg.request_id, None)
         if fut is not None and not fut.done():
             fut.set_result(self.last_rebuild)
@@ -507,6 +512,11 @@ class CacheRebuildRequest(BaseModel):
     # (or requested) anchor. Internally only num_swa_pages flows to the engine.
     num_swa_pages: int | None = None
     swa_full_tokens_ratio: float | None = None
+    # Runtime context-window ceiling (tokens). MLX backend: KV is per-request,
+    # so this IS the capacity knob — admission, generation caps and the
+    # published /v1/models context_length all follow it. Clamped to
+    # [1024, model ceiling]; the CUDA scheduler does not support it yet.
+    max_seq_len: int | None = None
     # Only "if_idle" (reject unless the scheduler is idle) is supported today. "drain" mode
     # is deferred (needs the drain-gate machinery); constraining the Literal makes an
     # unsupported value fail fast with a 422 at the API layer instead of a generic 503.
@@ -521,6 +531,7 @@ async def dispatch_rebuild(
     num_pages: int | None,
     num_mamba_slots: int | None = None,
     num_swa_pages: int | None = None,
+    max_seq_len: int | None = None,
     mode: str = "if_idle",
     timeout: float = 300.0,
 ) -> Dict[str, Any]:
@@ -541,6 +552,7 @@ async def dispatch_rebuild(
                 num_pages=num_pages,
                 num_mamba_slots=num_mamba_slots,
                 num_swa_pages=num_swa_pages,
+                max_seq_len=max_seq_len,
                 mode=mode,
             )
         )
@@ -620,12 +632,29 @@ async def cache_rebuild(req: CacheRebuildRequest):
             {"status": "failed", "error": "swa_full_tokens_ratio must be in (0, 1]"},
             status_code=422,
         )
+    if req.max_seq_len is not None:
+        ceiling = getattr(state, "context_length_ceiling", None)
+        if ceiling is None:
+            try:
+                ceiling = int(state.config.max_seq_len)
+            except Exception:  # noqa: BLE001 -- unknown ceiling: allow, scheduler decides
+                ceiling = None
+            state.context_length_ceiling = ceiling
+        if req.max_seq_len < 1024 or (ceiling and req.max_seq_len > ceiling):
+            return JSONResponse(
+                {"status": "failed", "error": (
+                    f"max_seq_len must be in [1024, {ceiling or 'model max'}] "
+                    "(the model's trained context is the ceiling)"
+                )},
+                status_code=422,
+            )
     result = await dispatch_rebuild(
         state,
         moe_cache_size=req.moe_cache_size,
         num_pages=req.num_pages,
         num_mamba_slots=req.num_mamba_slots,
         num_swa_pages=_resolve_num_swa_pages(state, req),
+        max_seq_len=req.max_seq_len,
         mode=req.mode,
         timeout=req.timeout,
     )
@@ -831,10 +860,20 @@ def cache_geometry(state: Any) -> dict:
 @app.get("/v1/cache/status")
 async def cache_status():
     state = get_global_state()
+    try:
+        ceiling = int(state.config.max_seq_len)
+    except Exception:  # noqa: BLE001 -- unknown ceiling degrades to 0, not a 500
+        ceiling = 0
     return {
         "state": state.maintenance_state,
         "last_rebuild": state.last_rebuild,
         "geometry": cache_geometry(state),
+        # The context slider's bounds: current = what admission enforces now
+        # (rebuild override or the boot value), ceiling = the model's trained max.
+        "context": {
+            "current": int(getattr(state, "context_length_override", 0) or 0) or ceiling,
+            "ceiling": ceiling,
+        },
     }
 
 

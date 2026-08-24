@@ -179,6 +179,7 @@ def tokenize_worker(
                             num_pages=m.num_pages,
                             num_mamba_slots=m.num_mamba_slots,
                             num_swa_pages=m.num_swa_pages,
+                            max_seq_len=m.max_seq_len,
                             mode=m.mode,
                         )
                     )
@@ -191,6 +192,7 @@ def tokenize_worker(
                             num_pages=m.num_pages,
                             mamba_slots=m.mamba_slots,
                             num_swa_pages=m.num_swa_pages,
+                            max_seq_len=m.max_seq_len,
                             error=m.error,
                         )
                     )

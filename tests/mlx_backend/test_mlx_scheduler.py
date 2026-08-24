@@ -169,6 +169,40 @@ def test_cache_rebuild_is_rejected_not_ignored():
     assert replies[0].request_id == "r1"
 
 
+def test_rebuild_max_seq_len_applies_without_offload():
+    """The context slider works on resident models too: KV is per-request, so
+    the ceiling is a scheduler variable, not an expert-cache property."""
+    sched = make_scheduler()
+    replies, _ = sched._handle(
+        CacheRebuildBackendMsg(request_id="r2", max_seq_len=4096)
+    )
+    assert replies[0].status == "ok"
+    assert replies[0].max_seq_len == 4096
+    assert sched.max_seq_len == 4096
+    # admission enforces the new ceiling immediately
+    err, _ = sched._handle(user_msg(1, prompt_len=5000, max_tokens=4))
+    assert isinstance(err[0], ErrorReplyMsg)
+
+
+def test_rebuild_max_seq_len_floors_at_1024():
+    sched = make_scheduler()
+    replies, _ = sched._handle(
+        CacheRebuildBackendMsg(request_id="r3", max_seq_len=8)
+    )
+    assert replies[0].status == "ok"
+    assert sched.max_seq_len == 1024
+
+
+def test_rebuild_busy_while_serving():
+    sched = make_scheduler(script={1: [5, EOS]})
+    sched._handle(user_msg(1))
+    replies, _ = sched._handle(
+        CacheRebuildBackendMsg(request_id="r4", max_seq_len=2048)
+    )
+    assert replies[0].status == "busy"
+    assert sched.max_seq_len == 64  # unchanged
+
+
 def test_exit_msg_inside_batch_requests_exit():
     sched = make_scheduler({1: [5, EOS]})
     batch = BatchBackendMsg(data=[user_msg(1, max_tokens=2), ExitMsg()])

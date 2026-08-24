@@ -288,6 +288,16 @@
           <div class="scale"><span id="moeMin">16</span><span>elastic — applies live, no restart</span><span id="moeMaxLbl">–</span></div>
           <button class="btn ghost" id="cacheApply">Apply</button><span id="cacheMsg"></span>
         </div>
+        <div class="sliderrow" id="ctxSlider" hidden>
+          <div class="top">
+            <span class="lbl">Context window</span>
+            <span class="hint">Serving ceiling for prompt + output — smaller keeps per-request KV memory predictable</span>
+            <span class="val"><span id="ctxVal">–</span><span> / </span><span id="ctxMax">–</span></span>
+          </div>
+          <input type="range" id="ctxRange" min="0" max="8" step="1">
+          <div class="scale"><span id="ctxMinLbl">1k</span><span>applies live — clients re-read it from /v1/models</span><span id="ctxMaxLbl">–</span></div>
+          <button class="btn ghost" id="ctxApply">Apply</button><span id="ctxMsg"></span>
+        </div>
       </div>
     </div>
 
@@ -417,8 +427,56 @@ async function pollCache() {
       $("presetBox").hidden = true;
     }
     markPreset();
+    updateCtxSlider(resp.context);
   } catch { /* endpoint optional */ }
 }
+
+/* Context-window slider: log2 steps from 1k up to the model's trained ceiling. */
+let ctxSteps = [];
+function fmtTok(v) {
+  return v >= 1048576 ? (v / 1048576).toFixed(1).replace(/\.0$/, "") + "M"
+       : v >= 1024 ? Math.round(v / 1024) + "k" : String(v);
+}
+function updateCtxSlider(ctx) {
+  const ceiling = ctx?.ceiling || 0;
+  if (ceiling < 2048) { $("ctxSlider").hidden = true; return; }
+  if (!ctxSteps.length || ctxSteps[ctxSteps.length - 1] !== ceiling) {
+    ctxSteps = [];
+    for (let v = 1024; v < ceiling; v *= 2) ctxSteps.push(v);
+    ctxSteps.push(ceiling);
+    $("ctxRange").min = 0; $("ctxRange").max = ctxSteps.length - 1;
+    $("ctxMinLbl").textContent = fmtTok(ctxSteps[0]);
+    $("ctxMaxLbl").textContent = fmtTok(ceiling);
+    $("ctxMax").textContent = fmtTok(ceiling);
+  }
+  $("ctxSlider").hidden = false;
+  const current = ctx.current || ceiling;
+  if (document.activeElement !== $("ctxRange")) {
+    let idx = ctxSteps.findIndex(v => v >= current);
+    $("ctxRange").value = idx < 0 ? ctxSteps.length - 1 : idx;
+    $("ctxVal").textContent = fmtTok(ctxSteps[+$("ctxRange").value]);
+  }
+}
+$("ctxRange").oninput = () => {
+  $("ctxVal").textContent = fmtTok(ctxSteps[+$("ctxRange").value] || 0);
+  $("syncTxt").textContent = "Modified";
+};
+$("ctxApply").onclick = async () => {
+  const v = ctxSteps[+$("ctxRange").value];
+  if (!v) return;
+  $("ctxMsg").textContent = "applying…";
+  try {
+    const r = await (await fetch("/v1/cache/rebuild", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ max_seq_len: v }),
+    })).json();
+    $("ctxMsg").textContent = r.status === "ok"
+      ? "context ceiling now " + fmtTok(r.max_seq_len || v)
+      : (r.error || r.status);
+    $("syncTxt").textContent = r.status === "ok" ? "Synced" : "Failed";
+    pollCache();
+  } catch { $("ctxMsg").textContent = "request failed"; }
+};
 /* presets: fractions of the slider ceiling, snapped to 16-slot steps */
 const PRESETS = { minimum: 0.25, chat: 0.5, agent: 1.0 };
 function presetTarget(name) {

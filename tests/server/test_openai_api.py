@@ -444,6 +444,19 @@ def test_models_route_publishes_the_model_context_length():
     assert card["context_length"] == 262144
 
 
+def test_models_route_prefers_runtime_context_override():
+    """A rebuild with max_seq_len (the console's context slider) moves what
+    /v1/models publishes, so clients pick up the enforced ceiling."""
+    state = FakeState([])
+    state.config.max_seq_len = 262144
+    state.context_length_override = 32768
+    app = FastAPI()
+    register_openai_routes(app, lambda: state, lambda: {})
+
+    card = TestClient(app).get("/v1/models").json()["data"][0]
+    assert card["context_length"] == 32768
+
+
 def test_retrieve_model_returns_card_and_404():
     """OpenAI's GET /v1/models/{id}: clients (e.g. Visual Studio) validate the
     configured model name with it and treat a 404 as an invalid server."""

@@ -878,35 +878,48 @@ class MlxScheduler:
         return [], False
 
     def _handle_cache_rebuild(self, msg: CacheRebuildBackendMsg) -> BaseTokenizerMsg:
-        """Elastic memory management, FreeToken's runtime cache resize: change the
-        expert slot-cache size without restarting or reloading the model."""
-        if self.offload_state is None:
+        """Elastic memory management, the runtime resize: change the expert
+        slot-cache size and/or the context-window ceiling without restarting or
+        reloading. KV is per-request on MLX, so ``max_seq_len`` (not a page
+        pool) is this backend's capacity knob: admission and generation caps
+        follow it immediately."""
+        wants_moe = bool(msg.moe_cache_size)
+        wants_ctx = bool(getattr(msg, "max_seq_len", None))
+        if not wants_moe and not wants_ctx:
+            return CacheRebuildResultMsg(
+                request_id=msg.request_id,
+                status="failed",
+                error="the MLX backend can rebuild moe_cache_size and/or "
+                "max_seq_len (KV is per-request, not pooled)",
+            )
+        if wants_moe and self.offload_state is None:
             return CacheRebuildResultMsg(
                 request_id=msg.request_id,
                 status="failed",
                 error="no expert cache to rebuild (serving fully resident); "
                 "start with --moe-backend offload",
             )
-        if not msg.moe_cache_size:
-            return CacheRebuildResultMsg(
-                request_id=msg.request_id,
-                status="failed",
-                error="the MLX backend can only rebuild moe_cache_size "
-                "(KV is per-request, not pooled)",
-            )
         if self.active:
             return CacheRebuildResultMsg(request_id=msg.request_id, status="busy")
-        total = self.offload_state.resize_total(int(msg.moe_cache_size))
-        logger.info(
-            f"expert cache resized to {total} slots "
-            f"({self.offload_state.cache_bytes() / 2**30:.2f} GiB)"
-        )
-        if self.draft is not None:
-            # A shrunk cache may no longer hold a whole verify window.
-            self.draft.k = self._clamp_draft_k(self.draft.k)
-            self.offload_state.spec_window = self.draft.k + 1
+        total = 0
+        if wants_moe:
+            total = self.offload_state.resize_total(int(msg.moe_cache_size))
+            logger.info(
+                f"expert cache resized to {total} slots "
+                f"({self.offload_state.cache_bytes() / 2**30:.2f} GiB)"
+            )
+            if self.draft is not None:
+                # A shrunk cache may no longer hold a whole verify window.
+                self.draft.k = self._clamp_draft_k(self.draft.k)
+                self.offload_state.spec_window = self.draft.k + 1
+        if wants_ctx:
+            self.max_seq_len = max(1024, int(msg.max_seq_len))
+            logger.info(f"context window ceiling set to {self.max_seq_len} tokens")
         return CacheRebuildResultMsg(
-            request_id=msg.request_id, status="ok", moe_cache_size=total
+            request_id=msg.request_id,
+            status="ok",
+            moe_cache_size=total,
+            max_seq_len=self.max_seq_len if wants_ctx else 0,
         )
 
     def _reply(self, replies: List[BaseTokenizerMsg]) -> None:

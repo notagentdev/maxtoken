@@ -87,6 +87,9 @@ class CacheRebuildMsg(BaseTokenizerMsg):
     num_pages: int | None = None
     num_mamba_slots: int | None = None
     num_swa_pages: int | None = None
+    # Runtime context-window ceiling (MLX: KV is per-request, so the ceiling IS
+    # the capacity knob; the CUDA scheduler ignores it).
+    max_seq_len: int | None = None
     mode: str = "if_idle"
 
 
@@ -99,6 +102,7 @@ class CacheRebuildResultMsg(BaseTokenizerMsg):
     num_pages: int = 0
     mamba_slots: int = 0
     num_swa_pages: int = 0
+    max_seq_len: int = 0
     error: str | None = None
 
 

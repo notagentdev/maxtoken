@@ -207,8 +207,13 @@ uses.
 - Tensor parallelism (`--tp-size > 1`) is rejected — MLX uses the unified memory of
   one chip.
 - Runtime cache rebuilds (`/v1/cache/rebuild`) resize the expert slot cache live
-  (`moe_cache_size` only); KV is per-request on MLX, so there is no page pool to
-  resize.
+  (`moe_cache_size`) and/or move the context-window ceiling (`max_seq_len`,
+  clamped to [1024, model max]) — KV is per-request on MLX, so the ceiling IS
+  this backend's capacity knob: admission, generation caps and the
+  `context_length` published by `/v1/models` follow it immediately, and the
+  console exposes it as a slider next to the expert-cache one. (The CUDA
+  engine's runtime knob is the KV page pool instead; it ignores
+  `max_seq_len`.)
 - **Prefix cache** (on by default; `--cache-type naive` disables): generation
   caches are snapshotted at 256-token boundaries during prefill and at request
   end, and a new request restores the longest token-prefix match, prefilling

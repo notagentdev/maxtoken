@@ -67,4 +67,5 @@ class CacheRebuildReply(BaseFrontendMsg):
     num_pages: int = 0
     mamba_slots: int = 0
     num_swa_pages: int = 0
+    max_seq_len: int = 0
     error: str | None = None

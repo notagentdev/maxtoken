@@ -704,8 +704,12 @@ def _served_model_name(state: Any) -> str:
 
 
 def _model_context_length(state: Any) -> int | None:
-    """The model ceiling, not `min(ceiling, KV budget)`: a rebuild moves the latter, and agents
-    read this once at startup."""
+    """The serving ceiling. Starts as the model ceiling; a runtime rebuild with
+    ``max_seq_len`` (the console's context slider) moves it, and clients that
+    read it at startup see whatever is currently enforced."""
+    override = getattr(state, "context_length_override", None)
+    if override:
+        return int(override)
     try:  # never 500 a metadata route: max_seq_len walks into the HF config on some builds
         value = int(state.config.max_seq_len)
     except Exception:  # noqa: BLE001
