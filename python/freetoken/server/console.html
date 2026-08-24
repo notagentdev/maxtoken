@@ -537,7 +537,10 @@ async function send() {
         const chunk = JSON.parse(payload);
         if (chunk.usage) usage = chunk.usage;
         const delta = chunk.choices?.[0]?.delta || {};
-        if (delta.reasoning_content) { think += delta.reasoning_content; thinkEl.hidden = false; thinkEl.textContent = think; }
+        if (delta.reasoning_content) {
+          if (tFirst === null) tFirst = performance.now();
+          think += delta.reasoning_content; thinkEl.hidden = false; thinkEl.textContent = think;
+        }
         if (delta.content) {
           if (tFirst === null) tFirst = performance.now();
           answer += delta.content; bodyEl.textContent = answer;
