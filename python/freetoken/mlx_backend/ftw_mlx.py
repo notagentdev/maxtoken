@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from typing import Any, Dict, List, Tuple
 
 import numpy as np
@@ -167,6 +168,80 @@ class MappedExpertStore:
             if meta["dtype"] == "BF16":
                 arr = arr.view(mx.bfloat16)
             self.tensors[name] = arr
+        self._prefetch_lock = threading.Lock()
+        self._prefetching = False
+        self._advise_map: Any = None
+
+    # -------------------------------------------------------------- prefetch
+
+    def _advise_handle(self):
+        """A parallel plain mmap of the store used only for madvise/page-in;
+        it shares the page cache with the DLPack-imported memmaps."""
+        import mmap as mmap_mod
+
+        if self._advise_map is None:
+            f = open(self.path, "rb")
+            self._advise_map = mmap_mod.mmap(f.fileno(), 0, prot=mmap_mod.PROT_READ)
+            self._advise_file = f  # keep the fd alive with the map
+        return self._advise_map
+
+    def start_prefetch(self) -> None:
+        """Kick a background sweep that advises the store's pages into memory
+        IN FILE (= layer) ORDER, so page-in runs ahead of the forward that
+        consumes the layers in the same order. This is the unified-memory
+        analogue of streaming expert uploads on a second stream: on a cold
+        cache the prefill otherwise pays every page fault synchronously inside
+        its evals. Idempotent while a sweep is running; near-free when warm."""
+        import mmap as mmap_mod
+
+        with self._prefetch_lock:
+            if self._prefetching:
+                return
+            self._prefetching = True
+
+        def sweep():
+            try:
+                m = self._advise_handle()
+                size = len(m)
+                chunk = 256 << 20
+                for off in range(0, size, chunk):
+                    m.madvise(
+                        mmap_mod.MADV_WILLNEED, off, min(chunk, size - off)
+                    )
+            except Exception as exc:  # noqa: BLE001 -- advisory only
+                logger.warning(f"expert-store prefetch sweep failed: {exc!r}")
+            finally:
+                with self._prefetch_lock:
+                    self._prefetching = False
+
+        threading.Thread(target=sweep, name="ftw-mlx-prefetch", daemon=True).start()
+
+    def mlock_all(self) -> bool:
+        """Pin the whole store into memory (FREETOKEN_MLX_MLOCK=1): the pressure
+        counterpart of llama.cpp's host-register trick. Only sensible when the
+        store fits in RAM with headroom — pinned pages cannot be reclaimed, so
+        this trades system elasticity for immunity against expert-page eviction."""
+        import ctypes
+
+        try:
+            libc = ctypes.CDLL(None, use_errno=True)
+            total = 0
+            for base in self._bases:
+                addr = base.ctypes.data
+                length = base.nbytes
+                if libc.mlock(ctypes.c_void_p(addr), ctypes.c_size_t(length)) != 0:
+                    err = ctypes.get_errno()
+                    logger.warning(
+                        f"mlock failed after {total / 2**30:.2f} GiB (errno {err}); "
+                        "raise the memlock rlimit or drop FREETOKEN_MLX_MLOCK"
+                    )
+                    return False
+                total += length
+            logger.info(f"expert store pinned: {total / 2**30:.2f} GiB mlocked")
+            return True
+        except Exception as exc:  # noqa: BLE001 -- opt-in nicety
+            logger.warning(f"mlock unavailable: {exc!r}")
+            return False
 
     def glu_params(self, glu_path: str) -> Dict[str, Dict[str, Any]]:
         """{proj: {part: array}} for one switch-GLU."""
@@ -215,4 +290,6 @@ def attach_mapped_experts(model, model_dir: str) -> int:
         f"expert serving: zero-copy mmap store ({len(glu_paths)} MoE layers, "
         f"{os.path.getsize(store.path) / 2**30:.2f} GiB file-backed, OS-managed residency)"
     )
+    if os.environ.get("FREETOKEN_MLX_MLOCK") == "1":
+        store.mlock_all()
     return len(glu_paths)

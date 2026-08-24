@@ -641,9 +641,25 @@ class MlxScheduler:
         prefix-cache hit length. The prompt remainder is segmented at snapshot
         boundaries so the engine pauses there and mid-prompt states can be
         donated to the prefix store."""
+        import os as _os
+
         from .prefix_cache import BOUNDARY_TOKENS
 
         cache, cached = self._lookup_prefix(input_ids)
+        # Experimental, opt-in (FREETOKEN_MLX_PREFETCH=1): madvise the mapped
+        # store in ahead of a big prefill. Measured NET-NEGATIVE on this class
+        # of hardware (cold 144 -> 131 tok/s, warm 399 -> 264): without a
+        # per-layer progress hook the sweep competes with the forward's own
+        # demand faults for the SSD queue instead of running ahead of them.
+        # Kept for machines where the tradeoff may differ; prefer
+        # FREETOKEN_MLX_MLOCK=1, which pins the store and preloads it at start.
+        store = getattr(self.model, "_freetoken_mapped_store", None)
+        if (
+            store is not None
+            and len(input_ids) - cached >= 256
+            and _os.environ.get("FREETOKEN_MLX_PREFETCH") == "1"
+        ):
+            store.start_prefetch()
         segments = []
         pos = cached
         while pos < len(input_ids):

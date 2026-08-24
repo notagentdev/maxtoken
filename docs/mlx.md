@@ -23,6 +23,13 @@ The backend has three serving modes:
   degradation instead of OOM. The repack lives under
   `~/.cache/freetoken/mlx-ftw/` (`FREETOKEN_MLX_FTW_DIR` overrides) and costs
   one streaming copy of the expert weights on first serve.
+  `FREETOKEN_MLX_MLOCK=1` pins the whole store into memory (use only when it
+  fits with headroom): the first prefill starts fully warm (measured 2× faster
+  server warm-up on Ornith-35B, 11 s → 5.2 s) and expert pages can never be
+  evicted under memory pressure — at the price of the store's elasticity.
+  `FREETOKEN_MLX_PREFETCH=1` (experimental madvise read-ahead before big
+  prefills, inspired by llama.cpp's second-stream expert uploads) measured
+  net-negative on this hardware and stays off by default.
 - **expert slot cache** (`--moe-backend offload` plus an explicit
   `--moe-cache-size`/`--moe-cache-rate`): FreeToken's core idea on Apple
   silicon. Only the dense weights stay resident; the MoE experts are served from a
