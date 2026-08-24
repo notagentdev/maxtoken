@@ -44,6 +44,33 @@ Everything is served through **OpenAI- and Anthropic-compatible APIs** (Claude
 Code and Codex point at it directly), with a built-in single-file **web console**
 (chat, live throughput, request log, elastic cache slider) at the server root.
 
+## Hardware reality (read before expecting CUDA numbers)
+
+Do not expect the upstream engine's GPU throughput from a Mac — the ceiling is
+the hardware, not the software, and there is not much optimization headroom
+left above what MaxToken already does:
+
+- **Bandwidth is the wall.** Apple unified memory moves ~100–400 GB/s
+  (Air → Max) where a desktop GPU's VRAM moves 1–2 TB/s, and the offload
+  source here is the SSD (~3–7 GB/s) where CUDA streams experts from pinned
+  host RAM over PCIe at a steady ~25 GB/s. Decode on the offload path is
+  fetch-bound: measured on the 80B, the expert reads alone cost ~60 ms per
+  token — no amount of compute tuning removes an I/O bill.
+- **Most CUDA optimizations do not port.** The upstream engine's core tricks —
+  a device-side slot cache with GPU-initiated copies, CUDA graphs over the
+  decode loop, second-stream full-tensor prefetch with pinned host memory,
+  batched hit/miss device-to-device splits, fused Marlin/NVFP4 kernels — all
+  assume the GPU can drive memory traffic independently of the host. Under
+  MLX, file I/O cannot be issued from inside the lazy graph and every routing
+  decision costs a host sync, so those designs have no Metal equivalent. We
+  measured the honest substitutes (madvise read-ahead, cross-layer prediction
+  on the decode path, wider speculative windows) and documented the ones that
+  LOST in [docs/mlx.md](docs/mlx.md) rather than shipping them.
+- The one structural advantage the Mac has is the one MaxToken is built
+  around: unified memory lets file-backed weights be mapped zero-copy and
+  residency be OS-elastic — a shape of elasticity a discrete-VRAM GPU cannot
+  offer at all.
+
 ## Quick start
 
 ```bash
