@@ -14,7 +14,12 @@ from typing import Any, Callable, Dict, List, Literal
 
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import (
+    FileResponse,
+    JSONResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 from freetoken import __version__
 from freetoken.core import SamplingParams
 from freetoken.message import (
@@ -418,6 +423,20 @@ register_anthropic_routes(app, get_global_state, lambda: _MODEL_SAMPLING)
 register_responses_routes(app, get_global_state, lambda: _MODEL_SAMPLING)
 register_control_routes(app, get_global_state, lambda: _MODEL_SAMPLING)
 register_accounting_routes(app, get_global_state)
+
+# Built-in web console (chat, live stats, elastic cache control) served from the
+# same origin as the APIs — `ft serve` then has a GUI at http://host:port/.
+_CONSOLE_HTML = os.path.join(os.path.dirname(__file__), "console.html")
+
+
+@app.get("/", include_in_schema=False)
+async def _root() -> RedirectResponse:
+    return RedirectResponse(url="/console")
+
+
+@app.get("/console", include_in_schema=False)
+async def _console() -> FileResponse:
+    return FileResponse(_CONSOLE_HTML, media_type="text/html")
 
 
 # Paths the HTTP middleware logs into the request ring. The three chat protocols funnel through

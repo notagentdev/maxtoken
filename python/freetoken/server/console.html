@@ -1,0 +1,534 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FreeToken Console</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0b0f16; --panel: #10151f; --panel-2: #141b28; --border: #1e2634;
+    --text-1: #e8ecf4; --text-2: #9aa3b5; --text-3: #5c6577;
+    --warning: #fab219;
+    --accent: #4c8dff; --accent-dim: #4c8dff22;
+    --good: #31c48d; --good-dim: #31c48d1a;
+    --bad: #ef4a4a; --bad-dim: #ef4a4a1a;
+    --mono: "SF Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--text-1);
+    font: 13.5px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    display: flex; flex-direction: column;
+  }
+
+  /* ---------- titlebar ---------- */
+  #titlebar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 16px; border-bottom: 1px solid var(--border);
+    font: 11.5px var(--mono); color: var(--text-2);
+  }
+  #titlebar .brand { display: flex; align-items: center; gap: 7px; margin: 0 auto 0 0; }
+  #titlebar .brand::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+  .pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    border: 1px solid var(--border); border-radius: 999px;
+    padding: 3px 10px; font: 11px var(--mono); color: var(--text-2);
+    background: var(--panel);
+  }
+  .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3); }
+  .pill.green { color: var(--good); border-color: #31c48d44; background: var(--good-dim); }
+  .pill.green .dot { background: var(--good); }
+  .pill.blue { color: var(--accent); border-color: #4c8dff44; background: var(--accent-dim); }
+
+  /* ---------- shell ---------- */
+  #shell { flex: 1; display: flex; min-height: 0; }
+  #sidebar {
+    width: 190px; border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; padding: 14px 10px 10px;
+  }
+  .nav {
+    display: flex; align-items: center; gap: 9px;
+    padding: 8px 12px; border-radius: 9px; cursor: pointer;
+    color: var(--text-2); font-size: 13px; user-select: none;
+  }
+  .nav svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 1.7; }
+  .nav:hover { background: var(--panel); }
+  .nav.active { background: var(--panel-2); color: var(--text-1); }
+  .nav.active svg { stroke: var(--accent); }
+  #sidebar .grow { flex: 1; }
+  #sysbox {
+    border-top: 1px solid var(--border); padding: 12px 8px 4px;
+    font: 10.5px var(--mono); color: var(--text-3);
+  }
+  #sysbox .bar-row { display: flex; justify-content: space-between; margin-bottom: 3px; color: var(--text-2); }
+  .bar { height: 3px; border-radius: 2px; background: var(--panel-2); margin-bottom: 10px; overflow: hidden; }
+  .bar i { display: block; height: 100%; background: var(--accent); border-radius: 2px; transition: width .6s; }
+  #sysbox .ver { margin-top: 6px; text-align: right; }
+
+  #content { flex: 1; overflow-y: auto; padding: 22px 26px; min-width: 0; }
+  .view { display: none; max-width: 980px; margin: 0 auto; }
+  .view.active { display: block; }
+
+  /* ---------- console view ---------- */
+  .head { display: flex; align-items: flex-start; margin-bottom: 18px; }
+  .head h1 { font-size: 21px; font-weight: 700; letter-spacing: .2px; }
+  .head .sub { color: var(--text-2); font-size: 12.5px; margin-top: 3px; }
+  .head .spacer { flex: 1; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 15px 17px;
+  }
+  .card.hero { border-color: #31c48d3d; background: linear-gradient(180deg, #31c48d0d, var(--panel)); }
+  .card .label { font: 11px var(--mono); color: var(--text-2); }
+  .card .big { font: 600 26px/1.25 var(--mono); margin-top: 6px; }
+  .card.hero .big { color: var(--good); }
+  .card .sub { font: 11px var(--mono); color: var(--text-3); margin-top: 5px; }
+  .card .right { float: right; text-align: right; font: 11px var(--mono); color: var(--text-3); line-height: 1.7; }
+
+  .modelrow {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 13px 17px; margin-top: 12px;
+  }
+  .avatar {
+    width: 36px; height: 36px; border-radius: 10px; flex: none;
+    background: var(--accent-dim); color: var(--accent);
+    display: flex; align-items: center; justify-content: center; font: 700 15px var(--mono);
+  }
+  .modelrow .name { font-weight: 650; font-size: 14.5px; }
+  .modelrow .meta { font: 11px var(--mono); color: var(--text-3); margin-top: 2px; }
+  .modelrow .spacer { flex: 1; }
+  .stat { text-align: right; min-width: 74px; }
+  .stat .k { font: 10px var(--mono); color: var(--text-3); letter-spacing: .8px; }
+  .stat .v { font: 600 17px var(--mono); margin-top: 1px; }
+  .btn {
+    border: 1px solid var(--border); background: var(--text-1); color: #10151f;
+    border-radius: 9px; padding: 7px 16px; font: 600 12.5px/1 inherit; cursor: pointer;
+  }
+  .btn.ghost { background: transparent; color: var(--text-2); }
+  .btn.danger { background: transparent; color: var(--bad); border-color: #ef4a4a55; }
+  .btn:disabled { opacity: .4; cursor: default; }
+
+  .panelcard {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 17px; margin-top: 12px;
+  }
+  .panelcard .title { display: flex; align-items: center; gap: 8px; font-weight: 650; font-size: 14px; }
+  .tag {
+    font: 10px var(--mono); padding: 2px 7px; border-radius: 5px;
+    background: var(--accent-dim); color: var(--accent); border: 1px solid #4c8dff33;
+  }
+  .tag.teal { background: #31c48d14; color: var(--good); border-color: #31c48d33; }
+  .panelcard .desc { font-size: 12px; color: var(--text-3); margin-top: 3px; }
+  .panelcard .synced { margin-left: auto; font: 11px var(--mono); color: var(--text-3); }
+
+  .sliderrow { margin-top: 18px; }
+  .sliderrow .top { display: flex; align-items: baseline; gap: 10px; }
+  .sliderrow .lbl { font-weight: 600; font-size: 13px; }
+  .sliderrow .hint { font-size: 11.5px; color: var(--text-3); }
+  .sliderrow .val { margin-left: auto; font: 600 13px var(--mono); }
+  input[type=range] { width: 100%; margin: 12px 0 4px; accent-color: var(--accent); }
+  .sliderrow .scale { display: flex; justify-content: space-between; font: 10px var(--mono); color: var(--text-3); }
+  #cacheApply { margin-top: 12px; }
+  #cacheMsg { font: 11.5px var(--mono); color: var(--text-3); margin-left: 10px; }
+
+  /* ---------- chat view ---------- */
+  #chatView { display: none; flex-direction: column; height: calc(100vh - 120px); max-width: 980px; margin: 0 auto; }
+  #chatView.active { display: flex; }
+  #messages { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding: 4px 2px 12px; }
+  .msg { max-width: 84%; border-radius: 12px; padding: 10px 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .msg.user { align-self: flex-end; background: var(--accent-dim); border: 1px solid #4c8dff3d; }
+  .msg.assistant { align-self: flex-start; background: var(--panel); border: 1px solid var(--border); }
+  .msg .think { color: var(--text-3); font-size: 12px; border-left: 3px solid var(--border); padding-left: 9px; margin-bottom: 8px; white-space: pre-wrap; }
+  .msg .meta { font: 10.5px var(--mono); color: var(--text-3); margin-top: 8px; }
+  .msg .meta b { color: var(--text-2); }
+  #composer { display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border); }
+  #composer textarea {
+    flex: 1; resize: none; background: var(--panel); color: var(--text-1);
+    border: 1px solid var(--border); border-radius: 10px; padding: 10px 13px;
+    font: inherit; min-height: 44px; max-height: 150px;
+  }
+  #chatOpts { display: flex; gap: 16px; align-items: center; padding: 8px 2px 0; font: 11px var(--mono); color: var(--text-3); flex-wrap: wrap; }
+  #chatOpts input[type=number] { width: 70px; background: var(--panel); border: 1px solid var(--border); color: var(--text-1); border-radius: 6px; padding: 3px 6px; font: 11px var(--mono); }
+  #chatOpts input[type=range] { width: 110px; margin: 0; }
+  #sysPrompt { width: 100%; background: var(--panel); border: 1px solid var(--border); color: var(--text-2); border-radius: 8px; padding: 7px 10px; font: 12px/1.4 inherit; resize: vertical; height: 40px; margin-bottom: 8px; }
+
+  /* ---------- logs view ---------- */
+  table { width: 100%; border-collapse: collapse; font: 12px var(--mono); }
+  th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--text-3); font-weight: 500; font-size: 10.5px; letter-spacing: .6px; }
+  td { color: var(--text-2); }
+  td.ok { color: var(--good); }
+</style>
+</head>
+<body>
+
+<div id="titlebar">
+  <span class="brand">FreeToken Console</span>
+  <span class="pill green" id="savedPill" hidden><span>$</span>Saved <b id="savedTop">–</b></span>
+  <span class="pill"><span class="dot" id="apiDot"></span>API <span id="apiPort">:1919</span></span>
+</div>
+
+<div id="shell">
+  <nav id="sidebar">
+    <div class="nav active" data-view="consoleView">
+      <svg viewBox="0 0 24 24"><path d="M4 19V5m0 14h16M8 15v-4m4 4V8m4 7v-6"/></svg>Console
+    </div>
+    <div class="nav" data-view="chatView">
+      <svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-8 8H4l2-3a8 8 0 1 1 15-5z"/></svg>Chat
+    </div>
+    <div class="nav" data-view="logsView">
+      <svg viewBox="0 0 24 24"><path d="M5 4h14M5 9h14M5 14h9M5 19h6"/></svg>Logs
+    </div>
+    <div class="grow"></div>
+    <div id="sysbox">
+      <div class="bar-row"><span>Engine memory</span><span id="memTxt">–</span></div>
+      <div class="bar"><i id="memBar" style="width:0%"></i></div>
+      <div id="kvRow" hidden>
+        <div class="bar-row"><span>KV pages</span><span id="pfxTxt">–</span></div>
+        <div class="bar"><i id="pfxBar" style="width:0%"></i></div>
+      </div>
+      <div class="ver" id="version"></div>
+    </div>
+  </nav>
+
+  <div id="content">
+
+    <!-- ================= CONSOLE ================= -->
+    <div class="view active" id="consoleView">
+      <div class="head">
+        <div>
+          <h1>Console</h1>
+          <div class="sub" id="headSub">connecting…</div>
+        </div>
+        <div class="spacer"></div>
+        <span class="pill green"><span class="dot"></span>Live · 2s refresh</span>
+      </div>
+
+      <div class="cards">
+        <div class="card hero">
+          <div class="label">Total saved</div>
+          <div class="big" id="cSaved">–</div>
+          <div class="sub">vs. a reference hosted API ($3 / $15 per MTok)</div>
+        </div>
+        <div class="card">
+          <div class="label">Tokens processed</div>
+          <div class="big" id="cTokens">–</div>
+          <div class="sub" id="cTokensSub">– in · – out</div>
+        </div>
+        <div class="card">
+          <div class="right" id="cLaunchRight"></div>
+          <div class="label">This launch</div>
+          <div class="big" id="cReq">–</div>
+          <div class="sub">requests served</div>
+        </div>
+      </div>
+
+      <div class="modelrow">
+        <div class="avatar" id="avatar">FT</div>
+        <div>
+          <div class="name" id="mName">–</div>
+          <div class="meta" id="mMeta">–</div>
+        </div>
+        <span class="pill green" id="runPill"><span class="dot"></span><span id="runTxt">loading…</span></span>
+        <div class="spacer"></div>
+        <div class="stat"><div class="k">TOKENS/S</div><div class="v" id="mTps">–</div></div>
+        <div class="stat"><div class="k">REQUESTS</div><div class="v" id="mReq">–</div></div>
+        <div class="stat"><div class="k">TTFT</div><div class="v" id="mTtft">–</div></div>
+        <button class="btn" onclick="showView('chatView')">Chat</button>
+        <button class="btn danger" id="stopBtnTop" disabled onclick="aborter&&aborter.abort()">Stop</button>
+      </div>
+
+      <div class="panelcard">
+        <div class="title">Cache config
+          <span class="tag" id="tagMoe" hidden>MoE</span>
+          <span class="tag teal" id="tagMode">mapped</span>
+          <span class="synced" id="syncTxt">Synced</span>
+        </div>
+        <div class="desc" id="cacheDesc">–</div>
+        <div class="sliderrow" id="moeSlider" hidden>
+          <div class="top">
+            <span class="lbl">MoE expert cache</span>
+            <span class="hint">Expert slots resident in memory, across all MoE layers</span>
+            <span class="val"><span id="moeVal">–</span> / <span id="moeMax">–</span>
+              <span class="pill blue" id="moeGib" style="margin-left:8px" hidden>– GiB</span></span>
+          </div>
+          <input type="range" id="moeRange" min="16" max="1024" step="16">
+          <div class="scale"><span id="moeMin">16</span><span>elastic — applies live, no restart</span><span id="moeMaxLbl">–</span></div>
+          <button class="btn ghost" id="cacheApply">Apply</button><span id="cacheMsg"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= CHAT ================= -->
+    <div class="view" id="chatView">
+      <textarea id="sysPrompt" placeholder="System prompt (optional)"></textarea>
+      <div id="messages"></div>
+      <div id="composer">
+        <textarea id="input" placeholder="Message the model…  (Enter to send, Shift+Enter for newline)"></textarea>
+        <button class="btn" id="sendBtn">Send</button>
+        <button class="btn danger" id="stopBtn" disabled>Stop</button>
+      </div>
+      <div id="chatOpts">
+        <span>temp <input type="range" id="temp" min="0" max="2" step="0.1" value="0.7"> <span id="tempVal">0.7</span></span>
+        <span>max tokens <input type="number" id="maxTok" value="1024" min="1"></span>
+        <span id="chatHint"></span>
+      </div>
+    </div>
+
+    <!-- ================= LOGS ================= -->
+    <div class="view" id="logsView">
+      <div class="head"><div><h1>Logs</h1><div class="sub">recent requests</div></div></div>
+      <div class="panelcard" style="margin-top:0; overflow-x:auto">
+        <table>
+          <thead><tr><th>TIME</th><th>KIND</th><th>MODEL</th><th>IN</th><th>OUT</th><th>TTFT</th><th>STATUS</th></tr></thead>
+          <tbody id="logRows"><tr><td colspan="7" style="color:var(--text-3)">no requests yet</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const fmt = (n, d=1) => n == null ? "–" : Number(n).toFixed(d).replace(/\.0$/, "");
+const human = n => n == null ? "–" : n >= 1e6 ? (n/1e6).toFixed(1)+"M" : n >= 1e3 ? (n/1e3).toFixed(1)+"K" : String(n);
+$("apiPort").textContent = ":" + (location.port || "80");
+
+/* ---------------- view switching ---------------- */
+function showView(id) {
+  document.querySelectorAll(".view").forEach(v => v.classList.toggle("active", v.id === id));
+  document.querySelectorAll(".nav").forEach(n => n.classList.toggle("active", n.dataset.view === id));
+  if (id === "logsView") pollLogs();
+}
+document.querySelectorAll(".nav").forEach(n => n.onclick = () => showView(n.dataset.view));
+
+/* ---------------- polling ---------------- */
+const PRICE_IN = 3 / 1e6, PRICE_OUT = 15 / 1e6;  // reference hosted API, $/token
+let health = {}, stats = {};
+
+async function pollHealth() {
+  try {
+    health = await (await fetch("/health")).json();
+    $("apiDot").style.background = health.maintenance === "serving" ? "var(--good)" : "var(--warning, #fab219)";
+    $("runTxt").textContent = (health.maintenance === "serving" ? "Running" : health.maintenance) + " · " + upStr(health.uptime_s);
+    $("mName").textContent = health.model || "–";
+    $("avatar").textContent = (health.model || "FT").slice(0, 2).toUpperCase();
+    $("version").textContent = "v" + (health.version || "?");
+  } catch {
+    $("apiDot").style.background = "var(--bad)";
+    $("runTxt").textContent = "unreachable";
+  }
+}
+const upStr = s => !s ? "0m" : (s >= 3600 ? Math.floor(s/3600) + "h " : "") + Math.floor(s % 3600 / 60) + "m";
+
+async function pollStats() {
+  try {
+    stats = await (await fetch("/v1/stats")).json();
+    const r = stats.requests || {}, t = stats.throughput || {};
+    const tin = r.prompt_tokens_total || 0, tout = r.completion_tokens_total || 0;
+    const saved = tin * PRICE_IN + tout * PRICE_OUT;
+    $("cSaved").textContent = "$" + saved.toFixed(2);
+    $("savedTop").textContent = "$" + saved.toFixed(2);
+    $("savedPill").hidden = saved <= 0;
+    $("cTokens").textContent = human(tin + tout);
+    $("cTokensSub").textContent = human(tin) + " in · " + human(tout) + " out";
+    $("cReq").textContent = r.completed ?? "–";
+    $("cLaunchRight").innerHTML = "Input " + human(tin) + "<br>Output " + human(tout);
+    $("mTps").textContent = fmt(t.decode_tps);
+    $("mReq").textContent = r.completed ?? "–";
+    $("mTtft").textContent = r.ttft_mean_ms ? fmt(r.ttft_mean_ms/1000, 1) + "s" : "–";
+    $("headSub").textContent = (health.model || "–") + " · up " + upStr(stats.uptime_s) + " · " + (r.completed ?? 0) + " requests total";
+    const m = stats.model || {};
+    const isMoe = m.moe || (cacheGeom?.moe_cache_size > 0);
+    $("mMeta").textContent = [isMoe ? "MoE" : "dense", m.attn, m.ctx ? "ctx " + m.ctx.toLocaleString() : null].filter(Boolean).join(" · ");
+    $("tagMoe").hidden = !isMoe;
+    const gib = (stats.vram_bytes || 0) / 2**30;
+    $("memTxt").textContent = fmt(gib) + " GiB";
+    $("memBar").style.width = Math.min(100, gib / 24 * 100) + "%";
+    if (stats.kv && stats.kv.total_pages) {
+      $("kvRow").hidden = false;
+      $("pfxTxt").textContent = stats.kv.used_pages + " / " + stats.kv.total_pages;
+      $("pfxBar").style.width = Math.min(100, stats.kv.used_pages / stats.kv.total_pages * 100) + "%";
+    }
+  } catch { /* keep last */ }
+}
+
+let cacheGeom = null;
+async function pollCache() {
+  try {
+    const resp = await (await fetch("/v1/cache/status")).json();
+    cacheGeom = resp.geometry || resp;
+    const size = cacheGeom.moe_cache_size || 0;
+    const known = (cacheGeom.num_experts || 0) * (cacheGeom.num_moe_layers || 0);
+    const total = known > 0 ? known : size * 4;  // ceiling unknown: allow 4x growth
+    if (size > 0) {
+      $("tagMode").textContent = "slot cache";
+      $("cacheDesc").textContent = "Expert slot cache — hard memory budget; drag and apply to resize live.";
+      $("moeSlider").hidden = false;
+      $("moeRange").max = total; $("moeMaxLbl").textContent = total.toLocaleString();
+      if (document.activeElement !== $("moeRange")) $("moeRange").value = size;
+      $("moeVal").textContent = $("moeRange").value;
+      $("moeMax").textContent = known > 0 ? known.toLocaleString() : "slots";
+      const per = cacheGeom.unit_bytes?.moe_per_expert || 0;
+      $("moeGib").hidden = !per;
+      if (per) $("moeGib").textContent = fmt(size * per / 2**30, 1) + " GiB";
+    } else {
+      $("tagMode").textContent = stats.model?.moe ? "mapped" : "resident";
+      $("cacheDesc").textContent = stats.model?.moe
+        ? "Zero-copy mapped expert store — experts live in reclaimable page cache, residency managed by the OS. No slot budget to configure."
+        : "Dense model — all weights resident.";
+      $("moeSlider").hidden = true;
+    }
+  } catch { /* endpoint optional */ }
+}
+$("moeRange").oninput = () => {
+  $("moeVal").textContent = $("moeRange").value;
+  const per = cacheGeom?.unit_bytes?.moe_per_expert || 0;
+  if (per) $("moeGib").textContent = fmt($("moeRange").value * per / 2**30, 1) + " GiB";
+  $("syncTxt").textContent = "Modified";
+};
+$("cacheApply").onclick = async () => {
+  $("cacheMsg").textContent = "applying…";
+  try {
+    const r = await (await fetch("/v1/cache/rebuild", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ moe_cache_size: parseInt($("moeRange").value, 10) }),
+    })).json();
+    $("cacheMsg").textContent = r.status === "ok" ? "resized to " + r.moe_cache_size + " slots" : (r.error || r.status);
+    $("syncTxt").textContent = r.status === "ok" ? "Synced" : "Failed";
+    pollCache();
+  } catch { $("cacheMsg").textContent = "request failed"; }
+};
+
+async function pollLogs() {
+  try {
+    const rows = await (await fetch("/v1/requests")).json();
+    const list = Array.isArray(rows) ? rows : rows.entries || rows.requests || [];
+    if (!list.length) return;
+    $("logRows").innerHTML = list.slice(-40).reverse().map(r => {
+      const t = r.ts || r.time || r.started_at;
+      const time = t ? new Date(typeof t === "number" ? (t > 1e12 ? t : t * 1000) : t).toLocaleTimeString() : "–";
+      const kind = (r.path || r.kind || "chat").replace("/v1/", "").replace("chat/completions", "chat");
+      const code = r.status ?? "ok";
+      const ok = code === "ok" || (typeof code === "number" && code < 400);
+      return `<tr><td>${time}</td><td>${kind}</td><td>${r.model || ""}</td>` +
+             `<td>${r.prompt_tokens ?? ""}</td><td>${r.completion_tokens ?? ""}</td>` +
+             `<td>${r.ttft_ms ? fmt(r.ttft_ms/1000, 2) + "s" : (r.duration_ms ? fmt(r.duration_ms/1000, 2) + "s" : "")}</td>` +
+             `<td class="${ok ? "ok" : ""}">${code}</td></tr>`;
+    }).join("");
+  } catch { /* endpoint shape is best-effort */ }
+}
+
+/* ---------------- chat (SSE streaming) ---------------- */
+const historyMsgs = [];
+let aborter = null;
+
+function addMsg(cls) {
+  const el = document.createElement("div");
+  el.className = "msg " + cls;
+  $("messages").appendChild(el);
+  return el;
+}
+const scrollDown = () => { const m = $("messages"); m.scrollTop = m.scrollHeight; };
+
+async function send() {
+  const text = $("input").value.trim();
+  if (!text || aborter) return;
+  $("input").value = "";
+  historyMsgs.push({ role: "user", content: text });
+  addMsg("user").textContent = text;
+
+  const el = addMsg("assistant");
+  const thinkEl = document.createElement("div"); thinkEl.className = "think"; thinkEl.hidden = true;
+  const bodyEl = document.createElement("div");
+  const metaEl = document.createElement("div"); metaEl.className = "meta";
+  el.append(thinkEl, bodyEl, metaEl);
+  scrollDown();
+
+  const messages = [];
+  if ($("sysPrompt").value.trim()) messages.push({ role: "system", content: $("sysPrompt").value.trim() });
+  messages.push(...historyMsgs);
+
+  aborter = new AbortController();
+  $("sendBtn").disabled = true; $("stopBtn").disabled = false; $("stopBtnTop").disabled = false;
+  const t0 = performance.now();
+  let tFirst = null, answer = "", think = "", usage = null;
+
+  try {
+    const resp = await fetch("/v1/chat/completions", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      signal: aborter.signal,
+      body: JSON.stringify({
+        model: health.model || "model", messages,
+        temperature: parseFloat($("temp").value),
+        max_tokens: parseInt($("maxTok").value, 10) || 1024,
+        stream: true, stream_options: { include_usage: true },
+      }),
+    });
+    if (!resp.ok) throw new Error("HTTP " + resp.status + ": " + (await resp.text()).slice(0, 300));
+    const reader = resp.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      const lines = buf.split("\n"); buf = lines.pop();
+      for (const line of lines) {
+        if (!line.startsWith("data:")) continue;
+        const payload = line.slice(5).trim();
+        if (payload === "[DONE]") continue;
+        const chunk = JSON.parse(payload);
+        if (chunk.usage) usage = chunk.usage;
+        const delta = chunk.choices?.[0]?.delta || {};
+        if (delta.reasoning_content) { think += delta.reasoning_content; thinkEl.hidden = false; thinkEl.textContent = think; }
+        if (delta.content) {
+          if (tFirst === null) tFirst = performance.now();
+          answer += delta.content; bodyEl.textContent = answer;
+        }
+        scrollDown();
+      }
+    }
+    historyMsgs.push({ role: "assistant", content: answer });
+    const secs = (performance.now() - (tFirst ?? t0)) / 1000;
+    const parts = [];
+    if (usage) {
+      const tps = usage.completion_tokens > 1 && secs > 0 ? (usage.completion_tokens - 1) / secs : null;
+      parts.push(`<b>${usage.completion_tokens}</b> tok`);
+      if (tps) parts.push(`<b>${fmt(tps)}</b> tok/s`);
+      parts.push(`TTFT <b>${fmt(((tFirst ?? t0) - t0)/1000, 2)}s</b>`);
+      const cached = usage.prompt_tokens_details?.cached_tokens;
+      if (cached) parts.push(`cache-hit <b>${cached}</b>/${usage.prompt_tokens}`);
+    }
+    metaEl.innerHTML = parts.join(" · ");
+  } catch (e) {
+    if (e.name === "AbortError") { metaEl.textContent = "stopped"; historyMsgs.push({ role: "assistant", content: answer }); }
+    else { bodyEl.textContent = (answer ? answer + "\n\n" : "") + "⚠ " + e.message; }
+  } finally {
+    aborter = null;
+    $("sendBtn").disabled = false; $("stopBtn").disabled = true; $("stopBtnTop").disabled = true;
+    pollStats();
+  }
+}
+$("sendBtn").onclick = send;
+$("stopBtn").onclick = () => aborter?.abort();
+$("input").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
+$("temp").oninput = () => $("tempVal").textContent = $("temp").value;
+
+if (location.hash === "#chat") showView("chatView");
+if (location.hash === "#logs") showView("logsView");
+pollHealth(); pollStats(); pollCache();
+setInterval(pollHealth, 5000);
+setInterval(pollStats, 2000);
+setInterval(pollCache, 10000);
+setInterval(() => { if ($("logsView").classList.contains("active")) pollLogs(); }, 5000);
+</script>
+</body>
+</html>

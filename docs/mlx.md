@@ -54,6 +54,14 @@ pip install -e ".[mlx]"
 The CUDA-only native dependencies (flashlib, apache-tvm-ffi, triton, the C++
 extensions) are skipped automatically on Darwin.
 
+## Web console
+
+`ft serve` ships a built-in GUI at **`http://localhost:1919/`** (any platform,
+not just macOS): live throughput/usage/cost cards, model status, streaming chat
+with TTFT / tok/s / `cached_tokens` per response, a request log, and the elastic
+MoE expert-cache slider (slot-cache mode) that applies `/v1/cache/rebuild` live.
+It is a single self-contained HTML file served from the same origin as the APIs.
+
 ## Serve
 
 ```bash

@@ -815,6 +815,28 @@ def mlx_scheduler_worker(config: SchedulerConfig, ack_queue: Any) -> None:
         except Exception:  # noqa: BLE001 -- reporting must never mask the failure
             pass
         raise
+    if scheduler.offload_state is not None:
+        # Cache-geometry meta for the frontend's cache panel (best-effort, same
+        # contract as the CUDA engine's readiness meta: "pools" + unit bytes).
+        try:
+            st = scheduler.offload_state
+            _h, _m, slots = st.totals()
+            ack_queue.put(
+                (
+                    "meta",
+                    {
+                        "moe_bytes_per_expert": st.glus[0].store.expert_nbytes,
+                        "pools": {
+                            "moe_cache_size": slots,
+                            "num_pages": 0,
+                            "page_size": 1,
+                            "num_mamba_slots": 0,
+                        },
+                    },
+                )
+            )
+        except Exception:  # noqa: BLE001 -- metadata is a nicety
+            pass
     ack_queue.put("Scheduler is ready")
     import os as _os
 
