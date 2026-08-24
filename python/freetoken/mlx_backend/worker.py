@@ -93,6 +93,11 @@ class MlxScheduler:
             self._attach_offload(config)
         else:
             self.model, self.tokenizer = load(config.model_path)
+        self.draft = None
+        self._spec_steps = 0
+        self._spec_tokens = 0
+        if self.offload_state is not None and getattr(config, "draft_model", None):
+            self._attach_draft(config)
         # Continuous batching (resident and mapped-expert serving): concurrent
         # requests decode in ONE batched forward per step instead of one forward
         # per request per token. The slot-cache offload path keeps its own
@@ -212,6 +217,37 @@ class MlxScheduler:
             f"{dense_bytes / 2**30:.2f} GiB"
         )
 
+    def _attach_draft(self, config: SchedulerConfig) -> None:
+        """Load the draft model for speculative decoding (--draft-model)."""
+        from .draft import DraftModel
+
+        k = max(1, int(getattr(config, "draft_tokens", 3) or 3))
+        k = self._clamp_draft_k(k)
+        self.draft = DraftModel.load(config.draft_model, k)
+        self.offload_state.spec_window = k + 1
+        logger.info(
+            f"speculative decoding: draft model {config.draft_model}, "
+            f"k={k} tokens per verify"
+        )
+
+    def _clamp_draft_k(self, k: int) -> int:
+        """The verify window's routed experts must fit each layer's slot cache,
+        or the redo loop can never converge: (k+1) * top_k <= min slots."""
+        st = self.offload_state
+        top_k = int(
+            getattr(getattr(self.model, "args", None), "num_experts_per_tok", 0) or 8
+        )
+        min_slots = min(g.cache.num_slots for g in st.glus)
+        max_window = max(2, min_slots // top_k)
+        if k + 1 > max_window:
+            logger.warning(
+                f"--draft-tokens {k} clamped to {max_window - 1}: the expert "
+                f"cache has {min_slots} slots/layer and top-{top_k} routing "
+                f"needs the whole verify window resident at once"
+            )
+            k = max_window - 1
+        return k
+
     def _resolve_slots_per_layer(self, config: SchedulerConfig, dense_bytes: int) -> int:
         st = self.offload_state
         n_layers = len(st.glus)
@@ -293,6 +329,12 @@ class MlxScheduler:
         cache, cached = self._lookup_prefix(input_ids)
         if self.offload_state is not None:
             cache = cache or make_prompt_cache(self.model)
+            if self.draft is not None:
+                return (
+                    self._offload_generate_spec(input_ids, sp, cache, cached),
+                    cache,
+                    cached,
+                )
             return self._offload_generate(input_ids, sp, cache, cached), cache, cached
         cache = cache or make_prompt_cache(self.model)
         self._prefill_into(cache, input_ids, cached)
@@ -316,31 +358,19 @@ class MlxScheduler:
         return list(c.state)
 
     @staticmethod
-    def _cache_rollback(c, snap) -> None:
+    def _cache_rollback(c, snap, n: int = 1) -> None:
         if snap is None:
-            c.trim(1)
+            c.trim(n)
         else:
             c.state = snap
 
-    def _offload_generate(
-        self, input_ids: List[int], sp: SamplingParams, cache, start: int = 0
-    ) -> Iterator[Any]:
-        """Decode loop for expert-offload serving: speculate-and-verify.
-
-        Each step runs fully lazily against the device-side slot LUT (zero CPU
-        syncs). One eval per token also brings back the per-layer "were all routed
-        experts resident" flags; a miss rolls the KV/recurrent caches back one
-        step, installs the missing experts and re-runs — so misses cost one extra
-        forward, and the steady state runs at resident-model speed.
-        """
+    def _offload_prefill(self, input_ids: List[int], cache, start: int) -> None:
+        """Prefill all tokens but the last: per-layer sync/streamed serving,
+        with prefix-store snapshots at restore-safe boundaries."""
         from .prefix_cache import BOUNDARY_TOKENS
 
         mx = self._mx
         state = self.offload_state
-        sampler = self._build_sampler(sp)
-
-        # Prefill (all tokens but the last): per-layer sync/streamed serving,
-        # with prefix-store snapshots at restore-safe boundaries.
         state.speculating = False
         pos, end = start, len(input_ids) - 1
         next_boundary = (pos // BOUNDARY_TOKENS + 1) * BOUNDARY_TOKENS
@@ -353,6 +383,119 @@ class MlxScheduler:
             if pos == next_boundary and pos < end and self.prefix_store is not None:
                 self.prefix_store.insert(input_ids[:pos], cache)
                 next_boundary += BOUNDARY_TOKENS
+
+    def _offload_generate_spec(
+        self, input_ids: List[int], sp: SamplingParams, cache, start: int = 0
+    ) -> Iterator[Any]:
+        """Speculative offload decode: the draft model proposes k tokens, the
+        target verifies the whole window in ONE forward through the slot cache
+        and commits the matched prefix plus one target token (correction or
+        bonus). Distribution-exact: every emitted token is the target's own
+        argmax/sample for its position, drafts only decide how many positions a
+        single expensive forward advances.
+
+        Two nested verify concerns share the rollback machinery:
+        - expert misses (slot cache): whole-window rollback + redo, exactly the
+          single-token speculate-and-verify protocol;
+        - rejected drafts: the caches advanced over tokens that never happened —
+          trimmable caches trim, recurrent ones restore the pre-window snapshot,
+          and the accepted prefix is replayed (one extra forward, only on
+          partial accepts; its experts are the verify window's, so it is warm).
+        """
+        mx = self._mx
+        state = self.offload_state
+        drafter = self.draft
+        sampler = self._build_sampler(sp)
+        self._offload_prefill(input_ids, cache, start)
+        drafter.start(input_ids)
+        k = drafter.k
+        y = int(input_ids[-1])
+        eos = self.eos_token_ids
+        state.spec_window = k + 1
+
+        while True:
+            drafts = drafter.draft()
+            window = [y] + drafts
+            state.prefetch_predicted()
+            state.speculating = True
+            for _attempt in range(len(state.glus) + 1):
+                state.begin_token()
+                snaps = [self._cache_snapshot(c) for c in cache]
+                logits = self.model(mx.array(window)[None], cache=cache)
+                logprobs = logits - mx.logsumexp(logits, axis=-1, keepdims=True)
+                outs = (
+                    sampler(logprobs[0])
+                    if sampler
+                    else mx.argmax(logprobs[0], axis=-1)
+                )
+                mx.eval(outs, *state.pending_oks())
+                if state.commit_token():
+                    break
+                for c, snap in zip(cache, snaps, strict=True):
+                    self._cache_rollback(c, snap, len(window))
+            else:  # pragma: no cover -- each round installs at least one layer
+                raise RuntimeError("expert cache failed to converge on a verify step")
+
+            outs_l = [int(t) for t in outs.tolist()]
+            accepted = 0
+            while accepted < k and drafts[accepted] == outs_l[accepted]:
+                accepted += 1
+            committed = outs_l[: accepted + 1]
+            # Stop the window at EOS: everything after it would over-advance the
+            # caches past what the scheduler will ever consume (ignore_eos
+            # requests keep the full window and let the scheduler decide).
+            if not sp.ignore_eos:
+                for i, tok in enumerate(committed):
+                    if tok in eos:
+                        committed, accepted = committed[: i + 1], min(accepted, i)
+                        break
+
+            if accepted < k:
+                # Rejected drafts contaminated the caches: back to the
+                # pre-window state, replay the accepted prefix.
+                for c, snap in zip(cache, snaps, strict=True):
+                    self._cache_rollback(c, snap, len(window))
+                replay = [y] + drafts[:accepted]
+                for _attempt in range(len(state.glus) + 1):
+                    state.begin_token()
+                    r_snaps = [self._cache_snapshot(c) for c in cache]
+                    r_logits = self.model(mx.array(replay)[None], cache=cache)
+                    mx.eval(r_logits, *state.pending_oks())
+                    if state.commit_token():
+                        break
+                    for c, snap in zip(cache, r_snaps, strict=True):
+                        self._cache_rollback(c, snap, len(replay))
+                else:  # pragma: no cover
+                    raise RuntimeError(
+                        "expert cache failed to converge on a replay step"
+                    )
+                drafter.commit(accepted, committed[-1:])
+            else:
+                # Full accept: the window IS the committed path; the bonus token
+                # becomes the next pending input, no rollback of any kind.
+                drafter.commit(accepted, [drafts[-1], committed[-1]])
+
+            self._spec_steps += 1
+            self._spec_tokens += len(committed)
+            for i, tok in enumerate(committed):
+                yield tok, logprobs[:, i, :]
+            y = committed[-1]
+
+    def _offload_generate(
+        self, input_ids: List[int], sp: SamplingParams, cache, start: int = 0
+    ) -> Iterator[Any]:
+        """Decode loop for expert-offload serving: speculate-and-verify.
+
+        Each step runs fully lazily against the device-side slot LUT (zero CPU
+        syncs). One eval per token also brings back the per-layer "were all routed
+        experts resident" flags; a miss rolls the KV/recurrent caches back one
+        step, installs the missing experts and re-runs — so misses cost one extra
+        forward, and the steady state runs at resident-model speed.
+        """
+        mx = self._mx
+        state = self.offload_state
+        sampler = self._build_sampler(sp)
+        self._offload_prefill(input_ids, cache, start)
         y = mx.array(input_ids[-1:])
 
         # Adaptive serving: speculation wins when redos are rare (cache covers the
@@ -424,9 +567,15 @@ class MlxScheduler:
             if self._decode_steps % self.config.decode_log_interval == 0:
                 h, m, slots = self.offload_state.totals()
                 rate = m / max(1, h + m)
+                spec = ""
+                if self._spec_steps:
+                    spec = (
+                        f", speculative accept {self._spec_tokens / self._spec_steps:.2f}"
+                        f" tok/verify ({self._spec_tokens}/{self._spec_steps})"
+                    )
                 logger.info(
                     f"expert cache: {slots} slots, lifetime miss rate {rate:.1%} "
-                    f"({m}/{h + m}), active mem {gpu_mem / 2**30:.2f} GiB"
+                    f"({m}/{h + m}), active mem {gpu_mem / 2**30:.2f} GiB{spec}"
                 )
         if self.batch_gen is not None:
             self._step_batched(reply, gpu_mem)
@@ -571,6 +720,20 @@ class MlxScheduler:
         if self.prefix_store is None or cache is None:
             return
         tokens = req.prompt_ids + req.output_ids[:-1]
+        # Speculative decode buffers several committed tokens per verify window;
+        # a request that finishes mid-buffer (stop string, max_tokens) leaves the
+        # cache ahead of what was emitted. Trim the overshoot where possible,
+        # skip donation where not (recurrent caches cannot rewind).
+        off = next(
+            (c.offset for c in cache if c.is_trimmable() and hasattr(c, "offset")),
+            None,
+        )
+        if off is not None and off != len(tokens):
+            excess = off - len(tokens)
+            if excess < 0 or not all(c.is_trimmable() for c in cache):
+                return
+            for c in cache:
+                c.trim(excess)
         self.prefix_store.insert(tokens, cache)
 
     def _finish(
@@ -731,6 +894,10 @@ class MlxScheduler:
             f"expert cache resized to {total} slots "
             f"({self.offload_state.cache_bytes() / 2**30:.2f} GiB)"
         )
+        if self.draft is not None:
+            # A shrunk cache may no longer hold a whole verify window.
+            self.draft.k = self._clamp_draft_k(self.draft.k)
+            self.offload_state.spec_window = self.draft.k + 1
         return CacheRebuildResultMsg(
             request_id=msg.request_id, status="ok", moe_cache_size=total
         )

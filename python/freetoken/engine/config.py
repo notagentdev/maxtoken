@@ -30,6 +30,14 @@ class EngineConfig:
     moe_cache_size: int = 0
     moe_cache_rate: float | None = None
     moe_cache_auto: bool = False
+    # Speculative decoding with a separate draft model (--draft-model): the small
+    # model drafts draft_tokens greedily, the target verifies them in ONE batched
+    # forward and commits the sampled-and-matched prefix — distribution-exact for
+    # greedy and sampled requests alike. Honored by the MLX offload path (where a
+    # verify forward costs one expert-load for several tokens); other backends
+    # currently ignore it. The draft model must share the target's vocabulary.
+    draft_model: str | None = None
+    draft_tokens: int = 3
     kv_reserve_tokens: int = 8192  # KV floor for --moe-cache-auto; small by design (MoE-priority)
     moe_cache_policy: str = "lru"
     moe_prefill_overlap: bool = True

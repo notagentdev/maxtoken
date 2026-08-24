@@ -484,7 +484,7 @@ class OffloadSwitchGLU:
         n_tokens = 1
         for d in indices.shape[:-1]:
             n_tokens *= d
-        if self.state.speculating and n_tokens == 1:
+        if self.state.speculating and n_tokens <= self.state.spec_window:
             return self._forward_speculative(x, indices)
 
         np_inds = np.array(indices, copy=False)  # forces evaluation up to the router
@@ -620,6 +620,10 @@ class OffloadState:
         # Zero-sync speculative serving is only sound when the generation loop
         # drives the speculate/verify/rollback protocol; it opts in per phase.
         self.speculating = False
+        # Widest token window the lazy lut path may serve at once. 1 for plain
+        # decode; k+1 when a draft model verifies k tokens per forward (the
+        # whole window rolls back together on an expert miss).
+        self.spec_window = 1
 
     # -- speculate-and-verify decode -------------------------------------------
 

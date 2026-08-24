@@ -568,6 +568,24 @@ def parse_args(
     )
 
     parser.add_argument(
+        "--draft-model",
+        type=str,
+        default=ServerArgs.draft_model,
+        help=(
+            "Speculative decoding: a small draft model (local path or HF repo id, "
+            "same vocabulary as the target) drafts --draft-tokens per step and the "
+            "target verifies them in one batched forward. Output distribution is "
+            "unchanged. Currently honored by the MLX expert-offload path."
+        ),
+    )
+    parser.add_argument(
+        "--draft-tokens",
+        type=int,
+        default=ServerArgs.draft_tokens,
+        help="How many tokens the draft model proposes per verify step.",
+    )
+
+    parser.add_argument(
         "--moe-cache-policy",
         default=ServerArgs.moe_cache_policy,
         choices=["lru"],
