@@ -574,7 +574,13 @@ class OffloadSwitchGLU:
             indices = indices.astype(mx.uint32)
         y = self._run(x, indices, bufs)
         self._admit_from_full(full, np_inds)
-        mx.eval(y)  # the full layer must be droppable right now, not at graph eval
+        # The full layer must be droppable RIGHT NOW, not whenever the graph is
+        # next evaluated. Evaluating y alone is not enough: the admission scatter
+        # (buf[slots] = stacked[experts]) leaves the cache buffers holding a lazy
+        # graph that still references this layer's whole stack, so every streamed
+        # layer stays pinned — 40 GiB of them on a 512-expert model.
+        cache = self.cache
+        mx.eval(y, *cache.buffers, cache.owner, cache.lut)
         del full, bufs
         return y
 
