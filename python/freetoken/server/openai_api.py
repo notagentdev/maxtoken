@@ -143,6 +143,33 @@ def register_openai_routes(
             default_reasoning_effort=default_effort,
         )])
 
+    @app.get("/v1/models/{model_id:path}")
+    async def v1_models_retrieve(model_id: str):
+        # OpenAI's "retrieve model": some clients (e.g. Visual Studio) validate a
+        # manually configured model name with this before sending any request and
+        # treat a 404 as "server/model invalid". The :path converter keeps ids
+        # containing "/" (HF repo ids) addressable.
+        state = get_state()
+        served = _served_model_name(state)
+        if model_id != served:
+            return create_error_response(
+                f"The model '{model_id}' does not exist",
+                status_code=404,
+                err_type="invalid_request_error",
+                param="model",
+                code="model_not_found",
+            )
+        ctx = _model_context_length(state)
+        efforts, default_effort = await _effort_fields(state)
+        return ModelCard(
+            id=served,
+            root=state.config.model_path,
+            max_model_len=ctx,
+            context_length=ctx,
+            supported_reasoning_efforts=efforts,
+            default_reasoning_effort=default_effort,
+        )
+
 
 async def handle_chat_completion(
     req: ChatCompletionRequest,

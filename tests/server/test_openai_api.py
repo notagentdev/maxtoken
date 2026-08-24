@@ -444,6 +444,36 @@ def test_models_route_publishes_the_model_context_length():
     assert card["context_length"] == 262144
 
 
+def test_retrieve_model_returns_card_and_404():
+    """OpenAI's GET /v1/models/{id}: clients (e.g. Visual Studio) validate the
+    configured model name with it and treat a 404 as an invalid server."""
+    state = FakeState([])
+    app = FastAPI()
+    register_openai_routes(app, lambda: state, lambda: {})
+    client = TestClient(app)
+
+    ok = client.get("/v1/models/unit-model")
+    assert ok.status_code == 200
+    assert ok.json()["id"] == "unit-model"
+
+    missing = client.get("/v1/models/no-such-model")
+    assert missing.status_code == 404
+    err = missing.json()["error"]
+    assert err["code"] == "model_not_found" and err["param"] == "model"
+
+
+def test_retrieve_model_accepts_slashed_ids():
+    """Served names may be HF repo ids containing '/'."""
+    state = FakeState([])
+    state.config.served_model_name = "org/unit-model-4bit"
+    app = FastAPI()
+    register_openai_routes(app, lambda: state, lambda: {})
+
+    ok = TestClient(app).get("/v1/models/org/unit-model-4bit")
+    assert ok.status_code == 200
+    assert ok.json()["id"] == "org/unit-model-4bit"
+
+
 async def _collect(generator):
     return [chunk async for chunk in generator]
 
