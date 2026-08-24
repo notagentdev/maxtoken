@@ -126,6 +126,16 @@
   .panelcard .desc { font-size: 12px; color: var(--text-3); margin-top: 3px; }
   .panelcard .synced { margin-left: auto; font: 11px var(--mono); color: var(--text-3); }
 
+  .presets-label { font: 11px var(--mono); color: var(--text-3); margin: 16px 0 8px; }
+  .presets { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+  .preset {
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 11px 13px; cursor: pointer; user-select: none;
+  }
+  .preset:hover { border-color: var(--text-3); }
+  .preset.selected { border-color: var(--accent); background: var(--accent-dim); }
+  .preset .p-name { font-weight: 650; font-size: 13px; }
+  .preset .p-desc { font-size: 11.5px; color: var(--text-3); margin-top: 3px; line-height: 1.45; }
   .sliderrow { margin-top: 18px; }
   .sliderrow .top { display: flex; align-items: baseline; gap: 10px; }
   .sliderrow .lbl { font-weight: 600; font-size: 13px; }
@@ -250,11 +260,28 @@
           <span class="synced" id="syncTxt">Synced</span>
         </div>
         <div class="desc" id="cacheDesc">–</div>
+        <div id="presetBox" hidden>
+          <div class="presets-label">Presets</div>
+          <div class="presets">
+            <div class="preset" data-preset="minimum">
+              <div class="p-name">Minimum</div>
+              <div class="p-desc">MoE ¼ of slots · lean, gives memory back to the system</div>
+            </div>
+            <div class="preset" data-preset="chat">
+              <div class="p-name">Chat</div>
+              <div class="p-desc">MoE ½ of slots · balanced speed vs. footprint</div>
+            </div>
+            <div class="preset" data-preset="agent">
+              <div class="p-name">Agent</div>
+              <div class="p-desc">MoE maxed · best hit-rate for agent long-context</div>
+            </div>
+          </div>
+        </div>
         <div class="sliderrow" id="moeSlider" hidden>
           <div class="top">
             <span class="lbl">MoE expert cache</span>
             <span class="hint">Expert slots resident in memory, across all MoE layers</span>
-            <span class="val"><span id="moeVal">–</span> / <span id="moeMax">–</span>
+            <span class="val"><span id="moeVal">–</span><span id="moeSep"> / </span><span id="moeMax">–</span>
               <span class="pill blue" id="moeGib" style="margin-left:8px" hidden>– GiB</span></span>
           </div>
           <input type="range" id="moeRange" min="16" max="1024" step="16">
@@ -370,12 +397,14 @@ async function pollCache() {
     const total = known > 0 ? known : size * 4;  // ceiling unknown: allow 4x growth
     if (size > 0) {
       $("tagMode").textContent = "slot cache";
-      $("cacheDesc").textContent = "Expert slot cache — hard memory budget; drag and apply to resize live.";
+      $("cacheDesc").textContent = "Expert slot cache — hard memory budget; pick a preset or drag, then apply to resize live.";
       $("moeSlider").hidden = false;
+      $("presetBox").hidden = false;
       $("moeRange").max = total; $("moeMaxLbl").textContent = total.toLocaleString();
       if (document.activeElement !== $("moeRange")) $("moeRange").value = size;
       $("moeVal").textContent = $("moeRange").value;
-      $("moeMax").textContent = known > 0 ? known.toLocaleString() : "slots";
+      $("moeSep").hidden = known <= 0;
+      $("moeMax").textContent = known > 0 ? known.toLocaleString() : " slots";
       const per = cacheGeom.unit_bytes?.moe_per_expert || 0;
       $("moeGib").hidden = !per;
       if (per) $("moeGib").textContent = fmt(size * per / 2**30, 1) + " GiB";
@@ -385,15 +414,35 @@ async function pollCache() {
         ? "Zero-copy mapped expert store — experts live in reclaimable page cache, residency managed by the OS. No slot budget to configure."
         : "Dense model — all weights resident.";
       $("moeSlider").hidden = true;
+      $("presetBox").hidden = true;
     }
+    markPreset();
   } catch { /* endpoint optional */ }
 }
-$("moeRange").oninput = () => {
+/* presets: fractions of the slider ceiling, snapped to 16-slot steps */
+const PRESETS = { minimum: 0.25, chat: 0.5, agent: 1.0 };
+function presetTarget(name) {
+  const max = parseInt($("moeRange").max, 10) || 0;
+  const min = parseInt($("moeRange").min, 10) || 16;
+  return Math.max(min, Math.round(max * PRESETS[name] / 16) * 16);
+}
+function markPreset() {
+  const v = parseInt($("moeRange").value, 10);
+  document.querySelectorAll(".preset").forEach(p =>
+    p.classList.toggle("selected", presetTarget(p.dataset.preset) === v));
+}
+document.querySelectorAll(".preset").forEach(p => p.onclick = () => {
+  $("moeRange").value = presetTarget(p.dataset.preset);
+  sliderChanged();
+});
+function sliderChanged() {
   $("moeVal").textContent = $("moeRange").value;
   const per = cacheGeom?.unit_bytes?.moe_per_expert || 0;
   if (per) $("moeGib").textContent = fmt($("moeRange").value * per / 2**30, 1) + " GiB";
   $("syncTxt").textContent = "Modified";
-};
+  markPreset();
+}
+$("moeRange").oninput = sliderChanged;
 $("cacheApply").onclick = async () => {
   $("cacheMsg").textContent = "applying…";
   try {
