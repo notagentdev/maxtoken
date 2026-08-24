@@ -203,6 +203,32 @@ uses.
   per request with `--enable-cache-report` (usage `cached_tokens`). Measured
   on Ornith-1.5-35B with a 2.4k-token system prompt: first request 19.5 s,
   follow-ups **1.0 s** (`cached_tokens=2304`).
+- **Speculative decoding** (`--draft-model`, slot-cache offload serving): a
+  small same-vocabulary model (e.g. `mlx-community/Qwen3-0.6B-4bit` for Qwen3
+  targets) drafts `--draft-tokens` (default 3) per step; the target verifies
+  the window in one batched forward and commits the matched prefix plus one
+  target token. Output is distribution-exact (greedy verified token-identical
+  on Qwen3-Coder-Next-80B). Measured acceptance 2.4–2.7 tokens/verify — but on
+  the 32 GiB test machine at 20% cache the net throughput is parity with plain
+  decode (~6 tok/s both), not a win: offload decode is bound by expert
+  *fetches*, whose volume scales with generated text and which speculation
+  cannot reduce (it only amortizes the per-forward overhead, measured small:
+  an all-hit 4-token window forward costs 60 ms vs 37 ms for one token). The
+  flag is for machines/rates where fetches are cheaper (bigger cache, faster
+  SSD); measure before keeping it on. The verify window is auto-clamped so
+  `(k+1) × top_k` fits the per-layer slot budget. Lessons from the Vates
+  project (studied at `../vates`): its 31–37 tok/s on the same model come from
+  a model-trained MTP draft head (absent from the Qwen3-Coder-Next release —
+  the checkpoint ships no `mtp.*` tensors), C++ async demand reads that hide
+  the fetch latency, and non-uniform per-layer pool capacities; the latter two
+  are the identified next levers here.
+- The zero-copy **mapped** mode does not work for models larger than physical
+  memory (e.g. the 42 GiB Qwen3-Coder-Next-80B on 32 GiB): Metal requires every
+  buffer a command batch references to be residency-managed, so the first full
+  forward aborts with an out-of-memory command-buffer error, and chunking the
+  graph merely turns that into page-cache thrash (the expert sweep cycles
+  40 GiB through ~26 GiB of cache with zero reuse). Beyond-memory models are
+  what the expert slot cache (`--moe-cache-*`) is for.
 - Remaining CUDA-specific flags (`--attention-backend`, `--cuda-graph-*`,
   `--num-pages`, …) are accepted but ignored by the MLX scheduler;
   `--moe-backend offload` and the `--moe-cache-*` sizing flags are honored.

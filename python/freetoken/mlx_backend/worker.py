@@ -394,13 +394,15 @@ class MlxScheduler:
         argmax/sample for its position, drafts only decide how many positions a
         single expensive forward advances.
 
-        Two nested verify concerns share the rollback machinery:
-        - expert misses (slot cache): whole-window rollback + redo, exactly the
-          single-token speculate-and-verify protocol;
-        - rejected drafts: the caches advanced over tokens that never happened —
-          trimmable caches trim, recurrent ones restore the pre-window snapshot,
-          and the accepted prefix is replayed (one extra forward, only on
-          partial accepts; its experts are the verify window's, so it is warm).
+        The verify forward runs the per-layer SYNC path (misses installed
+        inline), not the lazy lut path: a missed expert garbles every layer
+        downstream of it, so lut-mode redos cascade one wave of misses per
+        attempt (measured 4.3 redo forwards per verify on Qwen3-Next-80B) while
+        the sync path pays each layer exactly once. Rejected drafts leave the
+        caches advanced over tokens that never happened — trimmable caches
+        trim, recurrent ones restore the pre-window snapshot, and the accepted
+        prefix is replayed (one extra forward, only on partial accepts; its
+        experts were just routed by the verify, so it is warm).
         """
         mx = self._mx
         state = self.offload_state
@@ -417,24 +419,18 @@ class MlxScheduler:
             drafts = drafter.draft()
             window = [y] + drafts
             state.prefetch_predicted()
-            state.speculating = True
-            for _attempt in range(len(state.glus) + 1):
-                state.begin_token()
-                snaps = [self._cache_snapshot(c) for c in cache]
-                logits = self.model(mx.array(window)[None], cache=cache)
-                logprobs = logits - mx.logsumexp(logits, axis=-1, keepdims=True)
-                outs = (
-                    sampler(logprobs[0])
-                    if sampler
-                    else mx.argmax(logprobs[0], axis=-1)
-                )
-                mx.eval(outs, *state.pending_oks())
-                if state.commit_token():
-                    break
-                for c, snap in zip(cache, snaps, strict=True):
-                    self._cache_rollback(c, snap, len(window))
-            else:  # pragma: no cover -- each round installs at least one layer
-                raise RuntimeError("expert cache failed to converge on a verify step")
+            state.speculating = False
+            state.begin_token()
+            snaps = [self._cache_snapshot(c) for c in cache]
+            logits = self.model(mx.array(window)[None], cache=cache)
+            logprobs = logits - mx.logsumexp(logits, axis=-1, keepdims=True)
+            outs = (
+                sampler(logprobs[0])
+                if sampler
+                else mx.argmax(logprobs[0], axis=-1)
+            )
+            mx.eval(outs)
+            state.commit_token()
 
             outs_l = [int(t) for t in outs.tolist()]
             accepted = 0
@@ -456,19 +452,9 @@ class MlxScheduler:
                 for c, snap in zip(cache, snaps, strict=True):
                     self._cache_rollback(c, snap, len(window))
                 replay = [y] + drafts[:accepted]
-                for _attempt in range(len(state.glus) + 1):
-                    state.begin_token()
-                    r_snaps = [self._cache_snapshot(c) for c in cache]
-                    r_logits = self.model(mx.array(replay)[None], cache=cache)
-                    mx.eval(r_logits, *state.pending_oks())
-                    if state.commit_token():
-                        break
-                    for c, snap in zip(cache, r_snaps, strict=True):
-                        self._cache_rollback(c, snap, len(replay))
-                else:  # pragma: no cover
-                    raise RuntimeError(
-                        "expert cache failed to converge on a replay step"
-                    )
+                state.begin_token()
+                mx.eval(self.model(mx.array(replay)[None], cache=cache))
+                state.commit_token()
                 drafter.commit(accepted, committed[-1:])
             else:
                 # Full accept: the window IS the committed path; the bonus token
