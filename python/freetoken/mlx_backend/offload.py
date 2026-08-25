@@ -529,13 +529,29 @@ class OffloadSwitchGLU:
             return None
         mx = self._mx
         xn = x * self.next_norm_ratio if self.next_norm_ratio is not None else x
-        scores = self.next_gate(xn)
-        if n_tokens > 1:
-            scores = scores.reshape(-1, scores.shape[-1]).max(axis=0)
-        else:
-            scores = scores.reshape(-1)
-        width = min(64, 2 * top_k * n_tokens, self.store.num_experts)
-        return mx.argpartition(scores, kth=-width)[-width:]
+        try:
+            scores = self.next_gate(xn)
+            # Not every router is a plain score(x) -> [.., E] array: DeepSeek-V4's
+            # gate needs the token ids (hash routing) and returns a tuple, others
+            # may want a cache or a mask. Read-ahead is an optimization, never a
+            # requirement, so anything unexpected retires it for this layer
+            # instead of breaking the forward.
+            if not isinstance(scores, mx.array) or scores.shape[-1] != self.next_glu.store.num_experts:
+                raise TypeError("router did not return per-expert scores")
+            if n_tokens > 1:
+                scores = scores.reshape(-1, scores.shape[-1]).max(axis=0)
+            else:
+                scores = scores.reshape(-1)
+            width = min(64, 2 * top_k * n_tokens, self.store.num_experts)
+            return mx.argpartition(scores, kth=-width)[-width:]
+        except Exception:  # noqa: BLE001
+            logger.info(
+                "cross-layer read-ahead disabled for one layer: its router does "
+                "not score per-expert from the hidden state alone"
+            )
+            self.next_glu = None
+            self.next_gate = None
+            return None
 
     def _issue_read_ahead(self, pred) -> None:
         """Part 2, after the shared eval: start reads for the predicted

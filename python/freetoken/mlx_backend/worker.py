@@ -78,6 +78,7 @@ class MlxScheduler:
         from mlx_lm import load
 
         self._mx = mx
+        _preimport_architectures()
         # mlx-lm resolves both local paths and hub ids (through the HF cache),
         # matching the tokenizer workers' resolution.
         logger.info(f"Loading MLX model from {config.model_path}")
@@ -960,6 +961,30 @@ class MlxScheduler:
         self.active.clear()
         self._recv.stop()
         self._send.stop()
+
+
+def _preimport_architectures() -> None:
+    """Import modules that register out-of-tree model architectures with mlx-lm
+    before the model is loaded (FREETOKEN_MLX_PREIMPORT, comma-separated).
+
+    mlx-lm dispatches on ``model_type`` through its own package, so an
+    architecture it does not ship cannot be served — even when a third-party
+    package implements it. Those packages register themselves on import (e.g.
+    ``import optiq`` adds deepseek_v4); naming them here makes their models
+    loadable without vendoring anyone's model code.
+    """
+    import importlib
+    import os
+
+    for name in os.environ.get("FREETOKEN_MLX_PREIMPORT", "").split(","):
+        name = name.strip()
+        if not name:
+            continue
+        try:
+            importlib.import_module(name)
+            logger.info(f"pre-imported {name} (registers extra model architectures)")
+        except Exception as exc:  # noqa: BLE001 -- a bad name must not kill the worker
+            logger.warning(f"FREETOKEN_MLX_PREIMPORT: could not import {name}: {exc}")
 
 
 def _raise_qos() -> None:
