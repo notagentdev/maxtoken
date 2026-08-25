@@ -517,6 +517,9 @@ class CacheRebuildRequest(BaseModel):
     # published /v1/models context_length all follow it. Clamped to
     # [1024, model ceiling]; the CUDA scheduler does not support it yet.
     max_seq_len: int | None = None
+    # Runtime reasoning-token budget (0 = unlimited). Enforced in the frontend's
+    # generation path, so unlike the other fields it needs no scheduler round trip.
+    max_reasoning_tokens: int | None = None
     # Only "if_idle" (reject unless the scheduler is idle) is supported today. "drain" mode
     # is deferred (needs the drain-gate machinery); constraining the Literal makes an
     # unsupported value fail fast with a 422 at the API layer instead of a generic 503.
@@ -648,6 +651,21 @@ async def cache_rebuild(req: CacheRebuildRequest):
                 )},
                 status_code=422,
             )
+    if req.max_reasoning_tokens is not None:
+        if req.max_reasoning_tokens < 0:
+            return JSONResponse(
+                {"status": "failed", "error": "max_reasoning_tokens must be >= 0 (0 = unlimited)"},
+                status_code=422,
+            )
+        # Frontend-side knob: the generation path reads it per request, so it
+        # applies to the NEXT request with no engine work at all.
+        state.reasoning_budget_override = req.max_reasoning_tokens or None
+        if not any((req.moe_cache_size, req.num_pages, req.num_mamba_slots,
+                    req.num_swa_pages, req.swa_full_tokens_ratio, req.max_seq_len)):
+            return {
+                "status": "ok",
+                "max_reasoning_tokens": req.max_reasoning_tokens,
+            }
     result = await dispatch_rebuild(
         state,
         moe_cache_size=req.moe_cache_size,
@@ -874,6 +892,12 @@ async def cache_status():
             "current": int(getattr(state, "context_length_override", 0) or 0) or ceiling,
             "ceiling": ceiling,
         },
+        # 0 = unlimited. Server default unless a rebuild set an override.
+        "reasoning_budget": int(
+            getattr(state, "reasoning_budget_override", None)
+            or getattr(state.config, "max_reasoning_tokens", None)
+            or 0
+        ),
     }
 
 

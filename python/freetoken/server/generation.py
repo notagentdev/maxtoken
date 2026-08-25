@@ -389,7 +389,10 @@ def _reasoning_budget(spec: GenSpec, state: Any) -> int | None:
     limits = [
         v for v in (
             spec.max_reasoning_tokens,
-            getattr(state.config, "max_reasoning_tokens", None),
+            # A runtime override (console slider, /v1/cache/rebuild) beats the
+            # startup flag; state.config is frozen, so it lives on the manager.
+            getattr(state, "reasoning_budget_override", None)
+            or getattr(state.config, "max_reasoning_tokens", None),
         ) if v
     ]
     return min(limits) if limits else None

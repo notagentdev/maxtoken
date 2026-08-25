@@ -277,6 +277,10 @@ uses.
   `finish_reason: "length"`. Guards against a model looping in `<think>` until
   its whole output budget is gone and answering nothing (seen on research-grade
   MoEs). Tokens in the answer never count against it; unlimited by default.
+  Adjustable at runtime without a restart — the console has a slider for it,
+  or `POST /v1/cache/rebuild {"max_reasoning_tokens": N}` (0 = off). Unlike the
+  other knobs there it needs no engine work: the budget is enforced in the
+  frontend, so it applies to the next request immediately.
 - Remaining CUDA-specific flags (`--attention-backend`, `--cuda-graph-*`,
   `--num-pages`, …) are accepted but ignored by the MLX scheduler;
   `--moe-backend offload` and the `--moe-cache-*` sizing flags are honored.

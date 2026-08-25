@@ -301,6 +301,16 @@
           <div class="scale"><span id="ctxMinLbl">1k</span><span>applies live — clients re-read it from /v1/models</span><span id="ctxMaxLbl">–</span></div>
           <button class="btn ghost" id="ctxApply">Apply</button><span id="ctxMsg"></span>
         </div>
+        <div class="sliderrow" id="thinkSlider">
+          <div class="top">
+            <span class="lbl">Reasoning budget</span>
+            <span class="hint">Stop a request that keeps thinking — answer tokens never count against it</span>
+            <span class="val"><span id="thinkVal">off</span></span>
+          </div>
+          <input type="range" id="thinkRange" min="0" max="8" step="1">
+          <div class="scale"><span>off</span><span>applies to the next request — no engine work</span><span>32k</span></div>
+          <button class="btn ghost" id="thinkApply">Apply</button><span id="thinkMsg"></span>
+        </div>
       </div>
 
       <div class="panelcard">
@@ -467,8 +477,40 @@ async function pollCache() {
     }
     markPreset();
     updateCtxSlider(resp.context);
+    updateThinkSlider(resp.reasoning_budget);
   } catch { /* endpoint optional */ }
 }
+
+/* Reasoning-budget slider: 0 (off) then log2 steps 256..32k. */
+const THINK_STEPS = [0, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768];
+function updateThinkSlider(current) {
+  const v = current || 0;
+  if (document.activeElement === $("thinkRange")) return;
+  let idx = THINK_STEPS.findIndex(s => s >= v);
+  if (idx < 0) idx = THINK_STEPS.length - 1;
+  $("thinkRange").value = idx;
+  $("thinkVal").textContent = THINK_STEPS[idx] ? fmtTok(THINK_STEPS[idx]) : "off";
+}
+$("thinkRange").oninput = () => {
+  const v = THINK_STEPS[+$("thinkRange").value];
+  $("thinkVal").textContent = v ? fmtTok(v) : "off";
+  $("syncTxt").textContent = "Modified";
+};
+$("thinkApply").onclick = async () => {
+  const v = THINK_STEPS[+$("thinkRange").value];
+  $("thinkMsg").textContent = "applying…";
+  try {
+    const r = await (await fetch("/v1/cache/rebuild", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ max_reasoning_tokens: v }),
+    })).json();
+    $("thinkMsg").textContent = r.status === "ok"
+      ? (v ? "budget " + fmtTok(v) : "budget off")
+      : (r.error || r.status);
+    $("syncTxt").textContent = r.status === "ok" ? "Synced" : "Failed";
+    pollCache();
+  } catch { $("thinkMsg").textContent = "request failed"; }
+};
 
 /* Context-window slider: log2 steps from 1k up to the model's trained ceiling. */
 let ctxSteps = [];
