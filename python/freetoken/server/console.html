@@ -185,7 +185,6 @@
 
 <div id="titlebar">
   <span class="brand">MaxToken Console</span>
-  <span class="pill green" id="savedPill" hidden><span>$</span>Saved <b id="savedTop">–</b></span>
   <span class="pill"><span class="dot" id="apiDot"></span>API <span id="apiPort">:1919</span></span>
 </div>
 
@@ -226,11 +225,6 @@
       </div>
 
       <div class="cards">
-        <div class="card hero">
-          <div class="label">Total saved</div>
-          <div class="big" id="cSaved">–</div>
-          <div class="sub">vs. a reference hosted API ($3 / $15 per MTok)</div>
-        </div>
         <div class="card">
           <div class="label">Tokens processed</div>
           <div class="big" id="cTokens">–</div>
@@ -367,7 +361,6 @@ function showView(id) {
 document.querySelectorAll(".nav").forEach(n => n.onclick = () => showView(n.dataset.view));
 
 /* ---------------- polling ---------------- */
-const PRICE_IN = 3 / 1e6, PRICE_OUT = 15 / 1e6;  // reference hosted API, $/token
 let health = {}, stats = {};
 
 async function pollHealth() {
@@ -417,10 +410,6 @@ async function pollStats() {
     fillApiCard();
     const r = stats.requests || {}, t = stats.throughput || {};
     const tin = r.prompt_tokens_total || 0, tout = r.completion_tokens_total || 0;
-    const saved = tin * PRICE_IN + tout * PRICE_OUT;
-    $("cSaved").textContent = "$" + saved.toFixed(2);
-    $("savedTop").textContent = "$" + saved.toFixed(2);
-    $("savedPill").hidden = saved <= 0;
     $("cTokens").textContent = human(tin + tout);
     $("cTokensSub").textContent = human(tin) + " in · " + human(tout) + " out";
     $("cReq").textContent = r.completed ?? "–";
