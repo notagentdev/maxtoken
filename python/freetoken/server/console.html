@@ -106,11 +106,14 @@
   .stat .k { font: 10px var(--mono); color: var(--text-3); letter-spacing: .8px; }
   .stat .v { font: 600 17px var(--mono); margin-top: 1px; }
   .btn {
-    border: 1px solid var(--border); background: var(--text-1); color: #10151f;
+    border: 1px solid #4c8dff55; background: var(--accent-dim); color: var(--accent);
     border-radius: 9px; padding: 7px 16px; font: 600 12.5px/1 inherit; cursor: pointer;
   }
-  .btn.ghost { background: transparent; color: var(--text-2); }
+  .btn:hover:not(:disabled) { background: #4c8dff33; border-color: var(--accent); }
+  .btn.ghost { background: transparent; color: var(--text-2); border-color: var(--border); }
+  .btn.ghost:hover:not(:disabled) { background: var(--panel-2); border-color: var(--text-3); }
   .btn.danger { background: transparent; color: var(--bad); border-color: #ef4a4a55; }
+  .btn.danger:hover:not(:disabled) { background: var(--bad-dim); border-color: var(--bad); }
   .btn:disabled { opacity: .4; cursor: default; }
 
   .panelcard {
