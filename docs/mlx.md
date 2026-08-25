@@ -122,6 +122,8 @@ prompt, 256 decode tokens:
 | Ornith-1.5-35B-A3B | offload, slot cache 35% | 8.9 | 21 s¹ | **7.7 GiB** hard budget |
 | Qwen3-Coder-Next-80B³ | offload, slot cache 20% | 8.4 | 5.1 s | **10.3 GiB** hard budget |
 | Qwen3-Coder-Next-80B³ | offload, slot cache 5% | 5.3 | 6.5 s | **3.4 GiB** hard budget |
+| DeepSeek-V4-Flash 2-bit⁴ | offload, slot cache 20% | 3.9 | 7.3 s | **20.5 GiB** hard budget |
+| DeepSeek-V4-Flash 2-bit⁴ | offload, slot cache 10% | 3.3 | 6.5 s | **13.1 GiB** hard budget |
 
 ¹ cold page cache (first pass over the weights); warm prefill streams at
 SSD/page-cache speed.
@@ -153,6 +155,21 @@ Between requests the scheduler also rebalances the slot budget by observed
 per-layer miss pressure (`FREETOKEN_MLX_REBALANCE=0` disables) — layers
 differ widely in routing diversity, and an even split starves the diverse
 ones.
+
+⁴ **304 B parameters, an 86 GiB checkpoint — 2.7x this machine's RAM.** The
+mixed 2-bit quant is `mlx-community/DeepSeek-V4-Flash-0731-OptiQ-2bit`
+(experts 2-bit, attention/embeddings 6–8 bit). Two things are needed beyond
+the usual: `FREETOKEN_MLX_PREIMPORT=optiq` (mlx-lm ships no `deepseek_v4`;
+the `mlx-optiq` package registers it on import), and a load path that does
+not build-then-quantize — stock `mlx_lm.load` materializes a transient near
+the FULL model size before `load_weights` overwrites it, which OS-kills the
+process at this scale. Decode scales with the budget (3.3 -> 3.9 tok/s at
+10% -> 20%, miss rate 48.7% -> 37.6%) and stops there: 30% needs 27.9 GiB
+and exceeds Metal's ~26.8 GiB working-set limit. For comparison, the quant's
+own publisher documents ~2.5 tok/s for their (cache-less) SSD streaming of
+the same weights on an M3 Max. Cross-layer read-ahead disables itself on
+this model — DeepSeek-V4 routes by hashing token ids, so its gate cannot be
+scored from the hidden state alone.
 
 ² no free lunch: at full speed the expert weights occupy RAM in the mapped mode
 too (that is why it is fast). The difference is the KIND of memory — the store
