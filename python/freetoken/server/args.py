@@ -42,6 +42,9 @@ class ServerArgs(SchedulerConfig):
     # Default max output (decode) tokens for a request that omits one. None falls back to the
     # adapter's built-in default (32k).
     max_output_tokens: int | None = None
+    # Cap on tokens a request may spend inside its reasoning block. None = unlimited.
+    # A per-request Anthropic `thinking.budget_tokens` overrides it (lower wins).
+    max_reasoning_tokens: int | None = None
     # Report the prefix-cache hit in each response's usage block (OpenAI
     # prompt_tokens_details.cached_tokens, Anthropic cache_read_input_tokens, Responses
     # input_tokens_details.cached_tokens). Mirrors sglang's --enable-cache-report.
@@ -303,6 +306,19 @@ def parse_args(
         type=_positive_int,
         default=ServerArgs.max_output_tokens,
         help="Default max output tokens for requests that omit one (default 32k).",
+    )
+
+    parser.add_argument(
+        "--max-reasoning-tokens",
+        type=_positive_int,
+        default=ServerArgs.max_reasoning_tokens,
+        help=(
+            "Stop a request once it has spent this many tokens inside its "
+            "reasoning/thinking block. Guards against a model looping in <think> "
+            "until its whole output budget is gone and answering nothing. "
+            "Unlimited by default; Anthropic's thinking.budget_tokens overrides "
+            "it per request (the lower of the two wins)."
+        ),
     )
 
     parser.add_argument(

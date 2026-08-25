@@ -321,6 +321,17 @@ def convert_anthropic_to_genspec(
         chat_template_kwargs=ctk,
         template_tools=template_tools,
         parser_tools=parser_tools,
+        # thinking.budget_tokens is now enforced: generation stops once the
+        # reasoning block has consumed this many tokens (see
+        # generation._reasoning_budget). Only meaningful with thinking enabled.
+        max_reasoning_tokens=(
+            int(budget)
+            if isinstance(req.thinking, dict)
+            and req.thinking.get("type") == "enabled"
+            and (budget := req.thinking.get("budget_tokens"))
+            and int(budget) > 0
+            else None
+        ),
     )
 
 

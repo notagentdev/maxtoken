@@ -95,7 +95,8 @@ class AnthropicMessagesRequest(BaseModel):
     system: str | list[AnthropicContentBlock] | None = None
     temperature: float | None = None
     # Native extended-thinking toggle: {"type": "enabled"|"disabled", "budget_tokens": N}.
-    # budget_tokens is accepted but not enforced (stateless subset).
+    # budget_tokens IS enforced: generation stops once the reasoning block has
+    # consumed that many tokens (server-wide default: --max-reasoning-tokens).
     thinking: dict[str, Any] | None = None
     tool_choice: AnthropicToolChoice | None = None
     tools: list[AnthropicTool] | None = None

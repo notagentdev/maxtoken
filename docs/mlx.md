@@ -271,6 +271,12 @@ uses.
   graph merely turns that into page-cache thrash (the expert sweep cycles
   40 GiB through ~26 GiB of cache with zero reuse). Beyond-memory models are
   what the expert slot cache (`--moe-cache-*`) is for.
+- **Reasoning budget** (`--max-reasoning-tokens N`, or Anthropic's
+  `thinking.budget_tokens` per request — the lower wins): stops a request once
+  it has spent N tokens inside its thinking block, reporting
+  `finish_reason: "length"`. Guards against a model looping in `<think>` until
+  its whole output budget is gone and answering nothing (seen on research-grade
+  MoEs). Tokens in the answer never count against it; unlimited by default.
 - Remaining CUDA-specific flags (`--attention-backend`, `--cuda-graph-*`,
   `--num-pages`, …) are accepted but ignored by the MLX scheduler;
   `--moe-backend offload` and the `--moe-cache-*` sizing flags are honored.

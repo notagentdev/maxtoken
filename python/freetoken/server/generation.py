@@ -33,6 +33,8 @@ try:
 except Exception:  # pragma: no cover — jinja2 always ships with transformers
     _TemplateError = ()
 
+from freetoken.utils import init_logger
+
 from .function_call_parser import FunctionCallParser, TOOLS_TAG_LIST, ToolCallItem
 from .reasoning_parser import (
     DSV4_SPECIAL_TOKENS,
@@ -40,6 +42,8 @@ from .reasoning_parser import (
     build_reasoning_parser,
     strip_special_tokens,
 )
+
+logger = init_logger(__name__)
 
 
 class GenerationError(Exception):
@@ -139,6 +143,11 @@ class GenSpec:
     chat_template_kwargs: dict[str, Any] = field(default_factory=dict)
     template_tools: list[dict[str, Any]] | None = None   # tools the model sees (TokenizeMsg.tools)
     parser_tools: list[dict[str, Any]] | None = None     # tools for FunctionCallParser; None disables parsing
+    # Cap on tokens spent inside the reasoning block (Anthropic's budget_tokens,
+    # or the server's --max-reasoning-tokens). None = unlimited. Guards against
+    # a model that thinks itself out of its whole output budget and answers
+    # nothing; see _generate_events_impl.
+    max_reasoning_tokens: int | None = None
 
     @property
     def parse_tools(self) -> bool:
@@ -371,6 +380,19 @@ def _make_reasoning_parser(spec: GenSpec, state: Any) -> ReasoningParser | None:
             resolve_thinking_mode(spec.chat_template_kwargs, spec.template_tools) == "thinking"
         )
     return build_reasoning_parser(state.config, force_reasoning)
+
+
+def _reasoning_budget(spec: GenSpec, state: Any) -> int | None:
+    """Effective cap on reasoning tokens: the lower of the server's
+    ``--max-reasoning-tokens`` and the request's own budget (Anthropic's
+    ``thinking.budget_tokens``). None when neither is set."""
+    limits = [
+        v for v in (
+            spec.max_reasoning_tokens,
+            getattr(state.config, "max_reasoning_tokens", None),
+        ) if v
+    ]
+    return min(limits) if limits else None
 
 
 def _split_reasoning(text: str, spec: GenSpec, state: Any) -> tuple[str, str]:
@@ -647,6 +669,13 @@ async def _generate_events_impl(uid: int, spec: GenSpec, state: Any) -> AsyncIte
 
     engine_finish_reason: str | None = None
     engine_matched_stop: str | None = None
+    # Reasoning budget (spec.max_reasoning_tokens): tokens that arrive while the
+    # parser is inside the thinking block are counted; exceeding the budget stops
+    # the request. A weak model can otherwise loop inside <think> until the whole
+    # output budget is gone and return empty content — the failure this guards.
+    reasoning_tokens = 0
+    reasoning_budget = _reasoning_budget(spec, state)
+    reasoning_exhausted = False
     async for ack in state.wait_for_ack(uid):
         if getattr(ack, "error", None):
             raise GenerationError(ack.error, getattr(ack, "error_code", None))
@@ -660,6 +689,16 @@ async def _generate_events_impl(uid: int, spec: GenSpec, state: Any) -> AsyncIte
                 stripped_reasoning = strip_special_tokens(reasoning_delta, specials)
                 if stripped_reasoning:  # a bare special token must not open a thinking block
                     yield ReasoningDelta(stripped_reasoning)
+                if reasoning_budget:
+                    reasoning_tokens += ack.completion_tokens_delta
+                    if reasoning_tokens >= reasoning_budget:
+                        logger.info(
+                            "reasoning budget exhausted for user %s "
+                            "(%d/%d tokens); stopping generation",
+                            uid, reasoning_tokens, reasoning_budget,
+                        )
+                        reasoning_exhausted = True
+                        break
         if content_delta:
             if tool_parser is not None:
                 for ev in _route_tool_text(content_delta):
@@ -691,7 +730,8 @@ async def _generate_events_impl(uid: int, spec: GenSpec, state: Any) -> AsyncIte
                 yield ContentDelta(strip_special_tokens(flush_content, specials))
 
     # Engine reason ("stop"/"length"); a tool call overrides it, but a truncation (length) wins.
-    finish_reason = engine_finish_reason or "stop"
+    # A reasoning-budget stop is a truncation like any other: the answer is incomplete.
+    finish_reason = "length" if reasoning_exhausted else (engine_finish_reason or "stop")
 
     if tool_parser is not None:
         # End-of-stream drain: let the detector finalize a call cut off mid-arguments
@@ -747,6 +787,12 @@ async def _generate_full_impl(uid: int, spec: GenSpec, state: Any) -> GenResult:
     cached_tokens = 0
     engine_finish_reason: str | None = None
     engine_matched_stop: str | None = None
+    # Reasoning budget: the split below happens only at the end, so track the
+    # thinking/answer boundary live with a second parser purely for accounting.
+    reasoning_tokens = 0
+    reasoning_exhausted = False
+    reasoning_budget = _reasoning_budget(spec, state)
+    budget_parser = _make_reasoning_parser(spec, state) if reasoning_budget else None
     async for ack in state.wait_for_ack(uid):
         if getattr(ack, "error", None):
             raise GenerationError(ack.error, getattr(ack, "error_code", None))
@@ -754,6 +800,18 @@ async def _generate_full_impl(uid: int, spec: GenSpec, state: Any) -> GenResult:
         completion_tokens += ack.completion_tokens_delta
         cached_tokens += ack.cached_tokens
         full_content += ack.incremental_output
+        if budget_parser is not None and ack.incremental_output:
+            reasoning_delta, _ = budget_parser.parse_stream_chunk(ack.incremental_output)
+            if reasoning_delta:
+                reasoning_tokens += ack.completion_tokens_delta
+                if reasoning_tokens >= reasoning_budget:
+                    logger.info(
+                        "reasoning budget exhausted for user %s (%d/%d tokens); "
+                        "stopping generation",
+                        uid, reasoning_tokens, reasoning_budget,
+                    )
+                    reasoning_exhausted = True
+                    break
         if ack.finished:
             engine_finish_reason = getattr(ack, "finish_reason", None)
             engine_matched_stop = getattr(ack, "matched_stop", None)
@@ -761,7 +819,8 @@ async def _generate_full_impl(uid: int, spec: GenSpec, state: Any) -> GenResult:
 
     reasoning_text, content_text = _split_reasoning(full_content, spec, state)
     # Engine reason ("stop"/"length"); a tool call overrides it, but a truncation (length) wins.
-    finish_reason = engine_finish_reason or "stop"
+    # A reasoning-budget stop is a truncation like any other: the answer is incomplete.
+    finish_reason = "length" if reasoning_exhausted else (engine_finish_reason or "stop")
     tool_calls: list[ToolCallItem] = []
     parsed = _parse_tool_response(content_text, spec, state)
     if parsed is not None:
