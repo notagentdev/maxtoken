@@ -606,11 +606,10 @@ def test_convert_native_thinking_toggle():
 # /v1/messages/count_tokens (route + neutral count_prompt_tokens primitive)
 # --------------------------------------------------------------------------- #
 class _FakeIds:
-    def __init__(self, n):
-        self._n = n
+    """Stands in for the numpy int32 array the tokenizer returns."""
 
-    def numel(self):
-        return self._n
+    def __init__(self, n):
+        self.size = n
 
 
 class _FakeTokenizeManager:
