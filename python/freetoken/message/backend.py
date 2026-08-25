@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List
 
-import torch
+import numpy as np
 from freetoken.core import SamplingParams
 
 from .utils import deserialize_type, serialize_type
@@ -32,11 +32,11 @@ class ExitMsg(BaseBackendMsg):
 @dataclass
 class UserMsg(BaseBackendMsg):
     uid: int
-    input_ids: torch.Tensor  # CPU 1D int32 tensor
+    input_ids: np.ndarray  # 1D int32 array
     sampling_params: SamplingParams
     # Optional precomputed multimodal soft-token embeddings (GPU tensor). Only used by
     # the in-process offline path; remains None for the (serialized) online path.
-    mm_embeds: torch.Tensor | None = None
+    mm_embeds: np.ndarray | None = None
 
 
 @dataclass

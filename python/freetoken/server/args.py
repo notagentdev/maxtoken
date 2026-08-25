@@ -5,10 +5,16 @@ import os
 from dataclasses import dataclass
 from typing import List, Tuple
 
-import torch
 from freetoken.distributed import DistributedInfo
 from freetoken.scheduler import SchedulerConfig
 from freetoken.utils import init_logger
+
+# Accepted CLI vocabularies. These used to come from the CUDA engine's backend
+# registries; the MLX scheduler interprets them itself (see mlx_backend/worker.py),
+# so they live here as plain names.
+SUPPORTED_MOE_BACKENDS = ["auto", "fused", "offload", "cpu", "hybrid"]
+OFFLOAD_MOE_BACKENDS = frozenset({"offload", "cpu", "hybrid"})
+SUPPORTED_CACHE_TYPES = ["naive", "radix"]
 
 
 @dataclass(frozen=True)
@@ -91,10 +97,6 @@ def parse_args(
     Returns:
         EngineConfig instance with parsed arguments
     """
-    from freetoken.attention import validate_attn_backend
-    from freetoken.kvcache import SUPPORTED_CACHE_MANAGER
-    from freetoken.moe import SUPPORTED_MOE_BACKENDS
-
     def _parse_moe_cache_rate(value: str) -> float:
         try:
             rate = float(value)
@@ -408,10 +410,10 @@ def parse_args(
     parser.add_argument(
         "--attention-backend",
         "--attn",
-        type=validate_attn_backend,
+        type=str,
         default=ServerArgs.attention_backend,
-        help="The attention backend to use. If two backends are specified,"
-        " the first one is used for prefill and the second one for decode.",
+        help="Attention backend (accepted for compatibility; the MLX scheduler "
+        "always uses Metal attention and ignores this).",
     )
 
     parser.add_argument(
@@ -426,7 +428,7 @@ def parse_args(
         "--cache-type",
         type=str,
         default=ServerArgs.cache_type,
-        choices=SUPPORTED_CACHE_MANAGER.supported_names(),
+        choices=SUPPORTED_CACHE_TYPES,
         help="KV cache strategy (naive | radix). For hybrid GDN models 'radix' is materialized "
         "as a GDN-aware radix (cross-request GDN-state prefix reuse); pass 'naive' to opt out.",
     )
@@ -506,7 +508,7 @@ def parse_args(
     parser.add_argument(
         "--moe-backend",
         default=ServerArgs.moe_backend,
-        choices=["auto"] + SUPPORTED_MOE_BACKENDS.supported_names(),
+        choices=SUPPORTED_MOE_BACKENDS,
         help=(
             "The MoE backend to use. 'auto' resolves a MoE model to the offload family "
             "(offload, or hybrid when a `ft bench bw` profile recommends it); resident "
@@ -739,8 +741,6 @@ def parse_args(
     # sizing flag at all, default to --moe-cache-auto so a bare `ft serve <FTW MoE>` works
     # out of the box (the scheduler resolves the size from free VRAM). Explicit
     # size/rate/auto is preserved.
-    from freetoken.moe import is_offload_moe_backend
-
     _no_cache_flag = (
         kwargs["moe_cache_size"] == 0
         and not kwargs["moe_cache_auto"]
@@ -748,7 +748,7 @@ def parse_args(
     )
     # mlx: unified memory, no expert slot cache -- the sizing default is meaningless there.
     if (
-        is_offload_moe_backend(kwargs["moe_backend"])
+        kwargs["moe_backend"] in OFFLOAD_MOE_BACKENDS
         and _no_cache_flag
         and kwargs["backend"] != "mlx"
     ):
@@ -779,12 +779,8 @@ def parse_args(
             or text_cfg.get("torch_dtype") or text_cfg.get("dtype") or "bfloat16"
         )
 
-    DTYPE_MAP = {
-        "float16": torch.float16,
-        "bfloat16": torch.bfloat16,
-        "float32": torch.float32,
-    }
-    kwargs["dtype"] = DTYPE_MAP[dtype_str] if isinstance(dtype_str, str) else dtype_str
+    # Kept as a plain name: MLX derives the compute dtype from the checkpoint itself.
+    kwargs["dtype"] = str(dtype_str)
     kwargs["tp_info"] = DistributedInfo(0, kwargs["tensor_parallel_size"])
     del kwargs["tensor_parallel_size"]
 

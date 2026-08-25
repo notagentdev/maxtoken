@@ -44,9 +44,9 @@ Everything is served through **OpenAI- and Anthropic-compatible APIs** (Claude
 Code and Codex point at it directly), with a built-in single-file **web console**
 (chat, live throughput, request log, elastic cache slider) at the server root.
 
-## Hardware reality (read before expecting CUDA numbers)
+## Hardware reality (read before expecting datacenter numbers)
 
-Do not expect the upstream engine's GPU throughput from a Mac — the ceiling is
+Do not expect a CUDA serving engine's GPU throughput from a Mac — the ceiling is
 the hardware, not the software, and there is not much optimization headroom
 left above what MaxToken already does:
 
@@ -56,7 +56,7 @@ left above what MaxToken already does:
   host RAM over PCIe at a steady ~25 GB/s. Decode on the offload path is
   fetch-bound: measured on the 80B, the expert reads alone cost ~60 ms per
   token — no amount of compute tuning removes an I/O bill.
-- **Most CUDA optimizations do not port.** The upstream engine's core tricks —
+- **Most CUDA optimizations do not port.** A CUDA engine's core tricks —
   a device-side slot cache with GPU-initiated copies, CUDA graphs over the
   decode loop, second-stream full-tensor prefetch with pinned host memory,
   batched hit/miss device-to-device splits, fused Marlin/NVFP4 kernels — all
@@ -76,7 +76,7 @@ left above what MaxToken already does:
 ```bash
 git clone <this-repo> && cd maxtoken
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[mlx]"
+pip install -e .
 
 # a model that fits: zero-copy mapped experts, resident speed
 ft serve --model ornith-ai/Ornith-1.5-35B-A3B-MLX-4bit --moe-backend offload
@@ -93,9 +93,11 @@ observed miss pressure. See **[docs/mlx.md](docs/mlx.md)** for the full macOS
 guide: serving modes, benchmarks, speculative decoding (`--draft-model`), and
 the honest negative results.
 
-The CUDA engine inherited from upstream remains intact for Linux/NVIDIA
-machines; the API server, tokenizer workers, shell and both client APIs are
-shared between the backends.
+MaxToken is Apple-silicon only. The upstream CUDA engine was removed in 0.0.1:
+it could not be built or tested on the target platform, and carrying it forced
+a torch dependency on every install. What remains — server, tokenizer workers,
+scheduler, shell, MLX backend — is ~22k lines that all run here. Installing
+pulls no CUDA ecosystem: no torch, no triton, no flashlib.
 
 ## Relationship to FreeToken
 

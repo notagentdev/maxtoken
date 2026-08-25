@@ -6,8 +6,10 @@ forget the cascade, and the model serves perfectly: it just stops emitting tool 
 separating out its thinking, because it silently fell through to the generic default. Every other
 parser test still passes, since they all start from a parser name that is already correct.
 
-So this drives the *live* registry rather than a list: a newly registered architecture is covered
-the moment it is added, and has to be dispositioned here to stay green.
+The architecture list below was the CUDA engine's live model registry until that engine was
+removed; it is now a static table. Serving an architecture the list does not name still works
+(the cascade falls through to its generic defaults) -- add the name here when you teach the
+cascade about a new family, so the mapping stays under test.
 """
 
 from __future__ import annotations
@@ -16,12 +18,35 @@ from unittest.mock import patch
 
 import pytest
 
-from freetoken.models.register import _MODEL_REGISTRY
 from freetoken.server.args import parse_args
 from freetoken.server.function_call_parser import FunctionCallParser
 from freetoken.server.reasoning_parser import ReasoningParser
 
-ARCHITECTURES = sorted(_MODEL_REGISTRY)
+ARCHITECTURES = [
+    "DeepseekV4ForCausalLM",
+    "Gemma4ForCausalLM",
+    "Gemma4ForConditionalGeneration",
+    "Gemma4UnifiedForCausalLM",
+    "Gemma4UnifiedForConditionalGeneration",
+    "Glm4MoeForCausalLM",
+    "GlmMoeDsaForCausalLM",
+    "GptOssForCausalLM",
+    "LlamaForCausalLM",
+    "MiniMaxM2ForCausalLM",
+    "MiniMaxM3ForCausalLM",
+    "MiniMaxM3SparseForCausalLM",
+    "MiniMaxM3SparseForConditionalGeneration",
+    "Mistral3ForConditionalGeneration",
+    "MistralForCausalLM",
+    "MuseGlimmerForCausalLM",
+    "MuseGlimmerForConditionalGeneration",
+    "Qwen2ForCausalLM",
+    "Qwen3ForCausalLM",
+    "Qwen3MoeForCausalLM",
+    "Qwen3_5ForConditionalGeneration",
+    "Qwen3_5MoEForCausalLM",
+    "Qwen3_5MoeForConditionalGeneration",
+]
 
 # The cascade also reads the model path, so the path here is deliberately anonymous: it must
 # resolve off the checkpoint's own architecture, not off a directory somebody happened to name.

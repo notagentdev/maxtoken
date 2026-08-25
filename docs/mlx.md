@@ -1,11 +1,11 @@
 # macOS / Apple silicon (MLX backend)
 
-On Apple-silicon Macs, MaxToken serves models through [MLX](https://github.com/ml-explore/mlx)
-instead of the CUDA engine. The API server, tokenizer workers, terminal shell and both
-client APIs (OpenAI- and Anthropic-compatible, including streaming, stop sequences and
-usage accounting) are identical between the two backends — only the scheduler process
-differs: on macOS it executes models via [mlx-lm](https://github.com/ml-explore/mlx-lm)
-on the Metal GPU.
+MaxToken serves models through [MLX](https://github.com/ml-explore/mlx) on the Metal
+GPU, via [mlx-lm](https://github.com/ml-explore/mlx-lm). The upstream CUDA engine was
+removed in 0.0.1 (untestable on this platform, and it forced a torch dependency on
+every install), so this is the only backend: API server, tokenizer workers, terminal
+shell and both client APIs (OpenAI- and Anthropic-compatible, including streaming,
+stop sequences and usage accounting) all sit on top of it.
 
 The backend has three serving modes:
 
@@ -48,11 +48,11 @@ The backend has three serving modes:
 
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[mlx]"
+pip install -e .
 ```
 
-The CUDA-only native dependencies (flashlib, apache-tvm-ffi, triton, the C++
-extensions) are skipped automatically on Darwin.
+Pure Python: MLX ships its own Metal kernels, so nothing is compiled and no CUDA
+ecosystem (torch, triton, flashlib) is installed.
 
 ## Web console
 

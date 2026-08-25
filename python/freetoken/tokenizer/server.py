@@ -3,7 +3,7 @@ from __future__ import annotations
 import multiprocessing as mp
 from typing import Any, List
 
-import torch
+import numpy as np
 from freetoken.message import (
     AbortBackendMsg,
     AbortMsg,
@@ -84,14 +84,14 @@ def _tokenize_requests(
     tokenize_manager: Any,
     messages: List[TokenizeMsg],
     logger: Any,
-) -> tuple[List[TokenizeMsg], List[torch.Tensor], List[UserReply]]:
+) -> tuple[List[TokenizeMsg], List[np.ndarray], List[UserReply]]:
     """Tokenize independently, returning backend work plus terminal frontend errors.
 
     Successful tokenization deliberately emits no prompt-token reply: accounting starts
     only when the scheduler later confirms first-prefill admission.
     """
     ok_msgs: List[TokenizeMsg] = []
-    ok_tensors: List[torch.Tensor] = []
+    ok_tensors: List[np.ndarray] = []
     errors: List[UserReply] = []
     for msg in messages:
         try:
@@ -109,7 +109,7 @@ def _tokenize_requests(
             continue
         # A zero-token prompt would trip the scheduler's input_len > 0 invariant and
         # crash the worker; reject it here as a terminal error instead.
-        if tokens.numel() == 0:
+        if tokens.size == 0:
             errors.append(
                 UserReply(
                     uid=msg.uid,
@@ -124,7 +124,6 @@ def _tokenize_requests(
     return ok_msgs, ok_tensors, errors
 
 
-@torch.inference_mode()
 def tokenize_worker(
     *,
     tokenizer_path: str,

@@ -7,7 +7,7 @@ import threading
 from types import ModuleType
 from typing import Any, List
 
-import torch
+import numpy as np
 from freetoken.message import TokenizeMsg
 from freetoken.utils import init_logger
 from transformers import PreTrainedTokenizerBase
@@ -55,8 +55,8 @@ class TokenizeManager:
         self._effort_lock = threading.Lock()
         self._logged_effort_maps: set[tuple[Any, str | None]] = set()
 
-    def tokenize(self, msgs: List[TokenizeMsg]) -> List[torch.Tensor]:
-        results: List[torch.Tensor] = []
+    def tokenize(self, msgs: List[TokenizeMsg]) -> List[np.ndarray]:
+        results: List[np.ndarray] = []
         # TODO: batch tokenization
         for msg in msgs:
             prompt = self.render_prompt(msg)
@@ -66,12 +66,8 @@ class TokenizeManager:
             # the template already rendered one. Raw-string prompts and the dsv4
             # encoder path keep the default.
             templated = isinstance(msg.text, list) and self._dsv4_encoder is None
-            input_ids: torch.Tensor = (  # type: ignore
-                self.tokenizer.encode(
-                    prompt, return_tensors="pt", add_special_tokens=not templated
-                )
-            )
-            results.append(input_ids.view(-1).to(torch.int32))
+            ids = self.tokenizer.encode(prompt, add_special_tokens=not templated)
+            results.append(np.asarray(ids, dtype=np.int32).reshape(-1))
         return results
 
     def render_prompt(self, msg: TokenizeMsg) -> str:

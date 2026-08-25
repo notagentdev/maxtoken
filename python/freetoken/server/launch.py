@@ -7,7 +7,6 @@ import sys
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
-from freetoken.distributed import DistributedInfo
 from freetoken.utils import init_logger
 
 if TYPE_CHECKING:
@@ -55,63 +54,6 @@ def _run_tokenize_worker(detach: bool, **kwargs) -> None:
     tokenize_worker(**kwargs)
 
 
-def _run_scheduler(args: ServerArgs, ack_queue: mp.Queue[str]) -> None:
-    if args.shell_mode:
-        _detach_process_group()
-
-    import torch
-    from freetoken.scheduler import Scheduler
-
-    if args.tp_info.is_primary():
-        from freetoken.utils.progress import set_progress_sink
-
-        set_progress_sink(
-            lambda desc, done, total: ack_queue.put(("progress", desc, done, total))
-        )
-
-    with torch.inference_mode():
-        try:
-            scheduler = Scheduler(args)
-            scheduler.sync_all_ranks()
-        except Exception as exc:  # noqa: BLE001 -- surface the reason, then let it propagate
-            # A startup failure (bad config, OOM, corrupt weights) would otherwise reach the
-            # parent only as a dead process -> a generic "exited during load". Push the real
-            # reason first so the supervisor (and the desktop failure modal) can surface it;
-            # the traceback still prints and the process still exits non-zero.
-            _report_startup_error(ack_queue, exc)
-            raise
-
-        if args.tp_info.is_primary():
-            # Report the real per-unit cache VRAM costs (KV/expert/mamba), the device-wide free
-            # VRAM, and the per-pool rebuild floors before the ready ack, so the supervisor has
-            # them (and the desktop's slider bounds) by the time the gate flips. Optional +
-            # best-effort: a failure here must never keep the model from serving, and older
-            # consumers ignore ("meta", …).
-            try:
-                from freetoken.kvcache.cache_status import compute_cache_status_meta
-
-                ack_queue.put(("meta", compute_cache_status_meta(scheduler.engine)))
-            except Exception:  # noqa: BLE001 -- metadata is a nicety; readiness is not
-                pass
-            ack_queue.put("Scheduler is ready")
-            # The supervisor stops draining ack_queue once ready, so uninstall the sink:
-            # runtime cache rebuilds re-run the graph capture (which emits progress) and
-            # would otherwise push onto a queue nobody reads for the server's lifetime.
-            set_progress_sink(None)
-
-        if args.silent_output:
-            logging.disable(logging.INFO)
-
-        try:
-            scheduler.run_forever()
-        except KeyboardInterrupt:
-            logger = init_logger(__name__)
-            if args.tp_info.is_primary():
-                print()  # for a clean newline after ^C
-                logger.info("Scheduler exiting gracefully...")
-            scheduler.shutdown()
-
-
 def _run_mlx_scheduler(args: ServerArgs, ack_queue: mp.Queue) -> None:
     """Apple-silicon counterpart of ``_run_scheduler``: same ack protocol, same ZMQ
     endpoints, but model execution goes through freetoken.mlx_backend (mlx-lm)."""
@@ -146,31 +88,18 @@ def launch_server(
         mp.set_start_method("spawn", force=True)
         detach = server_args.shell_mode  # see _detach_process_group
 
-        world_size = server_args.tp_info.size
         ack_queue: mp.Queue = mp.Queue()
         processes: list[mp.Process] = []
 
-        if server_args.backend == "mlx":
-            # Single scheduler process; parse_args rejects tp_size > 1 for mlx.
-            p = mp.Process(
-                target=_run_mlx_scheduler,
-                args=(server_args, ack_queue),
-                daemon=False,
-                name="freetoken-mlx-scheduler",
-            )
-            p.start()
-            processes.append(p)
-        else:
-            for i in range(world_size):
-                new_args = replace(server_args, tp_info=DistributedInfo(i, world_size))
-                p = mp.Process(
-                    target=_run_scheduler,
-                    args=(new_args, ack_queue),
-                    daemon=False,
-                    name=f"freetoken-TP{i}-scheduler",
-                )
-                p.start()
-                processes.append(p)
+        # Single scheduler process (MLX); parse_args rejects tp_size > 1.
+        p = mp.Process(
+            target=_run_mlx_scheduler,
+            args=(server_args, ack_queue),
+            daemon=False,
+            name="maxtoken-mlx-scheduler",
+        )
+        p.start()
+        processes.append(p)
 
         num_tokenizers = server_args.num_tokenizer
         p = mp.Process(

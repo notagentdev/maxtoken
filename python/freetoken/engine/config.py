@@ -2,21 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import cached_property
-from typing import TYPE_CHECKING, List
+from typing import List
 
-import torch
 from freetoken.distributed import DistributedInfo
 from freetoken.utils import cached_load_hf_config
-
-if TYPE_CHECKING:
-    from freetoken.models import ModelConfig
-
 
 @dataclass(frozen=True)
 class EngineConfig:
     model_path: str
     tp_info: DistributedInfo
-    dtype: torch.dtype
+    dtype: str = "bfloat16"
     max_running_req: int = 4
     attention_backend: str = "auto"
     moe_backend: str = "auto"
@@ -92,22 +87,19 @@ class EngineConfig:
     def hf_config(self):
         return cached_load_hf_config(self.model_path)
 
-    @cached_property
-    def model_config(self) -> ModelConfig:
-        # Deferred: importing freetoken.models pulls the CUDA layer/kernel stack
-        # (flashlib etc.), which platforms on the MLX backend don't have. Config
-        # objects must stay importable there; only accessing model_config needs it.
-        from freetoken.models.register import _load_attr, get_model_spec
-
-        spec = get_model_spec(self.hf_config.architectures[0])
-        parse_config = _load_attr(spec.module, spec.parse_config)
-        return parse_config(self.hf_config)
-
     @property
     def max_seq_len(self) -> int:
+        """Serving ceiling. ``parse_args`` pins the override from the checkpoint's
+        ``max_position_embeddings``; the fallback here keeps a hand-built config working."""
         if self.max_seq_len_override is not None:
             return self.max_seq_len_override
-        return self.model_config.rotary_config.max_position
+        cfg = self.hf_config.to_dict()
+        text_cfg = cfg.get("text_config") or {}
+        return int(
+            cfg.get("max_position_embeddings")
+            or text_cfg.get("max_position_embeddings")
+            or 4096
+        )
 
     @property
     def max_forward_len(self) -> int:

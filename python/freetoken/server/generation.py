@@ -304,7 +304,7 @@ async def count_prompt_tokens(
         input_ids = (await asyncio.to_thread(manager.tokenize, [msg]))[0]
     except _TemplateError as exc:
         raise GenerationError(str(exc)) from exc
-    return int(input_ids.numel())
+    return int(input_ids.size)
 
 
 async def prerender_error(spec: GenSpec, state: Any) -> GenerationError | None:

@@ -23,12 +23,6 @@ class DisabledTqdm(tqdm):
 
 
 def load_tokenizer(model_path: str) -> PreTrainedTokenizerBase:
-    from freetoken.models.gguf.reader import gguf_config_source
-
-    if (gguf_src := gguf_config_source(model_path)) is not None:
-        from freetoken.models.gguf.tokenizer import load_gguf_tokenizer
-
-        return load_gguf_tokenizer(gguf_src)
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     # Some Mistral models store chat_template in a separate JSON file
     if not getattr(tokenizer, "chat_template", None):
@@ -51,12 +45,6 @@ def load_eos_token_ids(
     ``generation_config.json``'s ``eos_token_id``. Honor that list (unioned with the
     tokenizer's eos) so generation halts correctly instead of running to ``max_tokens``.
     """
-    from freetoken.models.gguf.reader import gguf_config_source
-
-    if (gguf_src := gguf_config_source(model_path)) is not None:
-        from freetoken.models.gguf.tokenizer import gguf_eos_token_ids
-
-        return frozenset(gguf_eos_token_ids(gguf_src, tokenizer))
 
     ids: set[int] = set()
     if tokenizer.eos_token_id is not None:
@@ -98,23 +86,6 @@ def load_generation_sampling(model_path: str) -> dict[str, Any]:
     Many reasoning models (e.g. Qwen3.5: temp 1.0, top_k 20, top_p 0.95) ship these here;
     applying them avoids the greedy/unfiltered repetition loops these models fall into.
     """
-    # GGUF carries the recommended sampling in metadata (general.sampling.*), not a
-    # generation_config.json -- read it directly so --sampling-defaults=model works.
-    from freetoken.models.gguf.reader import gguf_config_source
-
-    if (gguf_src := gguf_config_source(model_path)) is not None:
-        from freetoken.models.gguf.reader import load_gguf_metadata
-
-        meta = load_gguf_metadata(gguf_src)
-        out: dict[str, Any] = {}
-        if (v := meta.get("general.sampling.temp")) is not None:
-            out["temperature"] = float(v)
-        if (v := meta.get("general.sampling.top_k")) is not None:
-            out["top_k"] = int(v)
-        if (v := meta.get("general.sampling.top_p")) is not None:
-            out["top_p"] = float(v)
-        return out
-
     try:
         gc = GenerationConfig.from_pretrained(model_path)
     except Exception:
@@ -189,15 +160,6 @@ def _load_hf_config(model_path: str) -> Any:
 
 
 def cached_load_hf_config(model_path: str) -> PretrainedConfig:
-    # A .gguf file (or an FTW dir converted from one) carries its own metadata (no HF
-    # config.json); return a shim the model registry dispatches on instead of a
-    # PretrainedConfig.
-    from freetoken.models.gguf.reader import gguf_config_source
-
-    if (gguf_src := gguf_config_source(model_path)) is not None:
-        from freetoken.models.gguf.config import build_gguf_shim
-
-        return build_gguf_shim(gguf_src)
     config = _load_hf_config(model_path)
     if isinstance(config, RawConfigShim):
         return RawConfigShim(config.to_dict())

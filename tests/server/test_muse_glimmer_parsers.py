@@ -866,29 +866,6 @@ def test_stray_closer_one_shot_matches_streaming():
     assert "<|eot|>" not in one.normal_text
 
 
-def test_mixed_quant_groups_rejected_in_any_order():
-    """R3 small: a {nvfp4, mxfp4} mixed checkpoint must raise regardless of the
-    groups' key order (the first-group short-circuit accepted one order)."""
-    # The models test module imports the muse_glimmer model, which pulls the CUDA
-    # kernel stack in; on machines without it (macOS/MLX) skip, don't fail.
-    pytest.importorskip("flashlib", reason="model import needs the CUDA stack")
-    import tests.models.test_muse_glimmer as m
-
-    for order in (("group_0", "group_1"), ("group_1", "group_0")):
-        hf = m._hf_config(quantized=True)
-        groups = hf.quantization_config["config_groups"]
-        nvfp4 = groups["group_0"]
-        mxfp4 = {"weights": {"num_bits": 4, "type": "float", "group_size": 32, "strategy": "group"}}
-        hf.quantization_config["config_groups"] = {
-            order[0]: nvfp4 if order[0] == "group_0" else mxfp4,
-            order[1]: mxfp4 if order[1] == "group_1" else nvfp4,
-        }
-        from freetoken.models.muse_glimmer.config import parse_config as pc
-
-        with pytest.raises(ValueError, match="unsupported compressed-tensors"):
-            pc(hf)
-
-
 # ---------------------------------------------------------------------------
 # Review regressions (PR #4, round 4)
 # ---------------------------------------------------------------------------

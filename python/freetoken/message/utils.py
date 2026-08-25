@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Any, Dict, Type
 
 import numpy as np
-import torch
 
 
 _TYPE_KEY = "__type__"
@@ -31,10 +30,10 @@ def serialize_type(self) -> Dict:
     # find all member variables
     serialized = {}
 
-    if isinstance(self, torch.Tensor):
-        assert self.dim() == 1, "we can only serialize 1D tensor for now"
-        serialized["__type__"] = "Tensor"
-        serialized["buffer"] = self.numpy().tobytes()
+    if isinstance(self, np.ndarray):
+        assert self.ndim == 1, "we can only serialize 1D arrays for now"
+        serialized["__type__"] = "Tensor"  # wire tag kept for compatibility
+        serialized["buffer"] = self.tobytes()
         serialized["dtype"] = str(self.dtype)
         return serialized
 
@@ -70,8 +69,7 @@ def deserialize_type(cls_map: Dict[str, Type], data: Dict) -> Any:
         dtype_str = data["dtype"].replace("torch.", "")
         np_dtype = getattr(np, dtype_str)
         assert isinstance(buffer, bytes)
-        np_tensor = np.frombuffer(buffer, dtype=np_dtype)
-        return torch.from_numpy(np_tensor.copy())
+        return np.frombuffer(buffer, dtype=np_dtype).copy()
 
     cls = cls_map.get(type_name)
     if cls is None:

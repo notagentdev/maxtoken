@@ -15,8 +15,6 @@ Commands:
   ctl         Query and manage a running MaxToken server
   daemon      Run the MaxToken supervisor (persistent engine service)
   launch      Configure and launch an agent against a MaxToken server
-  checkpoint  Convert an HF safetensors checkpoint to FTW
-  bench       Run a micro-benchmark (e.g. "bench bw" = CPU vs PCIe bandwidth)
 
 Use "ft <command> --help" for command-specific options.
 Use "ft --version" to print the MaxToken version.""",
@@ -43,12 +41,6 @@ def _run_launch(argv: list[str]) -> int:
     return main(argv, prog="ft launch")
 
 
-def _run_checkpoint(argv: list[str]) -> int:
-    from freetoken.checkpoint.__main__ import main
-
-    return main(argv, prog="ft checkpoint")
-
-
 def _run_ctl(argv: list[str]) -> int:
     from freetoken.control_cli import main
 
@@ -61,43 +53,12 @@ def _run_daemon(argv: list[str]) -> int:
     return main(argv, prog="ft daemon")
 
 
-def _print_bench_help(file: TextIO) -> None:
-    print(
-        """usage: ft bench <subcommand> [args]
-
-Subcommands:
-  bw   Benchmark CPU vs PCIe bandwidth and pick the MoE backend (hybrid/offload)
-
-Use "ft bench <subcommand> --help" for subcommand-specific options.""",
-        file=file,
-    )
-
-
-def _run_bench(argv: list[str]) -> int:
-    if not argv:
-        _print_bench_help(sys.stderr)
-        return 2
-    sub = argv[0]
-    if sub in {"-h", "--help"}:
-        _print_bench_help(sys.stdout)
-        return 0
-    if sub == "bw":
-        from freetoken.moe.benchbw import main
-
-        return main(argv[1:], prog="ft bench bw")
-    print(f"unknown ft bench subcommand: {sub}", file=sys.stderr)
-    _print_bench_help(sys.stderr)
-    return 2
-
-
 COMMANDS = {
     "serve": "_run_serve",
     "shell": "_run_shell",
     "ctl": "_run_ctl",
     "daemon": "_run_daemon",
     "launch": "_run_launch",
-    "checkpoint": "_run_checkpoint",
-    "bench": "_run_bench",
 }
 
 

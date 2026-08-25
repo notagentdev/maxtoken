@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 import pytest
-import torch
+import numpy as np
 
 from freetoken.core import SamplingParams
 from freetoken.message import TokenizeMsg
@@ -18,13 +18,12 @@ class FakeTokenizer:
         self.chat_template_kwargs = kwargs
         return "rendered prompt"
 
-    def encode(self, prompt, return_tensors=None, add_special_tokens=True):
+    def encode(self, prompt, add_special_tokens=True):
         assert prompt == "rendered prompt"
-        assert return_tensors == "pt"
         # The template rendered every special token already; encode must not
         # add another bos on top (the muse-glimmer/llama double-bos bug).
         assert add_special_tokens is False
-        return torch.tensor([[1, 2, 3]], dtype=torch.long)
+        return [1, 2, 3]
 
 
 def test_tokenize_manager_passes_chat_template_kwargs():
@@ -81,12 +80,11 @@ class FakeDsv4Tokenizer:
         self.name_or_path = str(model_path)
         self.prompt = None
 
-    def encode(self, prompt, return_tensors=None, add_special_tokens=True):
+    def encode(self, prompt, add_special_tokens=True):
         self.prompt = prompt
-        assert return_tensors == "pt"
         # dsv4's own encoder path keeps the default special-token behavior.
         assert add_special_tokens is True
-        return torch.tensor([[4, 5, 6]], dtype=torch.long)
+        return [4, 5, 6]
 
 
 def test_tokenize_manager_uses_dsv4_encoder_when_chat_template_is_missing(tmp_path):
@@ -202,8 +200,8 @@ class Qwen38LikeTokenizer:
             return f"prompt effort={effort}"
         return "prompt effort=off"
 
-    def encode(self, prompt, return_tensors=None, add_special_tokens=True):
-        return torch.tensor([[7, 8]], dtype=torch.long)
+    def encode(self, prompt, add_special_tokens=True):
+        return [7, 8]
 
 
 def test_tokenize_quantizes_foreign_effort_onto_the_template_vocabulary():
