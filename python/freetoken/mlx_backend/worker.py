@@ -225,16 +225,39 @@ class MlxScheduler:
 
         k = max(1, int(getattr(config, "draft_tokens", 3) or 3))
         k = self._clamp_draft_k(k)
-        from .draft import _vocab_size
+        if str(config.draft_model).strip().lower() == "mtp":
+            # The checkpoint's own MTP head: one layer, sharing the trunk's
+            # tokenizer and lm_head. See mtp_draft.py for why that shape wins.
+            from .mtp_draft import MtpDrafter
 
-        self.draft = DraftModel.load(
-            config.draft_model, k, target_vocab=_vocab_size(self.model)
-        )
+            self.draft = MtpDrafter.load(self.model, self._model_dir(config), k)
+        else:
+            from .draft import _vocab_size
+
+            self.draft = DraftModel.load(
+                config.draft_model, k, target_vocab=_vocab_size(self.model)
+            )
         if self.offload_state is not None:
             self.offload_state.spec_window = k + 1
         logger.info(
             f"speculative decoding: draft model {config.draft_model}, "
             f"k={k} tokens per verify"
+        )
+
+    @staticmethod
+    def _model_dir(config: SchedulerConfig) -> str:
+        """Local directory of the checkpoint (hub ids resolve through the cache
+        mlx_lm.load already populated)."""
+        import os
+
+        if os.path.isdir(config.model_path):
+            return config.model_path
+        from huggingface_hub import snapshot_download
+
+        return snapshot_download(
+            config.model_path,
+            local_files_only=True,
+            allow_patterns=["*.safetensors", "*.json"],
         )
 
     def _clamp_draft_k(self, k: int) -> int:
@@ -406,6 +429,25 @@ class MlxScheduler:
                 self.prefix_store.insert(input_ids[:pos], cache)
                 next_boundary += BOUNDARY_TOKENS
 
+    def _prime_hidden(self, input_ids: List[int], cache):
+        """The trunk's hidden state at the last prompt position, which an MTP
+        head needs before it can draft anything."""
+        mx = self._mx
+        _logits, hidden = self._forward(mx.array(input_ids[-1:])[None], cache, True)
+        return hidden
+
+    def _forward(self, tokens, cache, want_hidden: bool):
+        """(logits, hidden | None). mlx-lm models return logits only; the hidden
+        state comes from running the text tower and its head separately, which
+        an MTP drafter consumes."""
+        if not want_hidden:
+            return self.model(tokens, cache=cache), None
+        text = getattr(self.model, "language_model", self.model)
+        hidden = text.model(tokens, cache=cache)
+        head = getattr(text, "lm_head", None)
+        logits = head(hidden) if head is not None else text.model.embed_tokens.as_linear(hidden)
+        return logits, hidden
+
     def _generate_spec(
         self, input_ids: List[int], sp: SamplingParams, cache, start: int = 0
     ) -> Iterator[Any]:
@@ -448,15 +490,22 @@ class MlxScheduler:
         y = int(input_ids[-1])
         eos = self.eos_token_ids
 
+        # An MTP drafter reads the trunk's hidden state; a second model does not.
+        wants_hidden = hasattr(drafter, "set_hidden")
+        if wants_hidden:
+            drafter.set_hidden(self._prime_hidden(input_ids, cache))
+
         while True:
             drafts = drafter.draft()
+            if not drafts:  # drafter has no state yet (first round after a reset)
+                drafts = []
             window = [y] + drafts
             if state is not None:
                 state.prefetch_predicted()
                 state.speculating = False
                 state.begin_token()
             snaps = [self._cache_snapshot(c) for c in cache]
-            logits = self.model(mx.array(window)[None], cache=cache)
+            logits, hidden = self._forward(mx.array(window)[None], cache, wants_hidden)
             logprobs = logits - mx.logsumexp(logits, axis=-1, keepdims=True)
             outs = (
                 sampler(logprobs[0])
@@ -497,6 +546,12 @@ class MlxScheduler:
                 # Full accept: the window IS the committed path; the bonus token
                 # becomes the next pending input, no rollback of any kind.
                 drafter.commit(accepted, [drafts[-1], committed[-1]])
+            if wants_hidden and hidden is not None:
+                # The state that PRODUCED the last committed token sits at index
+                # `accepted` of the verify window — not at its end. Feeding the
+                # last one instead drifts the head off the committed path
+                # (measured: acceptance 0.25 vs 1.10 out of 3).
+                drafter.set_hidden(hidden[:, accepted : accepted + 1, :])
 
             self._spec_steps += 1
             self._spec_tokens += len(committed)

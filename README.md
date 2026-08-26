@@ -22,9 +22,16 @@ Measured on a 32 GB M1 Max (all through the real HTTP serving path):
 
 | model (4-bit) | memory | decode |
 |---|---|---|
-| Qwen3-Coder-Next-**80B** (42 GiB checkpoint) | **10 GiB** hard budget | ~10 tok/s |
+| DeepSeek-V4-Flash 2-bit (86 GiB checkpoint) | **13 GiB** hard budget | ~3.3 tok/s |
+| Qwen3-Coder-Next-**80B** (42 GiB checkpoint) | **10 GiB** hard budget | 7.4–10 tok/s |
 | Qwen3-Coder-Next-**80B** | **3.4 GiB** hard budget | ~5 tok/s |
 | Ornith-1.5-**35B**-A3B (18 GiB checkpoint) | 1.3 GiB owned + page cache | ~67 tok/s |
+
+The 80B range is the spread between a cold server (7.4 tok/s measured over
+HTTP right after start) and a warm one (~10 tok/s once the slot cache has
+settled and the miss rate has fallen from ~19% to ~11%). DeepSeek-V4-Flash is
+304 B parameters at 2.7x this machine's RAM — see [docs/mlx.md](docs/mlx.md)
+for what that model needs beyond the usual path.
 
 The 80B rows are the point: a checkpoint 1.3× the machine's total RAM, serving
 usable tokens inside a quarter of its size — with follow-up TTFT of ~2-3 s via

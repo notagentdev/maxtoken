@@ -268,9 +268,34 @@ uses.
   | Ornith-35B-A3B, mapped | — | 67 tok/s | impossible: no compatible drafter is
   cheaper than a 3B active path |
 
-  The pattern is structural. A drafter has to be roughly an order of magnitude
-  cheaper than the target's *active* path, share its tokenizer, and keep its own
-  KV cache in lockstep. Sparse MoE targets defeat the first condition (Ornith
+  `--draft-model mtp` uses the checkpoint's OWN multi-token-prediction head
+  instead of a second model, where one ships (`mtp.safetensors` /
+  `model-mtp-head.safetensors`). That fixes everything the two-model variant
+  gets wrong about cost and compatibility: the head is ONE layer (228 MB on
+  Qwen3.8-27B, ~10x smaller than the smallest compatible standalone drafter),
+  it shares the trunk's tokenizer and `lm_head` by construction, and it is
+  trained on this exact model — measured 2.10 accepted tokens per verify at
+  k=3 while costing 13% of the loop, against 1.80 for the 4B foreign drafter
+  that cost most of it. Wiring follows the checkpoint's own `mtplx_runtime.json`
+  contract: post-norm trunk hidden, post-norm chained hidden, concat order
+  [embedding, hidden]. The state that produced the last committed token sits at
+  index `accepted` of the verify window, NOT at its end — feeding the last one
+  drifts the head off the committed path (acceptance 0.25 vs 1.10 out of 3).
+
+  **It still does not pay on a hybrid model, and now the reason is exact.**
+  Through the server, Qwen3.8-27B measures 19.2 tok/s plain against 6.8 with
+  the MTP head. 48 of its 64 layers are linear-attention (GDN) layers whose
+  recurrent state cannot be trimmed, so every verify round snapshots all 48
+  of them to be able to reject a draft — far more work than 2.1 tokens buy.
+  Speculation on a hybrid model needs per-token recurrent states captured
+  *during* the forward (a modified gated-delta kernel that emits the state
+  after each token, so a partial accept commits exactly at the accepted
+  length instead of snapshotting and replaying). That kernel is the missing
+  piece here; every MTP-capable checkpoint on the test machine is hybrid.
+
+  The two-model pattern is structural in a different way. A drafter has to be
+  roughly an order of magnitude cheaper than the target's *active* path, share
+  its tokenizer, and keep its own KV cache in lockstep. Sparse MoE targets defeat the first condition (Ornith
   activates 3B — nothing compatible is cheaper), and a hybrid drafter pays
   snapshot/restore of its recurrent state every round. This is exactly the case
   for **built-in MTP heads** instead: one extra layer, sharing the target's
@@ -311,6 +336,30 @@ uses.
   an experimental admission filter (inline-serve first-offense misses) that helps
   small expert pools with tight caches and hurts long-tail pools — measure before
   keeping it on.
+
+## Sampling: do not greedy-decode a thinking model
+
+A Qwen-family reasoning model at `temperature=0` is a known failure pattern:
+greedy decoding makes reasoning *termination* deterministic-worst-case, so the
+model loops inside its thinking block instead of closing it. Observed here
+repeatedly — a research MoE degenerating into `Ich bin. Ich bin. …`, an MTP
+probe producing `map map map map`, and empty `content` whenever the loop ate
+the whole token budget.
+
+Practical rules:
+
+- **Thinking on:** sample. `temperature 0.6, top_p 0.95, top_k 20` is the
+  Qwen-family default (`--sampling-defaults model`, the server's default, fills
+  exactly this from the checkpoint's `generation_config.json`). Give it a
+  generous `max_tokens` and cap runaway thinking with `--max-reasoning-tokens`
+  rather than with a tight output budget.
+- **Thinking off / short answers:** lower and narrower is fine, e.g.
+  `temperature 0.3, top_p 0.9, top_k 40`.
+- **Benchmarks:** greedy is the right choice for *comparing two code paths*
+  (identical output proves equivalence), and every speculative-decoding
+  measurement here uses it for that reason. It is the wrong choice for judging
+  a model's quality or its termination behavior — those numbers are the
+  worst case, not the typical one.
 
 ## Tests on macOS
 

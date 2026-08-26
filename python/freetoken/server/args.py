@@ -590,10 +590,12 @@ def parse_args(
         type=str,
         default=ServerArgs.draft_model,
         help=(
-            "Speculative decoding: a small draft model (local path or HF repo id, "
-            "same vocabulary as the target) drafts --draft-tokens per step and the "
-            "target verifies them in one batched forward. Output distribution is "
-            "unchanged. Currently honored by the MLX expert-offload path."
+            "Speculative decoding. Pass 'mtp' to use the checkpoint's OWN "
+            "multi-token-prediction head (one layer, shares the trunk's "
+            "tokenizer and lm_head — the variant that pays); or a path/repo id "
+            "for a small second model with the same vocabulary. Either way the "
+            "target verifies --draft-tokens per forward and the output "
+            "distribution is unchanged."
         ),
     )
     parser.add_argument(
