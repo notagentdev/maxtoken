@@ -40,6 +40,13 @@ from freetoken.message import (
 )
 from freetoken.utils import ZmqPullQueue, ZmqPushQueue, init_logger, load_eos_token_ids
 
+# Longest verify window a speculative round will build. Four is not arbitrary:
+# it is the widest row count the small-M quantized matmul kernel compiles for
+# (verify_qmm.py), and past it MLX's own path takes over and the extra rows
+# stop being cheap. It also bounds how many committed-but-unabsorbed tokens a
+# rejected round may carry.
+MAX_WINDOW = 4
+
 if TYPE_CHECKING:
     from freetoken.core import SamplingParams
     from freetoken.scheduler import SchedulerConfig
@@ -551,14 +558,22 @@ class MlxScheduler:
         state = self.offload_state
         drafter = self.draft
         sampler = self._build_sampler(sp)
+        k = drafter.k
+        # Committed tokens the caches have not absorbed yet. A rejected round
+        # leaves them here instead of paying a separate forward to replay them:
+        # carried into the NEXT window they cost one extra row (~14 ms with the
+        # verify kernel) instead of a whole forward (~56 ms). MAX_WINDOW caps
+        # the carry, which is what keeps it from growing without bound — a
+        # round that cannot fit any draft still forwards its pending tokens and
+        # so always advances the caches.
+        max_window = max(k + 1, MAX_WINDOW)
         if state is not None:
             self._offload_prefill(input_ids, cache, start)
-            state.spec_window = drafter.k + 1
+            state.spec_window = max_window
         else:
             self._prefill_into(cache, input_ids, start)
         drafter.start(input_ids)
-        k = drafter.k
-        y = int(input_ids[-1])
+        pending = [int(input_ids[-1])]
         eos = self.eos_token_ids
 
         # An MTP drafter reads the trunk's hidden state; a second model does not.
@@ -574,12 +589,22 @@ class MlxScheduler:
         can_reject_sample = shape is not None and hasattr(drafter, "q")
 
         while True:
-            drafts = (
-                drafter.draft(shape) if can_reject_sample else drafter.draft()
-            )
-            if not drafts:  # drafter has no state yet (first round after a reset)
-                drafts = []
-            window = [y] + drafts
+            # Drafts only fill what the window has left after the carried
+            # tokens. When nothing is left the round runs the carry alone: it
+            # still commits a token and, crucially, it absorbs the carry, so
+            # `pending` can never outgrow the window.
+            room = max_window - len(pending)
+            drafts = []
+            if room > 0:
+                drafts = (
+                    drafter.draft(shape) if can_reject_sample else drafter.draft()
+                ) or []
+                drafts = drafts[:room]
+            window = pending + drafts
+            # Draft j is judged by the target's output at window position
+            # off + j; with a single carried token off is 0, which is the plain
+            # speculative case.
+            off = len(pending) - 1
             if state is not None:
                 state.prefetch_predicted()
                 state.speculating = False
@@ -596,17 +621,18 @@ class MlxScheduler:
             if state is not None:
                 state.commit_token()
 
-            if can_reject_sample and drafts and len(drafter.q) == len(drafts):
-                P = [shape(logits[0, i]) for i in range(len(drafts) + 1)]
-                accepted, nxt = self._accept_speculative(drafts, P, drafter.q)
+            if can_reject_sample and drafts and len(drafter.q) >= len(drafts):
+                P = [shape(logits[0, off + i]) for i in range(len(drafts) + 1)]
+                accepted, nxt = self._accept_speculative(
+                    drafts, P, drafter.q[: len(drafts)]
+                )
                 committed = drafts[:accepted] + [nxt]
-                outs_l = committed  # for the EOS scan below
             else:
                 outs_l = [int(t) for t in outs.tolist()]
                 accepted = 0
-                while accepted < k and drafts[accepted] == outs_l[accepted]:
+                while accepted < len(drafts) and drafts[accepted] == outs_l[off + accepted]:
                     accepted += 1
-                committed = outs_l[: accepted + 1]
+                committed = outs_l[off : off + accepted + 1]
             # Stop the window at EOS: everything after it would over-advance the
             # caches past what the scheduler will ever consume (ignore_eos
             # requests keep the full window and let the scheduler decide).
@@ -616,34 +642,34 @@ class MlxScheduler:
                         committed, accepted = committed[: i + 1], min(accepted, i)
                         break
 
-            if accepted < k:
-                # Rejected drafts contaminated the caches: back to the
-                # pre-window state, replay the accepted prefix.
+            if accepted < len(drafts):
+                # Rejected drafts contaminated the caches. Roll back to the
+                # pre-window state and carry the whole committed path forward
+                # rather than replaying it in a forward of its own: the caches
+                # lose a round of progress, but the next window reabsorbs it at
+                # the price of extra rows instead of an extra forward.
                 for c, snap in zip(cache, snaps, strict=True):
                     self._cache_rollback(c, snap, len(window))
-                replay = [y] + drafts[:accepted]
-                if state is not None:
-                    state.begin_token()
-                mx.eval(self.model(mx.array(replay)[None], cache=cache))
-                if state is not None:
-                    state.commit_token()
+                pending = pending + drafts[:accepted] + committed[-1:]
                 drafter.commit(accepted, committed[-1:])
             else:
-                # Full accept: the window IS the committed path; the bonus token
-                # becomes the next pending input, no rollback of any kind.
-                drafter.commit(accepted, [drafts[-1], committed[-1]])
+                # Every draft survived: the window IS the committed path and the
+                # caches already hold it. Only the bonus token is left over.
+                pending = committed[-1:]
+                drafter.commit(accepted, (drafts[-1:] + committed[-1:]) if drafts
+                               else committed[-1:])
             if wants_hidden and hidden is not None:
-                # The state that PRODUCED the last committed token sits at index
-                # `accepted` of the verify window — not at its end. Feeding the
-                # last one instead drifts the head off the committed path
+                # The state that PRODUCED the last committed token sits at
+                # window index off + accepted — not at the window's end.
+                # Feeding the last one drifts the head off the committed path
                 # (measured: acceptance 0.25 vs 1.10 out of 3).
-                drafter.set_hidden(hidden[:, accepted : accepted + 1, :])
+                j = off + accepted
+                drafter.set_hidden(hidden[:, j : j + 1, :])
 
             self._spec_steps += 1
             self._spec_tokens += len(committed)
             for i, tok in enumerate(committed):
-                yield tok, logprobs[:, i, :]
-            y = committed[-1]
+                yield tok, logprobs[:, off + i, :]
 
     def _offload_generate(
         self, input_ids: List[int], sp: SamplingParams, cache, start: int = 0

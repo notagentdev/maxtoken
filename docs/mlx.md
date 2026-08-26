@@ -379,20 +379,38 @@ uses.
   ~7 ms per extra window token where we pay 38 — their multi-token quantized
   matmul is simply about five times more efficient than the one MLX ships.
 
-  That is the whole gap, and it is not reachable from this side of the API. Our
-  window forward alone costs 92 ms for 1.52 tokens = 60.5 ms/token, already
-  worse than plain decode's 56 ms before a single line of our overhead is
-  counted, so no amount of tidying the round flips it — removing the replay
-  forward entirely (26 ms/round, the largest thing we own) still lands at
-  12.6 tok/s. Compiling the window does not help either: the chain benchmark
-  above evaluates one fused graph and still degrades, so the loss is inside the
-  kernel, not in launch overhead.
+  **So we built the kernel, and speculation now pays.** Two changes, both
+  aimed at the round budget: a winning round may cost 1.52 x 56.2 = 85 ms, and
+  it cost 143.
 
-  Speculation therefore stays in, correct and opt-in, and pays where the
-  marginal token is genuinely cheap: an unquantized target, where the second
-  token measured free. Making it pay on a quantized one needs a Metal kernel
-  for small-T quantized matmul — which is, on this evidence, exactly what
-  mtplx has.
+  *A small-M quantized matmul* (`verify_qmm.py`): dequantize each weight once
+  and reuse it across every row of the window, one simdgroup per 4 output
+  columns. The real 27B forward drops from 92.20 to 69.93 ms at T=2 — the
+  extra window token from 36.6 ms to 14.3 — which moves the k=1 break-even
+  from 1.68 accepted tokens to 1.23, under the measured 1.52.
+
+  *No replay forward*: a rejected round used to roll the caches back and
+  recompute the committed prefix in a forward of its own, 56 ms to produce
+  nothing new, on 48% of rounds. It is now carried into the NEXT window, where
+  it costs one extra row. The carry is capped at `MAX_WINDOW` — a round with no
+  room left runs the carry alone, which still commits a token and always
+  absorbs the carry, so it cannot grow without bound.
+
+  | | tok/s |
+  |---|---|
+  | plain decode | 17.79 |
+  | MTP k=1, before | 10.59 |
+  | MTP k=1, + verify kernel | 12.98 |
+  | **MTP k=1, + no replay** | **17.97** |
+  | MTP k=2 (deeper is worse) | 15.28 |
+
+  The gain over plain decode is 1%, so this is a beginning and not a victory —
+  but it is the first configuration where speculation is not a loss, and the
+  remaining distance to mtplx's 26.60 is now a known quantity rather than a
+  mystery. Their `vk_k` is a split-K morphology where ours does the whole K
+  reduction per simdgroup, and ours runs at 194 GiB/s against stock qmv's 221,
+  so the headroom is real and measurable. Depth stays at 1: k=2 rejects more
+  often, and every rejection lengthens the carried window.
 
 
   The two-model pattern is structural in a different way. A drafter has to be
