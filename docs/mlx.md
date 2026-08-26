@@ -316,13 +316,37 @@ uses.
 
   That makes the break-even arithmetic explicit: a k-token window costs
   roughly `54 + 38k` ms, so k=1 needs **1.76 accepted tokens** to beat plain
-  decode. Greedy verification accepts 2.10 (it would win); sampled
-  verification accepts only 1.52, because our acceptance rule is
-  sample-and-match — a draft survives only if the target's own sample
-  happens to equal it. Proper rejection sampling (accept with probability
-  min(1, p/q), else draw from the normalized residual `(p-q)+`) accepts
-  strictly more at the same exactness and is the missing piece for the
-  sampled case, which is the case users actually run.
+  decode. Greedy verification accepts 2.10 — it would win. Sampled
+  verification, the case users actually run, accepted only 1.52 under
+  sample-and-match, where a draft survives just when the target's own sample
+  happens to equal it.
+
+  So we replaced that rule with proper rejection sampling: the drafter samples
+  from its own distribution and records `q`, a draft is accepted with
+  probability `min(1, p/q)`, and on rejection the token is drawn from the
+  normalized residual `(p-q)+`. It is distribution-exact (statistically tested
+  in `tests/mlx_backend/test_speculative_accept.py`) and theoretically the best
+  rule available — and it still does not pay:
+
+  | | accepted/verify | tok/s | vs plain |
+  |---|---|---|---|
+  | plain decode | — | **15.1** | — |
+  | rejection k=1 | 1.55 | 11.6 | 0.77x |
+  | rejection k=2 | 1.68 | 7.9 | 0.52x |
+  | rejection k=3 | 1.75 | 6.4 | 0.43x |
+
+  1.52 to 1.55 against the 1.76 needed. The head predicts the target's argmax
+  well (2.10 greedy) and its full distribution much less well, and no
+  acceptance rule can invent overlap that is not there — acceptance under
+  rejection sampling is exactly `1 - TV(p, q)`, a property of the head, not of
+  the code around it.
+
+  The wall is therefore the kernel, not the algorithm. Speculative decoding on
+  a hybrid MLX model needs a gated-delta implementation whose multi-token path
+  is not a serial per-token recursion; until then the verify window costs what
+  it costs and no drafter can earn it back. The feature stays in, correct and
+  opt-in, for the day that changes — or for a target without recurrent layers,
+  where a window forward is nearly free.
 
 
   The two-model pattern is structural in a different way. A drafter has to be
