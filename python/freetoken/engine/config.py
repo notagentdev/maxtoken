@@ -32,7 +32,11 @@ class EngineConfig:
     # verify forward costs one expert-load for several tokens); other backends
     # currently ignore it. The draft model must share the target's vocabulary.
     draft_model: str | None = None
-    draft_tokens: int = 3
+    # Two, not three: with the MTP head's committed history the third draft is
+    # accepted rarely enough that its extra verify row costs more than it
+    # returns (measured warm on Qwen3.8-27B, paired against plain decode --
+    # k=2 window 3: 1.29x, k=3 window 4: 1.20x).
+    draft_tokens: int = 2
     kv_reserve_tokens: int = 8192  # KV floor for --moe-cache-auto; small by design (MoE-priority)
     moe_cache_policy: str = "lru"
     moe_prefill_overlap: bool = True

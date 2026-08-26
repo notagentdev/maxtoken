@@ -40,12 +40,15 @@ from freetoken.message import (
 )
 from freetoken.utils import ZmqPullQueue, ZmqPushQueue, init_logger, load_eos_token_ids
 
-# Longest verify window a speculative round will build. Four is not arbitrary:
-# it is the widest row count the small-M quantized matmul kernel compiles for
-# (verify_qmm.py), and past it MLX's own path takes over and the extra rows
-# stop being cheap. It also bounds how many committed-but-unabsorbed tokens a
-# rejected round may carry.
-MAX_WINDOW = 4
+# Longest verify window a speculative round will build, and with it the cap on
+# how many committed-but-unabsorbed tokens a rejected round may carry.
+#
+# Four rows is the widest the small-M quantized matmul kernel compiles for
+# (verify_qmm.py) and past it MLX's own path takes over — a five-row window
+# measured at 0.79x plain decode against 1.20x for four. Three is better still
+# (1.29x): the carry room a fourth row buys is worth less than the row costs,
+# because a carried token is one the target has already paid for once.
+MAX_WINDOW = 3
 
 if TYPE_CHECKING:
     from freetoken.core import SamplingParams
