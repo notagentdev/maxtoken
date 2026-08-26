@@ -369,8 +369,14 @@ class MlxScheduler:
             logits = self.model(mx.array(input_ids[pos:pos + n])[None], cache=cache)
             mx.eval(logits)
             pos += n
-            if pos == next_boundary and pos < end and self.prefix_store is not None:
-                self.prefix_store.insert(input_ids[:pos], cache)
+            if pos == next_boundary:
+                # The boundary advances whether or not anything is stored at it.
+                # Tying the advance to the prefix store left next_boundary
+                # pinned as soon as the store was off (--cache-type naive), so
+                # the following chunk clamped to zero tokens and the model was
+                # handed an empty array — every prompt past BOUNDARY_TOKENS.
+                if pos < end and self.prefix_store is not None:
+                    self.prefix_store.insert(input_ids[:pos], cache)
                 next_boundary += BOUNDARY_TOKENS
 
     def _make_generator(self, input_ids: List[int], sp: SamplingParams) -> tuple:
@@ -445,8 +451,14 @@ class MlxScheduler:
             logits = self.model(mx.array(input_ids[pos:pos + n])[None], cache=cache)
             mx.eval(logits)
             pos += n
-            if pos == next_boundary and pos < end and self.prefix_store is not None:
-                self.prefix_store.insert(input_ids[:pos], cache)
+            if pos == next_boundary:
+                # The boundary advances whether or not anything is stored at it.
+                # Tying the advance to the prefix store left next_boundary
+                # pinned as soon as the store was off (--cache-type naive), so
+                # the following chunk clamped to zero tokens and the model was
+                # handed an empty array — every prompt past BOUNDARY_TOKENS.
+                if pos < end and self.prefix_store is not None:
+                    self.prefix_store.insert(input_ids[:pos], cache)
                 next_boundary += BOUNDARY_TOKENS
 
     def _shaped_dist(self, sp: SamplingParams):
