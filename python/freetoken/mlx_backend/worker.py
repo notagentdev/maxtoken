@@ -40,6 +40,8 @@ from freetoken.message import (
 )
 from freetoken.utils import ZmqPullQueue, ZmqPushQueue, init_logger, load_eos_token_ids
 
+from . import gdn_capture
+
 # Longest verify window a speculative round will build, and with it the cap on
 # how many committed-but-unabsorbed tokens a rejected round may carry.
 #
@@ -625,6 +627,13 @@ class MlxScheduler:
         # keep the exact-match rule, which is optimal when p is a point mass.
         shape = self._shaped_dist(sp)
         can_reject_sample = shape is not None and hasattr(drafter, "q")
+        # Recording per-position recurrent state lets a rejected round commit
+        # its accepted prefix outright, which is what keeps the carry at a
+        # single token and leaves the next window its full draft depth. Models
+        # whose recurrent layers this cannot record keep the snapshot path.
+        can_commit_prefix = self.offload_state is None and gdn_capture.supported(
+            self.model
+        )
 
         while True:
             # Drafts only fill what the window has left after the carried
@@ -647,8 +656,14 @@ class MlxScheduler:
                 state.prefetch_predicted()
                 state.speculating = False
                 state.begin_token()
+            # Taken even when the capture path is expected to commit: it costs
+            # 0.02 ms a round and it is the only way back if commit_prefix
+            # declines the window for a reason `supported` cannot see.
             snaps = [self._cache_snapshot(c) for c in cache]
-            logits, hidden = self._forward(mx.array(window)[None], cache, wants_hidden)
+            with gdn_capture.capture(self.model if can_commit_prefix else None) as caps:
+                logits, hidden = self._forward(
+                    mx.array(window)[None], cache, wants_hidden
+                )
             # Nothing is normalized or sampled here. Each window position carries
             # a vocabulary-wide row (248k floats on this checkpoint), and the two
             # acceptance rules below need different things from them: rejection
@@ -690,14 +705,27 @@ class MlxScheduler:
                 drafter.absorb(committed, hidden[:, off : off + len(committed), :])
 
             if accepted < len(drafts):
-                # Rejected drafts contaminated the caches. Roll back to the
-                # pre-window state and carry the whole committed path forward
-                # rather than replaying it in a forward of its own: the caches
-                # lose a round of progress, but the next window reabsorbs it at
-                # the price of extra rows instead of an extra forward.
-                for c, snap in zip(cache, snaps, strict=True):
-                    self._cache_rollback(c, snap, len(window))
-                pending = pending + drafts[:accepted] + committed[-1:]
+                # Rejected drafts advanced the caches over tokens that never
+                # happened. With per-position state recorded, the caches are
+                # simply bound to the accepted prefix and the round ends like
+                # any other — nothing recomputed, nothing carried.
+                keep = off + accepted + 1
+                committed_prefix = bool(caps) and gdn_capture.commit_prefix(
+                    self.model, cache, caps, keep, len(window)
+                )
+                if committed_prefix:
+                    # The caches now hold `pending + drafts[:accepted]`. The only
+                    # emitted token they have not absorbed is the correction.
+                    pending = committed[-1:]
+                else:
+                    # No capture: roll back to the pre-window state and carry the
+                    # committed path into the next window instead of replaying it
+                    # in a forward of its own. The caches lose a round of
+                    # progress, but the next window reabsorbs it at the price of
+                    # extra rows rather than an extra forward.
+                    for c, snap in zip(cache, snaps, strict=True):
+                        self._cache_rollback(c, snap, len(window))
+                    pending = pending + drafts[:accepted] + committed[-1:]
                 drafter.commit(accepted, committed[-1:])
             else:
                 # Every draft survived: the window IS the committed path and the
