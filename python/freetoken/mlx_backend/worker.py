@@ -429,6 +429,67 @@ class MlxScheduler:
                 self.prefix_store.insert(input_ids[:pos], cache)
                 next_boundary += BOUNDARY_TOKENS
 
+    def _shaped_dist(self, sp: SamplingParams):
+        """A function logits-row -> the probability vector the request actually
+        samples from (temperature, then top-k, then top-p, renormalized), or
+        None for greedy. Speculative acceptance needs this EXPLICITLY: the
+        guarantee is that committed tokens follow exactly this distribution."""
+        mx = self._mx
+        if sp.is_greedy or sp.temperature <= 0.0:
+            return None
+        temp = max(float(sp.temperature), 1e-6)
+        top_k = int(sp.top_k) if sp.top_k and sp.top_k > 0 else 0
+        top_p = float(sp.top_p) if 0.0 < sp.top_p < 1.0 else 0.0
+
+        def shape(row):
+            probs = mx.softmax(row.astype(mx.float32) / temp, axis=-1)
+            if top_k:
+                kth = mx.argpartition(probs, -top_k)[-top_k:]
+                keep = mx.zeros_like(probs)
+                keep[kth] = 1.0
+                probs = probs * keep
+            if top_p:
+                order = mx.argsort(probs)[::-1]
+                ordered = probs[order]
+                # keep the smallest prefix whose mass reaches top_p
+                cum = mx.cumsum(ordered)
+                keep_sorted = (cum - ordered) < top_p
+                keep = mx.zeros_like(probs)
+                keep[order] = keep_sorted.astype(probs.dtype)
+                probs = probs * keep
+            total = probs.sum()
+            return probs / mx.maximum(total, 1e-30)
+
+        return shape
+
+    def _accept_speculative(self, drafts, P, Q, rng_key=None):
+        """Rejection sampling with residual correction (Leviathan et al.).
+
+        Accept draft ``d`` at position i with probability ``min(1, p(d)/q(d))``;
+        on the first rejection draw from the normalized residual ``(p - q)+``
+        and stop. Committed tokens are distributed exactly as ``p`` — the
+        target's own sampling distribution — while accepting strictly more
+        drafts than sample-and-match whenever the drafter is less confident
+        than the target. Returns (accepted_count, token_after_the_prefix).
+        """
+        mx = self._mx
+        for i, d in enumerate(drafts):
+            p_d = float(P[i][d].item())
+            q_d = float(Q[i][d].item())
+            if q_d <= 0.0:
+                ratio = 0.0
+            else:
+                ratio = min(1.0, p_d / q_d)
+            if float(mx.random.uniform().item()) < ratio:
+                continue
+            residual = mx.maximum(P[i] - Q[i], 0.0)
+            total = float(residual.sum().item())
+            dist = P[i] if total <= 0.0 else residual / total
+            return i, int(mx.random.categorical(mx.log(dist + 1e-30)).item())
+        # every draft survived: the bonus token comes from the last position
+        last = P[len(drafts)]
+        return len(drafts), int(mx.random.categorical(mx.log(last + 1e-30)).item())
+
     def _prime_hidden(self, input_ids: List[int], cache):
         """The trunk's hidden state at the last prompt position, which an MTP
         head needs before it can draft anything."""
@@ -494,9 +555,18 @@ class MlxScheduler:
         wants_hidden = hasattr(drafter, "set_hidden")
         if wants_hidden:
             drafter.set_hidden(self._prime_hidden(input_ids, cache))
+        # Sampled requests use rejection sampling with residual correction; that
+        # needs the proposal density q, so the drafter must SAMPLE rather than
+        # take its argmax (a deterministic proposal makes min(1, p/q) collapse
+        # to p(d), i.e. no better than plain sample-and-match). Greedy requests
+        # keep the exact-match rule, which is optimal when p is a point mass.
+        shape = self._shaped_dist(sp)
+        can_reject_sample = shape is not None and hasattr(drafter, "q")
 
         while True:
-            drafts = drafter.draft()
+            drafts = (
+                drafter.draft(shape) if can_reject_sample else drafter.draft()
+            )
             if not drafts:  # drafter has no state yet (first round after a reset)
                 drafts = []
             window = [y] + drafts
@@ -516,11 +586,17 @@ class MlxScheduler:
             if state is not None:
                 state.commit_token()
 
-            outs_l = [int(t) for t in outs.tolist()]
-            accepted = 0
-            while accepted < k and drafts[accepted] == outs_l[accepted]:
-                accepted += 1
-            committed = outs_l[: accepted + 1]
+            if can_reject_sample and drafts and len(drafter.q) == len(drafts):
+                P = [shape(logits[0, i]) for i in range(len(drafts) + 1)]
+                accepted, nxt = self._accept_speculative(drafts, P, drafter.q)
+                committed = drafts[:accepted] + [nxt]
+                outs_l = committed  # for the EOS scan below
+            else:
+                outs_l = [int(t) for t in outs.tolist()]
+                accepted = 0
+                while accepted < k and drafts[accepted] == outs_l[accepted]:
+                    accepted += 1
+                committed = outs_l[: accepted + 1]
             # Stop the window at EOS: everything after it would over-advance the
             # caches past what the scheduler will ever consume (ignore_eos
             # requests keep the full window and let the scheduler decide).

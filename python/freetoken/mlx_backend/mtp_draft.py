@@ -64,6 +64,7 @@ class MtpDrafter:
         self.cache: List[Any] | None = None
         self._pending: List[int] = []
         self._hidden = None
+        self.q: List[Any] = []  # proposal densities, when drafting by sampling
 
     # -- construction ---------------------------------------------------------
 
@@ -132,16 +133,33 @@ class MtpDrafter:
         """The trunk's hidden state at the last committed position."""
         self._hidden = hidden
 
-    def draft(self) -> List[int]:
+    def draft(self, shape=None) -> List[int]:
+        """Propose k tokens. With ``shape`` (a logits -> probability-vector
+        function) the head SAMPLES from its own distribution and the proposal
+        density q is recorded in ``self.q``; without it, greedy.
+
+        Sampling matters for the acceptance rule. A greedy proposal is a point
+        mass, so ``min(1, p/q)`` collapses to ``p(d)`` — the worst case, and
+        exactly what plain sample-and-match already achieves. A proposal drawn
+        from the head's own distribution is accepted with probability
+        ``min(1, p(d)/q(d))``, which is 1 wherever the head is less confident
+        than the target."""
         mx = self._mx
         if self._hidden is None:
+            self.q = []
             return []
         drafts: List[int] = []
+        self.q = []
         h = self._hidden
         tok = mx.array([self._pending[-1:]])
         for _ in range(self.k):
             logits, h = self._step(h, tok)
-            nxt = int(mx.argmax(logits[0, -1]))
+            if shape is None:
+                nxt = int(mx.argmax(logits[0, -1]))
+            else:
+                probs = shape(logits[0, -1])
+                nxt = int(mx.random.categorical(mx.log(probs + 1e-30)).item())
+                self.q.append(probs)
             drafts.append(nxt)
             tok = mx.array([[nxt]])
         return drafts
