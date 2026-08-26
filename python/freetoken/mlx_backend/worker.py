@@ -611,13 +611,12 @@ class MlxScheduler:
                 state.begin_token()
             snaps = [self._cache_snapshot(c) for c in cache]
             logits, hidden = self._forward(mx.array(window)[None], cache, wants_hidden)
-            logprobs = logits - mx.logsumexp(logits, axis=-1, keepdims=True)
-            outs = (
-                sampler(logprobs[0])
-                if sampler
-                else mx.argmax(logprobs[0], axis=-1)
-            )
-            mx.eval(outs)
+            # Nothing is normalized or sampled here. Each window position carries
+            # a vocabulary-wide row (248k floats on this checkpoint), and the two
+            # acceptance rules below need different things from them: rejection
+            # sampling builds its own shaped distribution, so normalizing the
+            # whole window first computed the target distribution twice per round
+            # and threw one away.
             if state is not None:
                 state.commit_token()
 
@@ -628,6 +627,9 @@ class MlxScheduler:
                 )
                 committed = drafts[:accepted] + [nxt]
             else:
+                lp = logits - mx.logsumexp(logits, axis=-1, keepdims=True)
+                outs = sampler(lp[0]) if sampler else mx.argmax(lp[0], axis=-1)
+                mx.eval(outs)
                 outs_l = [int(t) for t in outs.tolist()]
                 accepted = 0
                 while accepted < len(drafts) and drafts[accepted] == outs_l[off + accepted]:
@@ -676,7 +678,11 @@ class MlxScheduler:
             self._spec_steps += 1
             self._spec_tokens += len(committed)
             for i, tok in enumerate(committed):
-                yield tok, logprobs[:, off + i, :]
+                # Normalize only the row being emitted: the scheduler wants one
+                # logprob row per committed token, which is a subset of the
+                # window's positions.
+                row = logits[:, off + i, :]
+                yield tok, row - mx.logsumexp(row, axis=-1, keepdims=True)
 
     def _offload_generate(
         self, input_ids: List[int], sp: SamplingParams, cache, start: int = 0
