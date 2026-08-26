@@ -354,20 +354,34 @@ class MlxScheduler:
         entry, n = hit
         return self.prefix_store.restore(self.model, entry, n), n
 
-    def _prefill_into(self, cache, input_ids: List[int], start: int) -> None:
+    def _prefill_into(
+        self, cache, input_ids: List[int], start: int, on_hidden=None
+    ) -> None:
         """Process input_ids[start:-1] into ``cache`` in chunks, snapshotting at
         BOUNDARY_TOKENS multiples so hybrid models (whose recurrent state cannot
-        be trimmed) have exact restore points for future prefix hits."""
+        be trimmed) have exact restore points for future prefix hits.
+
+        ``on_hidden(hidden, chunk_start, chunk_end)`` receives the trunk's hidden
+        states for each chunk. Asking for them also drops the lm_head from the
+        prefill: the prompt's logits are never read, and at this vocabulary a
+        2048-token chunk would materialize a gigabyte of them.
+        """
         from .prefix_cache import BOUNDARY_TOKENS
 
         mx = self._mx
+        text = getattr(self.model, "language_model", self.model)
         pos = start
         end = len(input_ids) - 1
         next_boundary = (pos // BOUNDARY_TOKENS + 1) * BOUNDARY_TOKENS
         while pos < end:
             n = min(2048, end - pos, next_boundary - pos)
-            logits = self.model(mx.array(input_ids[pos:pos + n])[None], cache=cache)
-            mx.eval(logits)
+            chunk = mx.array(input_ids[pos:pos + n])[None]
+            if on_hidden is None:
+                mx.eval(self.model(chunk, cache=cache))
+            else:
+                hidden = text.model(chunk, cache=cache)
+                mx.eval(hidden)
+                on_hidden(hidden, pos, pos + n)
             pos += n
             if pos == next_boundary:
                 # The boundary advances whether or not anything is stored at it.
@@ -575,23 +589,35 @@ class MlxScheduler:
         # round that cannot fit any draft still forwards its pending tokens and
         # so always advances the caches.
         max_window = max(k + 1, MAX_WINDOW)
-        if state is not None:
-            self._offload_prefill(input_ids, cache, start)
-            state.spec_window = max_window
-        else:
-            self._prefill_into(cache, input_ids, start)
-        drafter.start(input_ids)
-        pending = [int(input_ids[-1])]
-        eos = self.eos_token_ids
-
         # An MTP drafter reads the trunk's hidden state; a second model does not.
-        # It gets that state from the first window's own forward rather than
-        # from a priming pass: priming ran the last prompt token through the
+        # It gets its FIRST such state from the first window's own forward rather
+        # than from a priming pass: priming ran the last prompt token through the
         # trunk, and the first window then fed it a SECOND time, leaving the
         # token duplicated in the KV sequence for the rest of the request. The
         # cost of waiting is one round without drafts, which is cheaper than the
         # priming forward it replaces.
         wants_hidden = hasattr(drafter, "set_hidden")
+        drafter.start(input_ids)
+        # The head's history is built from the same prefill that fills the
+        # trunk's cache, so the drafter enters the request already conditioned on
+        # the prompt. A prefix-cache hit skips the tokens it restored, and the
+        # head simply starts its history later — a shorter history, never a
+        # wrong one.
+        history_sink = None
+        if wants_hidden and hasattr(drafter, "extend_history"):
+            def history_sink(hidden, chunk_start, chunk_end):
+                drafter.extend_history(
+                    hidden, input_ids[chunk_start + 1 : chunk_end + 1]
+                )
+
+        if state is not None:
+            self._offload_prefill(input_ids, cache, start)
+            state.spec_window = max_window
+        else:
+            self._prefill_into(cache, input_ids, start, on_hidden=history_sink)
+        pending = [int(input_ids[-1])]
+        eos = self.eos_token_ids
+
         # Sampled requests use rejection sampling with residual correction; that
         # needs the proposal density q, so the drafter must SAMPLE rather than
         # take its argmax (a deterministic proposal makes min(1, p/q) collapse

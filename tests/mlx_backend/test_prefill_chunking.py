@@ -7,6 +7,8 @@ one, the next chunk clamped to zero tokens, and the model was handed an empty
 array — a crash on every prompt longer than BOUNDARY_TOKENS.
 """
 
+from types import SimpleNamespace
+
 import pytest
 
 mx = pytest.importorskip("mlx.core", reason="prefill builds mx arrays")
@@ -50,3 +52,23 @@ def test_prefill_covers_the_prompt_without_a_prefix_store(prompt_len):
     _sched(model)._prefill_into(None, ids, 0)
     # Everything but the last token, which the first decode step consumes.
     assert sum(model.widths) == prompt_len - 1
+
+
+def test_hidden_spans_tile_the_prompt():
+    """The MTP head's history is built from these callbacks, so the spans have
+    to tile the prompt with no gap and no overlap — a gap would pair a hidden
+    state with the wrong token for the rest of the request."""
+    text = SimpleNamespace(
+        model=lambda tokens, cache=None: mx.zeros((1, int(tokens.shape[1]), 8))
+    )
+    s = _sched(_RecordingModel())
+    s.model = SimpleNamespace(language_model=text)
+    ids = list(range(BOUNDARY_TOKENS * 2 + 5))
+
+    spans = []
+    s._prefill_into(None, ids, 0, on_hidden=lambda h, a, b: spans.append((a, b)))
+
+    assert spans[0][0] == 0
+    assert spans[-1][1] == len(ids) - 1
+    for (_, previous_end), (start, _) in zip(spans, spans[1:]):
+        assert start == previous_end

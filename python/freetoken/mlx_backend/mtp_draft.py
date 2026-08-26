@@ -220,6 +220,21 @@ class MtpDrafter:
         x = head.fc(mx.concatenate([emb, hid], axis=-1))
         head.layers[0](x, mask=_causal_mask(x, self.cache), cache=self.cache[0])
 
+    def extend_history(self, hidden, token_ids: List[int]) -> None:
+        """Prompt-side history: pair the trunk's hidden at position p with the
+        token at p+1, which is the same pairing the decode rounds use.
+
+        Without this the head enters every request knowing nothing, and has to
+        earn its context back one committed token at a time — measured on this
+        checkpoint, acceptance climbs from 2.10 tokens per round at 60 committed
+        tokens to 2.43 at 480.
+        """
+        if not token_ids:
+            return
+        self._trim_to(self._hist_len)
+        self._append(hidden, token_ids)
+        self._hist_len += len(token_ids)
+
     def absorb(self, committed: List[int], hidden_rows) -> None:
         """Write this round's committed tokens into the head's own KV history.
 
