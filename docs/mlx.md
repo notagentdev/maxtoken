@@ -300,14 +300,30 @@ uses.
   ~64 ms for a plain step, i.e. a whole extra forward's worth of overhead, and
   1.5 accepted tokens cannot pay for it.
 
-  That overhead is the hybrid state: 48 of the model's 64 layers are
-  linear-attention (GDN) layers whose recurrent state cannot be trimmed, so
-  every verify round snapshots all 48 of them to stay able to reject a draft.
-  Speculation on a hybrid model needs per-token recurrent states captured
-  *during* the forward (a modified gated-delta kernel that emits the state
-  after each token, so a partial accept commits exactly at the accepted
-  length instead of snapshotting and replaying). That kernel is the missing
-  piece here; every MTP-capable checkpoint on the test machine is hybrid.
+  Profiling the round names the cost exactly, and it is NOT the rollback
+  (snapshotting all 48 recurrent states measures 0.6 ms) nor the drafter
+  (3.9 ms). It is the verify forward: **91 ms for a 2-token window against
+  54 ms for a 1-token step.** A bandwidth-bound decode should barely notice
+  a second token; this one charges ~38 ms for it, and keeps charging
+  linearly (3 tokens 130 ms, 4 tokens 168 ms).
+
+  The reason is mlx-lm's gated-delta kernel: its Metal implementation walks
+  the time dimension with a serial `for (int t = 0; t < T; ++t)` recursion,
+  and `gated_delta_update` always takes that path on GPU (the chunked
+  `gated_delta_ops` variant is the CPU fallback). So on a hybrid model every
+  multi-token forward pays per-token work in its 48 recurrent layers —
+  prefill and verify windows alike, not just speculation.
+
+  That makes the break-even arithmetic explicit: a k-token window costs
+  roughly `54 + 38k` ms, so k=1 needs **1.76 accepted tokens** to beat plain
+  decode. Greedy verification accepts 2.10 (it would win); sampled
+  verification accepts only 1.52, because our acceptance rule is
+  sample-and-match — a draft survives only if the target's own sample
+  happens to equal it. Proper rejection sampling (accept with probability
+  min(1, p/q), else draw from the normalized residual `(p-q)+`) accepts
+  strictly more at the same exactness and is the missing piece for the
+  sampled case, which is the case users actually run.
+
 
   The two-model pattern is structural in a different way. A drafter has to be
   roughly an order of magnitude cheaper than the target's *active* path, share
