@@ -307,17 +307,35 @@ uses.
   a second token; this one charges ~38 ms for it, and keeps charging
   linearly (3 tokens 130 ms, 4 tokens 168 ms).
 
-  The reason is mlx-lm's gated-delta kernel: its Metal implementation walks
-  the time dimension with a serial `for (int t = 0; t < T; ++t)` recursion,
-  and `gated_delta_update` always takes that path on GPU (the chunked
-  `gated_delta_ops` variant is the CPU fallback). So on a hybrid model every
-  multi-token forward pays per-token work in its 48 recurrent layers —
-  prefill and verify windows alike, not just speculation.
+  It is NOT the gated-delta kernel, though this file claimed so twice. That
+  kernel does walk time serially, which makes the story tempting, but timing it
+  alone at the model's real shapes settles it: T=1 costs 0.263 ms and T=2
+  costs 0.295 ms, so across all 48 recurrent layers the serial recursion adds
+  **1.5 ms of the 36.3 ms** — four percent. Splitting the forward by layer type
+  finds the cost spread evenly instead (GatedDeltaNet +0.47 ms x48 = 22.5 ms,
+  full attention +0.57 ms x16 = 9.2 ms), which is the signature of something
+  every layer pays, not of one kernel.
 
-  That makes the break-even arithmetic explicit: a k-token window costs
-  roughly `54 + 38k` ms, so k=1 needs **1.76 accepted tokens** to beat plain
-  decode. Greedy verification accepts 2.10 — it would win. Sampled
-  verification, the case users actually run, accepted only 1.52 under
+  That something is **MLX's quantized matmul**. The same linear, same shape,
+  same machine:
+
+  | 5120 -> 5120 | T=1 | T=2 |
+  |---|---|---|
+  | bfloat16 | 0.534 ms | 0.535 ms (**+0.001**) |
+  | 4-bit affine | 0.325 ms | 0.450 ms (**+38%**) |
+
+  Unquantized, the second token is free — exactly right for a matmul whose
+  weights were already streamed. Quantized, it costs 38% more, and a chain of
+  32 real MLP-shaped projections (evaluated once, so no per-call sync inflates
+  it) shows why: T=1 runs at 207 GiB/s, near this machine's ceiling, while T=2
+  drops to 145 GiB/s and T=4 to 78 GiB/s. Cost grows roughly linearly in T
+  rather than reusing the weight read. MLX 0.32.2 behaves identically, and
+  feeding the window as a batch `(T,1,H)` instead of a sequence `(1,T,H)`
+  changes nothing — the same kernel, the same price.
+
+  So the honest break-even is `56 + 38k` ms per round, i.e. k=1 needs
+  **1.68 accepted tokens**. Greedy at k=3 accepts 2.10, which does NOT win once
+  the window costs `56 + 3*38 = 170` ms. Sampled k=1 accepted 1.52 under
   sample-and-match, where a draft survives just when the target's own sample
   happens to equal it.
 
@@ -335,18 +353,46 @@ uses.
   | rejection k=2 | 1.68 | 7.9 | 0.52x |
   | rejection k=3 | 1.75 | 6.4 | 0.43x |
 
-  1.52 to 1.55 against the 1.76 needed. The head predicts the target's argmax
-  well (2.10 greedy) and its full distribution much less well, and no
-  acceptance rule can invent overlap that is not there — acceptance under
-  rejection sampling is exactly `1 - TV(p, q)`, a property of the head, not of
-  the code around it.
+  1.52 to 1.55 against the 1.68 needed. Acceptance under rejection sampling is
+  exactly `1 - TV(p, q)`, a property of the head rather than of the code around
+  it, so no acceptance rule can invent overlap that is not there.
 
-  The wall is therefore the kernel, not the algorithm. Speculative decoding on
-  a hybrid MLX model needs a gated-delta implementation whose multi-token path
-  is not a serial per-token recursion; until then the verify window costs what
-  it costs and no drafter can earn it back. The feature stays in, correct and
-  opt-in, for the day that changes — or for a target without recurrent layers,
-  where a window forward is nearly free.
+  **What settles it is that another engine wins on this exact setup.** mtplx
+  2.9.1, same checkpoint (verified byte-identical), same machine, same prompt
+  and sampling, measured through its OpenAI endpoint:
+
+  | | tok/s | tokens per step |
+  |---|---|---|
+  | mtplx, MTP off | 17.18 | 1.03 |
+  | mtplx, MTP on (turbo) | **26.60** | 2.04 |
+  | MaxToken, plain decode | 17.77 | 1.00 |
+  | MaxToken, MTP k=1 | 11.58 | 1.52 |
+
+  (Counting SSE chunks would have read mtplx as 12.8 tok/s — a speculative
+  decoder emits several tokens per chunk. Take the token count from
+  `stream_options.include_usage`, never from the chunk count.)
+
+  Our plain decode is the faster of the two baselines, so the engine is fine;
+  the speculation path is not. And their per-draft acceptance is *the same as
+  ours*: 2.04 tokens per step at depth 2 is 1 + 0.52 + 0.52^2, i.e. ~52%,
+  matching our 1.52 at k=1. They are not drafting better. They are paying
+  ~7 ms per extra window token where we pay 38 — their multi-token quantized
+  matmul is simply about five times more efficient than the one MLX ships.
+
+  That is the whole gap, and it is not reachable from this side of the API. Our
+  window forward alone costs 92 ms for 1.52 tokens = 60.5 ms/token, already
+  worse than plain decode's 56 ms before a single line of our overhead is
+  counted, so no amount of tidying the round flips it — removing the replay
+  forward entirely (26 ms/round, the largest thing we own) still lands at
+  12.6 tok/s. Compiling the window does not help either: the chain benchmark
+  above evaluates one fused graph and still degrades, so the loss is inside the
+  kernel, not in launch overhead.
+
+  Speculation therefore stays in, correct and opt-in, and pays where the
+  marginal token is genuinely cheap: an unquantized target, where the second
+  token measured free. Making it pay on a quantized one needs a Metal kernel
+  for small-T quantized matmul — which is, on this evidence, exactly what
+  mtplx has.
 
 
   The two-model pattern is structural in a different way. A drafter has to be
