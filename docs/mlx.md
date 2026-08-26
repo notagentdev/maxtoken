@@ -283,10 +283,26 @@ uses.
   drifts the head off the committed path (acceptance 0.25 vs 1.10 out of 3).
 
   **It still does not pay on a hybrid model, and now the reason is exact.**
-  Through the server, Qwen3.8-27B measures 19.2 tok/s plain against 6.8 with
-  the MTP head. 48 of its 64 layers are linear-attention (GDN) layers whose
-  recurrent state cannot be trimmed, so every verify round snapshots all 48
-  of them to be able to reject a draft — far more work than 2.1 tokens buy.
+  A depth sweep on Qwen3.8-27B-MTPLX (sampled, temp 0.3/0.9/40, fixed seed):
+
+  | | tok/s | vs plain | accepted/verify |
+  |---|---|---|---|
+  | plain decode | **15.7** | — | — |
+  | MTP k=1 | 11.3 | 0.72x | 1.52 |
+  | MTP k=3 | 6.7 | 0.42x | 1.80 |
+  | MTP k=5 | 3.6 | 0.23x | 1.71 |
+  | MTP k=6 | 4.1 | 0.26x | 1.92 |
+
+  Depth does not rescue it: acceptance saturates near 1.9 while the draft cost
+  grows linearly with k, so every step past k=1 buys drafts that are mostly
+  rejected. And k=1 — the cheapest speculation possible, one head forward and
+  one two-token window — still loses 28%. Per round it costs ~135 ms against
+  ~64 ms for a plain step, i.e. a whole extra forward's worth of overhead, and
+  1.5 accepted tokens cannot pay for it.
+
+  That overhead is the hybrid state: 48 of the model's 64 layers are
+  linear-attention (GDN) layers whose recurrent state cannot be trimmed, so
+  every verify round snapshots all 48 of them to stay able to reject a draft.
   Speculation on a hybrid model needs per-token recurrent states captured
   *during* the forward (a modified gated-delta kernel that emits the state
   after each token, so a partial accept commits exactly at the accepted
