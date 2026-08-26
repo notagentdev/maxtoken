@@ -32,11 +32,14 @@ class EngineConfig:
     # verify forward costs one expert-load for several tokens); other backends
     # currently ignore it. The draft model must share the target's vocabulary.
     draft_model: str | None = None
-    # Two, not three: with the MTP head's committed history the third draft is
-    # accepted rarely enough that its extra verify row costs more than it
-    # returns (measured warm on Qwen3.8-27B, paired against plain decode --
-    # k=2 window 3: 1.29x, k=3 window 4: 1.20x).
-    draft_tokens: int = 2
+    # Three. A shorter chain was briefly better only while a rejected round had
+    # to carry its accepted tokens into the next window: the third draft's
+    # verify row was paid every round, and the carry it caused took the depth
+    # back out again. Once a rejected round commits its accepted prefix
+    # outright, the third draft is free of that and pays (sampled, Qwen3.8-27B,
+    # 254-token prompt, mean of three seeds: k=2 window 3 gives 21.86 tok/s at
+    # 2.35 tokens per round, k=3 window 4 gives 23.27 at 2.88).
+    draft_tokens: int = 3
     kv_reserve_tokens: int = 8192  # KV floor for --moe-cache-auto; small by design (MoE-priority)
     moe_cache_policy: str = "lru"
     moe_prefill_overlap: bool = True
