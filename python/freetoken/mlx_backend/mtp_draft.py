@@ -40,12 +40,27 @@ logger = init_logger(__name__)
 
 
 def find_mtp_weights(model_dir: str) -> str | None:
-    """Path of the checkpoint's MTP head, or None if it ships without one."""
-    for name in ("mtp.safetensors", "model-mtp-head.safetensors"):
+    """Path of the checkpoint's MTP head, or None if it ships without one.
+
+    Publishers disagree about where the head lives. Qwen3.8-27B-MTPLX puts it
+    beside the shards as ``mtp.safetensors``; Ornith-1.5-35B-MTPLX puts it in
+    its own directory as ``mtp/weights.safetensors``. Both are checked by name
+    before falling back to a glob, and the glob searches one level down as well
+    — a head in a subdirectory is otherwise invisible and the drafter refuses a
+    checkpoint that plainly ships one.
+    """
+    for name in (
+        "mtp.safetensors",
+        "model-mtp-head.safetensors",
+        os.path.join("mtp", "weights.safetensors"),
+    ):
         path = os.path.join(model_dir, name)
         if os.path.exists(path):
             return path
-    hits = sorted(glob.glob(os.path.join(model_dir, "*mtp*.safetensors")))
+    hits = sorted(
+        glob.glob(os.path.join(model_dir, "*mtp*.safetensors"))
+        + glob.glob(os.path.join(model_dir, "*mtp*", "*.safetensors"))
+    )
     return hits[0] if hits else None
 
 

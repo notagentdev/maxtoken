@@ -239,6 +239,16 @@ class MlxScheduler:
             )
         if self.offload_state is not None:
             self.offload_state.spec_window = k + 1
+        # A verify window is the one place a quantized matmul runs 2-4 rows,
+        # and MLX's kernel charges nearly a full row's work for each of them.
+        # Installing our own here — and only here, when a drafter exists — is
+        # what makes the window cheap enough for speculation to pay at all;
+        # without it the arithmetic loses before the drafter has done anything
+        # (docs/mlx.md). Nothing else in the process changes: single-row decode
+        # and prefill never enter the patched path.
+        from . import verify_qmm
+
+        verify_qmm.install()
         logger.info(
             f"speculative decoding: draft model {config.draft_model}, "
             f"k={k} tokens per verify"
