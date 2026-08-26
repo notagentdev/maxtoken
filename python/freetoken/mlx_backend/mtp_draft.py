@@ -79,6 +79,9 @@ class MtpDrafter:
         self.cache: List[Any] | None = None
         self._pending: List[int] = []
         self._hidden = None
+        # Entries in the head's KV cache that belong to COMMITTED tokens. Draft
+        # steps append past this mark and are trimmed back to it every round.
+        self._hist_len = 0
         self.q: List[Any] = []  # proposal densities, when drafting by sampling
 
     # -- construction ---------------------------------------------------------
@@ -138,11 +141,11 @@ class MtpDrafter:
         return [KVCache()]
 
     def start(self, input_ids: List[int]) -> None:
-        """New request. The head only ever sees single tokens plus the trunk's
-        hidden state, so there is nothing to prefill — just reset its cache."""
+        """New request: a fresh, empty history for the head."""
         self.cache = self.make_cache()
         self._pending = list(input_ids[-1:])
         self._hidden = None
+        self._hist_len = 0
 
     def set_hidden(self, hidden) -> None:
         """The trunk's hidden state at the last committed position."""
@@ -163,6 +166,10 @@ class MtpDrafter:
         if self._hidden is None:
             self.q = []
             return []
+        # Last round's draft chain may still sit past the committed mark if the
+        # scheduler never absorbed it; the head must never draft on top of
+        # tokens that were rejected.
+        self._trim_to(self._hist_len)
         drafts: List[int] = []
         self.q = []
         h = self._hidden
@@ -197,12 +204,53 @@ class MtpDrafter:
         # acceptance 1/3 instead of 3/3 on a structured prompt).
         return _lm_head(self.trunk, out), out
 
+    def _trim_to(self, offset: int) -> None:
+        entry = self.cache[0]
+        current = int(getattr(entry, "offset", 0))
+        if current > offset:
+            entry.trim(current - offset)
+
+    def _append(self, hidden, token_ids: List[int]) -> None:
+        """Run T history positions through the head in ONE block forward."""
+        mx = self._mx
+        head = self.head
+        tokens = mx.array([[int(t) for t in token_ids]])
+        emb = head.pre_fc_norm_embedding(self.trunk.model.embed_tokens(tokens))
+        hid = head.pre_fc_norm_hidden(hidden)
+        x = head.fc(mx.concatenate([emb, hid], axis=-1))
+        head.layers[0](x, mask=_causal_mask(x, self.cache), cache=self.cache[0])
+
+    def absorb(self, committed: List[int], hidden_rows) -> None:
+        """Write this round's committed tokens into the head's own KV history.
+
+        Without this the head starts every round from an empty cache and can
+        only condition on the two or three tokens of the draft chain it is
+        currently building — the reference engine keeps the full committed
+        history for exactly this reason, and reports acceptance collapsing when
+        that history is shortened.
+
+        Draft entries are discarded first: they were built from the head's own
+        chained state, while the committed ones are re-derived from the TARGET's
+        hidden states, which is the conditioning the head was trained on. The
+        LAST committed token is deliberately left out — the next ``draft`` call
+        creates its entry as its first step, which is where its trunk hidden
+        arrives.
+        """
+        self._trim_to(self._hist_len)
+        n = len(committed)
+        if n == 0 or hidden_rows is None or self._hidden is None:
+            return
+        mx = self._mx
+        tokens = [int(self._pending[-1])] + [int(t) for t in committed[: n - 1]]
+        hidden = mx.concatenate(
+            [self._hidden, hidden_rows[:, : n - 1, :]], axis=1
+        )
+        self._append(hidden, tokens)
+        self._hist_len += len(tokens)
+
     def commit(self, accepted: int, tail: List[int]) -> None:
-        """The head's cache advanced over drafts that may not have survived.
-        Rebuilding it costs one block forward per committed token — cheap for a
-        single layer — so it is simply reset and re-primed from the trunk's next
-        hidden state."""
-        self.cache = self.make_cache()
+        """Advance the committed stream. The head's cache is not rebuilt here —
+        ``absorb`` already moved this round's committed tokens into it."""
         self._pending.extend(tail)
         self._hidden = None
 

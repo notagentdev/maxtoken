@@ -642,6 +642,13 @@ class MlxScheduler:
                         committed, accepted = committed[: i + 1], min(accepted, i)
                         break
 
+            # The drafter keeps its own history of what was committed; row
+            # off + i of the window is the state that produced committed[i], so
+            # the head is re-conditioned on the TARGET's hidden states rather
+            # than on its own chained ones.
+            if wants_hidden and hidden is not None and hasattr(drafter, "absorb"):
+                drafter.absorb(committed, hidden[:, off : off + len(committed), :])
+
             if accepted < len(drafts):
                 # Rejected drafts contaminated the caches. Roll back to the
                 # pre-window state and carry the whole committed path forward
