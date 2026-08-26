@@ -257,7 +257,27 @@ uses.
   cannot reduce (it only amortizes the per-forward overhead, measured small:
   an all-hit 4-token window forward costs 60 ms vs 37 ms for one token). The
   flag is for machines/rates where fetches are cheaper (bigger cache, faster
-  SSD); measure before keeping it on. The verify window is auto-clamped so
+  SSD); measure before keeping it on. It also applies to resident and mapped
+  serving (where it excludes continuous batching, being per-request), but
+  measured NEGATIVE in every regime this machine could test:
+
+  | target | drafter | baseline | speculative |
+  |---|---|---|---|
+  | Qwen3-Coder-Next-80B, slot cache | Qwen3-0.6B | 7.4 tok/s | 6.4 (fetch-bound) |
+  | Qwen3.8-27B dense, resident | Qwen3.5-4B | 17.3 tok/s | 4.7 (drafter too costly) |
+  | Ornith-35B-A3B, mapped | — | 67 tok/s | impossible: no compatible drafter is
+  cheaper than a 3B active path |
+
+  The pattern is structural. A drafter has to be roughly an order of magnitude
+  cheaper than the target's *active* path, share its tokenizer, and keep its own
+  KV cache in lockstep. Sparse MoE targets defeat the first condition (Ornith
+  activates 3B — nothing compatible is cheaper), and a hybrid drafter pays
+  snapshot/restore of its recurrent state every round. This is exactly the case
+  for **built-in MTP heads** instead: one extra layer, sharing the target's
+  vocabulary and cache by construction. Qwen3-Next-80B-A3B-Instruct ships one
+  (shard 41 of the bf16 repo); the Coder derivative does not. The verify loop
+  here is ready for such a drafter — only the adapter that queries an MTP head
+  instead of a second model is missing. The verify window is auto-clamped so
   `(k+1) × top_k` fits the per-layer slot budget. Lessons from the Vates
   project (studied at `../vates`): its 31–37 tok/s on the same model come from
   a model-trained MTP draft head (absent from the Qwen3-Coder-Next release —

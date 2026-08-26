@@ -82,6 +82,7 @@ class MlxScheduler:
         # mlx-lm resolves both local paths and hub ids (through the HF cache),
         # matching the tokenizer workers' resolution.
         logger.info(f"Loading MLX model from {config.model_path}")
+        load = _wrap_fast_quantized(load)
         self.offload_state = None
         offload_wanted = (
             getattr(config, "moe_backend", "auto") in ("offload", "cpu", "hybrid")
@@ -97,7 +98,7 @@ class MlxScheduler:
         self.draft = None
         self._spec_steps = 0
         self._spec_tokens = 0
-        if self.offload_state is not None and getattr(config, "draft_model", None):
+        if getattr(config, "draft_model", None):
             self._attach_draft(config)
         # Continuous batching (resident and mapped-expert serving): concurrent
         # requests decode in ONE batched forward per step instead of one forward
@@ -106,7 +107,7 @@ class MlxScheduler:
         self.batch_gen = None
         self._batch_uid: dict[int, int] = {}  # our uid -> engine uid
         self._our_uid: dict[int, int] = {}  # engine uid -> our uid
-        if self.offload_state is None:
+        if self.offload_state is None and self.draft is None:
             from mlx_lm.generate import BatchGenerator
 
             self.batch_gen = BatchGenerator(
@@ -224,8 +225,13 @@ class MlxScheduler:
 
         k = max(1, int(getattr(config, "draft_tokens", 3) or 3))
         k = self._clamp_draft_k(k)
-        self.draft = DraftModel.load(config.draft_model, k)
-        self.offload_state.spec_window = k + 1
+        from .draft import _vocab_size
+
+        self.draft = DraftModel.load(
+            config.draft_model, k, target_vocab=_vocab_size(self.model)
+        )
+        if self.offload_state is not None:
+            self.offload_state.spec_window = k + 1
         logger.info(
             f"speculative decoding: draft model {config.draft_model}, "
             f"k={k} tokens per verify"
@@ -233,8 +239,11 @@ class MlxScheduler:
 
     def _clamp_draft_k(self, k: int) -> int:
         """The verify window's routed experts must fit each layer's slot cache,
-        or the redo loop can never converge: (k+1) * top_k <= min slots."""
+        or the redo loop can never converge: (k+1) * top_k <= min slots. Without
+        a slot cache (resident or mapped serving) nothing bounds the window."""
         st = self.offload_state
+        if st is None:
+            return k
         top_k = int(
             getattr(getattr(self.model, "args", None), "num_experts_per_tok", 0) or 8
         )
@@ -328,14 +337,11 @@ class MlxScheduler:
 
         mx = self._mx
         cache, cached = self._lookup_prefix(input_ids)
+        if self.draft is not None:
+            cache = cache or make_prompt_cache(self.model)
+            return self._generate_spec(input_ids, sp, cache, cached), cache, cached
         if self.offload_state is not None:
             cache = cache or make_prompt_cache(self.model)
-            if self.draft is not None:
-                return (
-                    self._offload_generate_spec(input_ids, sp, cache, cached),
-                    cache,
-                    cached,
-                )
             return self._offload_generate(input_ids, sp, cache, cached), cache, cached
         cache = cache or make_prompt_cache(self.model)
         self._prefill_into(cache, input_ids, cached)
@@ -350,20 +356,35 @@ class MlxScheduler:
 
     @staticmethod
     def _cache_snapshot(c) -> Any:
-        """Cheap per-step rollback point for one mlx-lm cache object. Trimmable
-        caches (KV) roll back by rewinding their offset; recurrent caches (GDN
-        conv/state) roll back by restoring the previous arrays — mx arrays are
-        immutable, so holding the refs is enough."""
-        if c.is_trimmable():
+        """Cheap per-step rollback point for one mlx-lm cache object.
+
+        A plain KV cache rewinds by trimming, and that is the path worth
+        keeping: holding no reference to its arrays lets the engine keep
+        updating its buffers in place (a snapshot would force a copy-on-write
+        of the whole cache every step).
+
+        Everything else is restored from its arrays PLUS its ``meta_state``:
+        recurrent GDN caches (not trimmable at all), and window caches, whose
+        position lives in the meta state — ``RotatingKVCache.meta_state`` is
+        ``(keep, max_size, offset, _idx)``. Restoring arrays alone leaves the
+        offset past the buffer it just rewound and the next update computes a
+        negative size (seen on DeepSeek-V4's sliding-window attention). Window
+        caches are also only *conditionally* trimmable (``offset < max_size``),
+        so a step that wraps the window would invalidate a trim planned before
+        it — another reason they take the full-snapshot path.
+        """
+        if c.is_trimmable() and not hasattr(c, "max_size"):
             return None
-        return list(c.state)
+        return (list(c.state), c.meta_state)
 
     @staticmethod
     def _cache_rollback(c, snap, n: int = 1) -> None:
         if snap is None:
             c.trim(n)
         else:
-            c.state = snap
+            state, meta = snap
+            c.state = state
+            c.meta_state = meta
 
     def _offload_prefill(self, input_ids: List[int], cache, start: int) -> None:
         """Prefill all tokens but the last: per-layer sync/streamed serving,
@@ -385,43 +406,55 @@ class MlxScheduler:
                 self.prefix_store.insert(input_ids[:pos], cache)
                 next_boundary += BOUNDARY_TOKENS
 
-    def _offload_generate_spec(
+    def _generate_spec(
         self, input_ids: List[int], sp: SamplingParams, cache, start: int = 0
     ) -> Iterator[Any]:
-        """Speculative offload decode: the draft model proposes k tokens, the
-        target verifies the whole window in ONE forward through the slot cache
-        and commits the matched prefix plus one target token (correction or
-        bonus). Distribution-exact: every emitted token is the target's own
-        argmax/sample for its position, drafts only decide how many positions a
-        single expensive forward advances.
+        """Speculative decode with a draft model, for every serving mode.
 
-        The verify forward runs the per-layer SYNC path (misses installed
-        inline), not the lazy lut path: a missed expert garbles every layer
-        downstream of it, so lut-mode redos cascade one wave of misses per
+        The draft model proposes k tokens, the target verifies the whole window
+        in ONE forward and commits the matched prefix plus one target token
+        (correction or bonus). Distribution-exact: every emitted token is the
+        target's own argmax/sample for its position; drafts only decide how many
+        positions a single forward advances.
+
+        Where it pays differs by mode. Resident and mapped serving are
+        BANDWIDTH-bound — a decode step pushes all active weights through
+        memory — so amortizing one forward over several tokens is the whole
+        point. Slot-cache offload is FETCH-bound instead: its cost scales with
+        the tokens generated, not the forwards taken, so speculation there
+        measured at parity (documented in docs/mlx.md).
+
+        With a slot cache the verify runs the per-layer SYNC path (misses
+        installed inline), not the lazy lut path: a missed expert garbles every
+        layer downstream of it, so lut-mode redos cascade one wave of misses per
         attempt (measured 4.3 redo forwards per verify on Qwen3-Next-80B) while
         the sync path pays each layer exactly once. Rejected drafts leave the
-        caches advanced over tokens that never happened — trimmable caches
-        trim, recurrent ones restore the pre-window snapshot, and the accepted
-        prefix is replayed (one extra forward, only on partial accepts; its
-        experts were just routed by the verify, so it is warm).
+        caches advanced over tokens that never happened — trimmable caches trim,
+        recurrent and window ones restore the pre-window snapshot, and the
+        accepted prefix is replayed (one extra forward, only on partial
+        accepts).
         """
         mx = self._mx
         state = self.offload_state
         drafter = self.draft
         sampler = self._build_sampler(sp)
-        self._offload_prefill(input_ids, cache, start)
+        if state is not None:
+            self._offload_prefill(input_ids, cache, start)
+            state.spec_window = drafter.k + 1
+        else:
+            self._prefill_into(cache, input_ids, start)
         drafter.start(input_ids)
         k = drafter.k
         y = int(input_ids[-1])
         eos = self.eos_token_ids
-        state.spec_window = k + 1
 
         while True:
             drafts = drafter.draft()
             window = [y] + drafts
-            state.prefetch_predicted()
-            state.speculating = False
-            state.begin_token()
+            if state is not None:
+                state.prefetch_predicted()
+                state.speculating = False
+                state.begin_token()
             snaps = [self._cache_snapshot(c) for c in cache]
             logits = self.model(mx.array(window)[None], cache=cache)
             logprobs = logits - mx.logsumexp(logits, axis=-1, keepdims=True)
@@ -431,7 +464,8 @@ class MlxScheduler:
                 else mx.argmax(logprobs[0], axis=-1)
             )
             mx.eval(outs)
-            state.commit_token()
+            if state is not None:
+                state.commit_token()
 
             outs_l = [int(t) for t in outs.tolist()]
             accepted = 0
@@ -453,9 +487,11 @@ class MlxScheduler:
                 for c, snap in zip(cache, snaps, strict=True):
                     self._cache_rollback(c, snap, len(window))
                 replay = [y] + drafts[:accepted]
-                state.begin_token()
+                if state is not None:
+                    state.begin_token()
                 mx.eval(self.model(mx.array(replay)[None], cache=cache))
-                state.commit_token()
+                if state is not None:
+                    state.commit_token()
                 drafter.commit(accepted, committed[-1:])
             else:
                 # Full accept: the window IS the committed path; the bonus token
@@ -961,6 +997,33 @@ class MlxScheduler:
         self.active.clear()
         self._recv.stop()
         self._send.stop()
+
+
+def _wrap_fast_quantized(load):
+    """Wrap mlx-lm's ``load`` so a big quantized checkpoint can be opened at all.
+
+    mlx-lm builds a quantized model by constructing RANDOM float weights,
+    quantizing them, and only then overwriting everything from disk. That
+    middle step is pure waste and its transient peaks near the full model
+    size — a 100B-class quant is OS-killed inside ``load()`` on a 32 GiB Mac
+    (no traceback, just a dead process).
+
+    The ``mlx-optiq`` package ships a context manager that installs the
+    checkpoint's own lazy arrays into the quantized modules instead, so
+    nothing is allocated. Use it when it is importable; without it, load
+    unchanged (models that fit are unaffected either way).
+    """
+    try:
+        from optiq.runtime.fast_load import fast_quantized_load
+    except Exception:  # noqa: BLE001 -- optional; plain load is the fallback
+        return load
+
+    def _load(*args, **kwargs):
+        with fast_quantized_load():
+            return load(*args, **kwargs)
+
+    logger.info("quantized load: installing checkpoint arrays directly (mlx-optiq)")
+    return _load
 
 
 def _preimport_architectures() -> None:

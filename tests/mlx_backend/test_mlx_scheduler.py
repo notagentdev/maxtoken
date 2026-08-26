@@ -245,3 +245,92 @@ def test_parse_args_rejects_tp_for_mlx():
 
     with pytest.raises(ValueError, match="tensor parallelism"):
         parse_args(["--model-path", "/nonexistent", "--backend", "mlx", "--tp-size", "2"])
+
+
+# ------------------------------------------------- cache snapshot / rollback
+
+class _FakeWindowCache:
+    """A window cache in the shape mlx-lm's RotatingKVCache has: the position
+    lives in meta_state, and trimmability depends on it."""
+
+    max_size = 4
+
+    def __init__(self):
+        self.keys = [0]
+        self.offset = 0
+        self._idx = 0
+
+    def is_trimmable(self):
+        return self.offset < self.max_size
+
+    def trim(self, n):
+        n = min(self.offset, n)
+        self.offset -= n
+        self._idx -= n
+        return n
+
+    @property
+    def state(self):
+        return [self.keys]
+
+    @state.setter
+    def state(self, v):
+        self.keys = v[0]
+
+    @property
+    def meta_state(self):
+        return (str(self.offset), str(self._idx))
+
+    @meta_state.setter
+    def meta_state(self, v):
+        self.offset, self._idx = int(v[0]), int(v[1])
+
+
+class _FakePlainCache:
+    """A plain KV cache: always trimmable, rewinds by offset."""
+
+    def __init__(self):
+        self.offset = 0
+
+    def is_trimmable(self):
+        return True
+
+    def trim(self, n):
+        self.offset -= n
+        return n
+
+    @property
+    def state(self):
+        return []
+
+    @property
+    def meta_state(self):
+        return ()
+
+
+def test_plain_kv_cache_rolls_back_by_trimming():
+    """No snapshot for a plain KV cache: holding its arrays would force a
+    copy-on-write of the whole cache on every decode step."""
+    c = _FakePlainCache()
+    snap = MlxScheduler._cache_snapshot(c)
+    assert snap is None
+    c.offset = 5
+    MlxScheduler._cache_rollback(c, snap, 3)
+    assert c.offset == 2
+
+
+def test_window_cache_rollback_restores_its_position():
+    """Regression: restoring only the arrays left the offset past the buffer,
+    and the next update computed a negative size (DeepSeek-V4's sliding-window
+    attention died with '[full] Negative dimensions not allowed')."""
+    c = _FakeWindowCache()
+    c.keys, c.offset, c._idx = [1, 2], 2, 2
+    snap = MlxScheduler._cache_snapshot(c)
+    assert snap is not None  # window caches never take the trim path
+
+    # a step advances past the window
+    c.keys, c.offset, c._idx = [1, 2, 3, 4, 5], 5, 1
+    MlxScheduler._cache_rollback(c, snap, 3)
+
+    assert c.keys == [1, 2]
+    assert (c.offset, c._idx) == (2, 2)
