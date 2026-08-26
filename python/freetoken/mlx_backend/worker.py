@@ -507,13 +507,6 @@ class MlxScheduler:
         last = P[len(drafts)]
         return len(drafts), int(mx.random.categorical(mx.log(last + 1e-30)).item())
 
-    def _prime_hidden(self, input_ids: List[int], cache):
-        """The trunk's hidden state at the last prompt position, which an MTP
-        head needs before it can draft anything."""
-        mx = self._mx
-        _logits, hidden = self._forward(mx.array(input_ids[-1:])[None], cache, True)
-        return hidden
-
     def _forward(self, tokens, cache, want_hidden: bool):
         """(logits, hidden | None). mlx-lm models return logits only; the hidden
         state comes from running the text tower and its head separately, which
@@ -577,9 +570,13 @@ class MlxScheduler:
         eos = self.eos_token_ids
 
         # An MTP drafter reads the trunk's hidden state; a second model does not.
+        # It gets that state from the first window's own forward rather than
+        # from a priming pass: priming ran the last prompt token through the
+        # trunk, and the first window then fed it a SECOND time, leaving the
+        # token duplicated in the KV sequence for the rest of the request. The
+        # cost of waiting is one round without drafts, which is cheaper than the
+        # priming forward it replaces.
         wants_hidden = hasattr(drafter, "set_hidden")
-        if wants_hidden:
-            drafter.set_hidden(self._prime_hidden(input_ids, cache))
         # Sampled requests use rejection sampling with residual correction; that
         # needs the proposal density q, so the drafter must SAMPLE rather than
         # take its argmax (a deterministic proposal makes min(1, p/q) collapse
