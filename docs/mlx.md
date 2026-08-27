@@ -21,13 +21,13 @@ The backend has three serving modes:
   experts live in the page cache, cold ones fault in from SSD once, and under
   memory pressure clean pages are evicted (never swapped) — graceful
   degradation instead of OOM. The repack lives under
-  `~/.cache/freetoken/mlx-ftw/` (`FREETOKEN_MLX_FTW_DIR` overrides) and costs
+  `~/.cache/maxtoken/mlx-ftw/` (`MAXTOKEN_MLX_FTW_DIR` overrides) and costs
   one streaming copy of the expert weights on first serve.
-  `FREETOKEN_MLX_MLOCK=1` pins the whole store into memory (use only when it
+  `MAXTOKEN_MLX_MLOCK=1` pins the whole store into memory (use only when it
   fits with headroom): the first prefill starts fully warm (measured 2× faster
   server warm-up on Ornith-35B, 11 s → 5.2 s) and expert pages can never be
   evicted under memory pressure — at the price of the store's elasticity.
-  `FREETOKEN_MLX_PREFETCH=1` (experimental madvise read-ahead before big
+  `MAXTOKEN_MLX_PREFETCH=1` (experimental madvise read-ahead before big
   prefills, inspired by llama.cpp's second-stream expert uploads) measured
   net-negative on this hardware and stays off by default.
 - **expert slot cache** (`--moe-backend offload` plus an explicit
@@ -135,7 +135,7 @@ scales with the budget: 5.3 / 6.4 / 8.4 / 8.6 tok/s engine-level at 5 / 10 /
 past 20%; through the HTTP server 7.6 tok/s at 20%. Long prefill chunks
 stream every expert layer (a full 40 GiB pass — a multi-second TTFT floor
 regardless of prompt length; the SSD covers 42 GiB in ~12 s), but chunks of
-≤ 32 tokens (`FREETOKEN_MLX_BANK_TOKENS`) — the short rest-prompt after a
+≤ 32 tokens (`MAXTOKEN_MLX_BANK_TOKENS`) — the short rest-prompt after a
 prefix-cache restore — are served from a transient bank of only the routed
 non-resident experts: a chat follow-up's TTFT drops from ~7 s to ~2 s and
 now scales with the remainder, not with the model. The 32-token gate is
@@ -147,19 +147,19 @@ a tool result) correctly stay on the streamed path at ~5–10 s per 2k
 tokens, and raising the gate would make them slower, not faster. On that path a
 cross-layer read-ahead additionally overlaps the next layer's fetches with
 the current layer's compute (layer L+1's gate scores layer L's hidden,
-re-based to L+1's RMSNorm — recall 0.946 measured; `FREETOKEN_MLX_XLAYER=0`
+re-based to L+1's RMSNorm — recall 0.946 measured; `MAXTOKEN_MLX_XLAYER=0`
 disables): banked TTFT −23%. The same machinery measured *negative* on the
 single-token decode path (the ~1 ms compute window cannot hide what the
 extra python/graph breaks cost), so decode deliberately stays clean.
 Between requests the scheduler also rebalances the slot budget by observed
-per-layer miss pressure (`FREETOKEN_MLX_REBALANCE=0` disables) — layers
+per-layer miss pressure (`MAXTOKEN_MLX_REBALANCE=0` disables) — layers
 differ widely in routing diversity, and an even split starves the diverse
 ones.
 
 ⁴ **304 B parameters, an 86 GiB checkpoint — 2.7x this machine's RAM.** The
 mixed 2-bit quant is `mlx-community/DeepSeek-V4-Flash-0731-OptiQ-2bit`
 (experts 2-bit, attention/embeddings 6–8 bit). Two things are needed beyond
-the usual: `FREETOKEN_MLX_PREIMPORT=optiq` (mlx-lm ships no `deepseek_v4`;
+the usual: `MAXTOKEN_MLX_PREIMPORT=optiq` (mlx-lm ships no `deepseek_v4`;
 the `mlx-optiq` package registers it on import), and a load path that does
 not build-then-quantize — stock `mlx_lm.load` materializes a transient near
 the FULL model size before `load_weights` overwrites it, which OS-kills the
@@ -216,8 +216,8 @@ uses.
   per-admission `mx.clear_cache` (worth ~10-15%, together with staggered
   admissions). Profiling places the remaining delta inside the mx evals
   themselves when the worker runs as part of the full server; the dominant
-  factor is still open. Diagnosis knobs: `FREETOKEN_MLX_TRACE=1` (per-round
-  timings), `FREETOKEN_MLX_PROFILE=<path>` (cProfile of the scheduler loop).
+  factor is still open. Diagnosis knobs: `MAXTOKEN_MLX_TRACE=1` (per-round
+  timings), `MAXTOKEN_MLX_PROFILE=<path>` (cProfile of the scheduler loop).
   Greedy requests keep the batched argmax fast path even when sampling
   defaults fill in top-p/top-k. The slot-cache offload path remains
   round-robin (its speculate/verify loop is per-request).
@@ -241,7 +241,7 @@ uses.
   the original cache alive (a cold recompute can differ in bf16 rounding —
   inherent to chunked prefill, as in every serving engine's prefix cache).
   Snapshots are copy-on-write references, budgeted at 15% of unified memory
-  (`FREETOKEN_MLX_PREFIX_CACHE_MB` overrides), LRU-evicted. Report the reuse
+  (`MAXTOKEN_MLX_PREFIX_CACHE_MB` overrides), LRU-evicted. Report the reuse
   per request with `--enable-cache-report` (usage `cached_tokens`). Measured
   on Ornith-1.5-35B with a 2.4k-token system prompt: first request 19.5 s,
   follow-ups **1.0 s** (`cached_tokens=2304`).
@@ -452,7 +452,7 @@ uses.
 - Offload decode cost is bounded by miss *density*, not I/O bandwidth: every miss
   needs a CPU-side routing decision (file reads cannot be issued from the GPU
   graph), so a fine-grained MoE routing ~25+ fresh experts per token pays either
-  per-layer syncs or speculative re-runs. `FREETOKEN_MLX_ADMIT_FILTER=1` enables
+  per-layer syncs or speculative re-runs. `MAXTOKEN_MLX_ADMIT_FILTER=1` enables
   an experimental admission filter (inline-serve first-offense misses) that helps
   small expert pools with tight caches and hurts long-tail pools — measure before
   keeping it on.

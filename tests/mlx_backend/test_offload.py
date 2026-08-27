@@ -8,7 +8,7 @@ import struct
 import numpy as np
 import pytest
 
-from freetoken.mlx_backend.offload import LruTracker, SafetensorsIndex
+from maxtoken.mlx_backend.offload import LruTracker, SafetensorsIndex
 
 
 # ---------------------------------------------------------------- LruTracker
@@ -104,7 +104,7 @@ def _fake_glu_tensors(rng, num_experts, stacked, prefix):
 def test_expert_store_fetch_matches_disk(tmp_path, stacked):
     from concurrent.futures import ThreadPoolExecutor
 
-    from freetoken.mlx_backend.offload import ExpertStore
+    from maxtoken.mlx_backend.offload import ExpertStore
 
     rng = np.random.default_rng(0)
     tensors = _fake_glu_tensors(rng, num_experts=5, stacked=stacked, prefix="model.mlp")
@@ -171,7 +171,7 @@ def _quantized_glu_dir(tmp_path, num_experts, d=32, h=32, group=32):
 def _build_glu(tmp_path, num_experts=8, slots=3):
     from concurrent.futures import ThreadPoolExecutor
 
-    from freetoken.mlx_backend.offload import (
+    from maxtoken.mlx_backend.offload import (
         ExpertStore,
         OffloadState,
         OffloadSwitchGLU,
@@ -223,7 +223,7 @@ def test_banked_serving_admits_hottest_and_reuses_slots(tmp_path):
 
 def test_long_chunk_still_streams(tmp_path, monkeypatch):
     """Chunks beyond the bank-token gate keep the full-layer streaming path."""
-    import freetoken.mlx_backend.offload as off
+    import maxtoken.mlx_backend.offload as off
 
     glu, cache, d = _build_glu(tmp_path, num_experts=8, slots=3)
     monkeypatch.setattr(off, "_BANK_TOKENS", 2)
@@ -247,7 +247,7 @@ def test_long_chunk_still_streams(tmp_path, monkeypatch):
 def _build_state(tmp_path, num_layers=3, num_experts=8, slots=4):
     from concurrent.futures import ThreadPoolExecutor
 
-    from freetoken.mlx_backend.offload import (
+    from maxtoken.mlx_backend.offload import (
         ExpertStore,
         OffloadState,
         OffloadSwitchGLU,

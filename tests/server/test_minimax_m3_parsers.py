@@ -7,12 +7,12 @@ import json
 
 import pytest
 
-from freetoken.server.function_call_parser import (
+from maxtoken.server.function_call_parser import (
     Function,
     MiniMaxM3Detector,
     Tool,
 )
-from freetoken.server.reasoning_parser import MiniMaxM3ReasoningParser, ReasoningParser
+from maxtoken.server.reasoning_parser import MiniMaxM3ReasoningParser, ReasoningParser
 
 NS = "]<]minimax[>["
 
@@ -148,9 +148,9 @@ def test_detect_and_parse_multiple_invokes():
 
 
 def test_detect_and_parse_unknown_tool_follows_forwarding_policy():
-    # FreeToken forwards unknown tool names by default (FORWARD_UNKNOWN_TOOLS);
+    # MaxToken forwards unknown tool names by default (FORWARD_UNKNOWN_TOOLS);
     # the detector must honor the same policy switch as every other family.
-    import freetoken.server.function_call_parser as fcp
+    import maxtoken.server.function_call_parser as fcp
 
     det = MiniMaxM3Detector()
     text = _block(f'{NS}<invoke name="nope">{NS}<a>1{NS}</a>{NS}</invoke>\n')
@@ -311,7 +311,7 @@ def test_streaming_plain_text_never_held():
 def test_auto_selection_picks_minimax_m3():
     from unittest.mock import patch
 
-    from freetoken.server.args import parse_args
+    from maxtoken.server.args import parse_args
 
     class _Config:
         def to_dict(self):
@@ -321,7 +321,7 @@ def test_auto_selection_picks_minimax_m3():
                 "text_config": {"model_type": "minimax_m2"},
             }
 
-    with patch("freetoken.utils.cached_load_hf_config", lambda _p: _Config()):
+    with patch("maxtoken.utils.cached_load_hf_config", lambda _p: _Config()):
         args, _ = parse_args(["--model", "/models/anon"])
     assert args.tool_call_parser == "minimax_m3"
     assert args.reasoning_parser == "minimax_m3"
@@ -436,7 +436,7 @@ def test_streaming_residue_after_close_holds_partial_marker():
 def test_streaming_truncated_call_suppressed_and_recovered():
     # Generation cut mid-invoke (max_tokens): finish_streaming must not leak the
     # raw markup, and recover_truncated_call must salvage the complete params.
-    from freetoken.server.function_call_parser import FunctionCallParser
+    from maxtoken.server.function_call_parser import FunctionCallParser
 
     parser = FunctionCallParser(_tools(), "minimax_m3")
     det = parser.detector
@@ -592,8 +592,8 @@ def test_detect_and_parse_multiple_wrappers_and_inter_block_text():
 def test_think_gears(gear, mode):
     """M3's three thinking states are discovered from its template behavior
     (thinking_mode disabled/adaptive/enabled, template default adaptive)."""
-    from freetoken.server.model_meta import derive_think_gears
-    from freetoken.tokenizer.effort import EffortProfile, probe_thinking_profile
+    from maxtoken.server.model_meta import derive_think_gears
+    from maxtoken.tokenizer.effort import EffortProfile, probe_thinking_profile
 
     def m3_render(kwargs, tools):
         # The template reads thinking_mode only; adaptive is its own default.

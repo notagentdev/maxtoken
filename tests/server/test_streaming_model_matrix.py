@@ -29,11 +29,11 @@ _PY = os.path.join(_ROOT, "python")
 if _PY not in sys.path:
     sys.path.insert(0, _PY)
 
-from freetoken.message.frontend import UserReply  # noqa: E402
-from freetoken.server import anthropic_api as A  # noqa: E402
-from freetoken.server import responses_api as RP  # noqa: E402
-from freetoken.server.api_models import ChatCompletionRequest  # noqa: E402
-from freetoken.server.generation import (  # noqa: E402
+from maxtoken.message.frontend import UserReply  # noqa: E402
+from maxtoken.server import anthropic_api as A  # noqa: E402
+from maxtoken.server import responses_api as RP  # noqa: E402
+from maxtoken.server.api_models import ChatCompletionRequest  # noqa: E402
+from maxtoken.server.generation import (  # noqa: E402
     ContentDelta,
     GenDone,
     GenSpec,
@@ -44,8 +44,8 @@ from freetoken.server.generation import (  # noqa: E402
     generate_events,
     generate_full,
 )
-from freetoken.server.openai_api import stream_chat_completion_chunks  # noqa: E402
-from freetoken.server.responses_api import ResponsesRequest  # noqa: E402
+from maxtoken.server.openai_api import stream_chat_completion_chunks  # noqa: E402
+from maxtoken.server.responses_api import ResponsesRequest  # noqa: E402
 
 TOOLS = [
     {
@@ -616,7 +616,7 @@ def test_mistral_two_parallel_calls_survive_separator_chunk():
 def test_non_streaming_detector_falls_back_to_buffered_parse(monkeypatch):
     # supports_streaming=False is the escape hatch for future formats without an
     # incremental implementation: content buffers and arrives once at the end.
-    from freetoken.server.function_call_parser import Qwen25Detector
+    from maxtoken.server.function_call_parser import Qwen25Detector
 
     monkeypatch.setattr(Qwen25Detector, "supports_streaming", False)
     events = _stream_events(["Hello ", "world."], "qwen25")
@@ -625,7 +625,7 @@ def test_non_streaming_detector_falls_back_to_buffered_parse(monkeypatch):
 
 
 def test_with_keepalive_emits_sentinel_during_silence():
-    from freetoken.server.generation import KEEPALIVE, with_keepalive
+    from maxtoken.server.generation import KEEPALIVE, with_keepalive
 
     async def slow_gen():
         await asyncio.sleep(0.08)

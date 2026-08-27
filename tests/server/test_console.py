@@ -2,7 +2,7 @@
 
 from fastapi.testclient import TestClient
 
-from freetoken.server.api_server import app
+from maxtoken.server.api_server import app
 
 
 def test_console_served():

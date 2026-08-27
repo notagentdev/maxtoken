@@ -133,7 +133,7 @@ environment so the agent cannot silently fall back to a paid endpoint.
 ft checkpoint --model <hf_dir> --out <ftw_dir> [--dtype bfloat16] [--moe-backend offload] [--shard-gib 8] [--device cuda:0]
 ```
 
-Converts an HF safetensors checkpoint to FTW, FreeToken's self-contained
+Converts an HF safetensors checkpoint to FTW, MaxToken's self-contained
 fast-load format; point `ft serve --model` at the output dir. `--moe-backend
 offload` (default) packs experts into offload banks; `--moe-backend triton`
 keeps them dense for resident serving. See the FTW caveats in
@@ -147,7 +147,7 @@ ft bench bw --dtype nvfp4,bf16    # only the formats you serve
 ```
 
 Measures host-RAM vs PCIe bandwidth with the real cpu/offload MoE kernels and
-writes a profile (`~/.cache/freetoken/benchbw.json`) that `ft serve
+writes a profile (`~/.cache/maxtoken/benchbw.json`) that `ft serve
 --moe-backend auto` and `--moe-hybrid-max-fetch -1` read. Profiles are keyed on
 expert format + GPU name, so a profile from different hardware is ignored
 rather than misapplied. Selection flags: `--dtype`, `--model`, `--formats`,

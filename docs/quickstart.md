@@ -1,6 +1,6 @@
 # Quick start
 
-Assumes FreeToken is installed — see [install.md](install.md).
+Assumes MaxToken is installed — see [install.md](install.md).
 
 ## Launch a server
 
@@ -34,7 +34,7 @@ curl http://127.0.0.1:1919/v1/chat/completions \
   }'
 ```
 
-FreeToken serves the OpenAI API (`/v1/chat/completions`, `/v1/responses`,
+MaxToken serves the OpenAI API (`/v1/chat/completions`, `/v1/responses`,
 `/v1/models`) and the Anthropic API (`/v1/messages`,
 `/v1/messages/count_tokens`), so a client library for either works by pointing
 its base URL at the server. 

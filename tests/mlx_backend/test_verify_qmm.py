@@ -16,7 +16,7 @@ import pytest
 mx = pytest.importorskip("mlx.core", reason="the kernel needs Metal")
 nn = pytest.importorskip("mlx.nn")
 
-from freetoken.mlx_backend.verify_qmm import (  # noqa: E402
+from maxtoken.mlx_backend.verify_qmm import (  # noqa: E402
     MROWS,
     eligible,
     install,

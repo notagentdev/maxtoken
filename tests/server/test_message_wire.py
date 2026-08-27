@@ -7,7 +7,7 @@ wire with its fields intact; these pin the ones carrying state a later consumer 
 
 from __future__ import annotations
 
-from freetoken.message import (
+from maxtoken.message import (
     BaseBackendMsg,
     DetokenizeMsg,
     BaseFrontendMsg,
@@ -20,7 +20,7 @@ from freetoken.message import (
     TokenizeMsg,
     UserReply,
 )
-from freetoken.core import SamplingParams
+from maxtoken.core import SamplingParams
 
 
 def test_cache_rebuild_msg_roundtrip():

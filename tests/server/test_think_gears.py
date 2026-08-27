@@ -5,8 +5,8 @@ gears match (or improve on) what the deleted ``think_spec`` registry hardcoded.
 """
 from __future__ import annotations
 
-from freetoken.server.model_meta import derive_think_gears
-from freetoken.tokenizer.effort import (
+from maxtoken.server.model_meta import derive_think_gears
+from maxtoken.tokenizer.effort import (
     EffortProfile,
     probe_effort_profile,
     probe_thinking_profile,

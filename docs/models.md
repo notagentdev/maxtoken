@@ -1,6 +1,6 @@
 # Supported models
 
-FreeToken loads HF safetensors checkpoints directly (plus native GGUF for
+MaxToken loads HF safetensors checkpoints directly (plus native GGUF for
 Gemma-4). The checkpoints below are known-good — the prebuilt kernels are tuned
 for them; other checkpoints of the same architectures work too.
 
@@ -34,7 +34,7 @@ for them; other checkpoints of the same architectures work too.
 ## Notes
 
 - `ft checkpoint` conversion is optional — it pre-converts a checkpoint into
-  FreeToken's fast-load format, and `ft serve --model` auto-detects the result.
+  MaxToken's fast-load format, and `ft serve --model` auto-detects the result.
 - DeepSeek-V4 checkpoints must keep the `inference/config.json` subdir — the
   authoritative model args are read from there.
 - Multimodal checkpoints are served text-only.

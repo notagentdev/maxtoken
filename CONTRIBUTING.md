@@ -1,17 +1,17 @@
-# Contributing to FreeToken
+# Contributing to MaxToken
 
-Thanks for helping make FreeToken better. This page covers how to report issues and how to submit pull requests.
+Thanks for helping make MaxToken better. This page covers how to report issues and how to submit pull requests.
 
 ## Getting help
 
-- [FAQ](https://github.com/FlashML-org/FreeToken/issues/84): kept up to date; most install and runtime problems are answered there.
-- [Roadmap](https://github.com/FlashML-org/FreeToken/issues/79): what we are working on next.
-- [Developer Slack](https://join.slack.com/t/flashml/shared_invite/zt-3zpdh5j10-9dwTXrgLiqpVxizhA9KVbA) for development discussion; [Community Discord](https://discord.gg/xzwSnMdsX) or [Community WeChat](https://github.com/FlashML-org/FreeToken/blob/main/assets/freetoken-wechatgroup.png) for usage questions.
+- [FAQ](https://github.com/FlashML-org/MaxToken/issues/84): kept up to date; most install and runtime problems are answered there.
+- [Roadmap](https://github.com/FlashML-org/MaxToken/issues/79): what we are working on next.
+- [Developer Slack](https://join.slack.com/t/flashml/shared_invite/zt-3zpdh5j10-9dwTXrgLiqpVxizhA9KVbA) for development discussion; [Community Discord](https://discord.gg/xzwSnMdsX) or [Community WeChat](https://github.com/FlashML-org/MaxToken/blob/main/assets/maxtoken-wechatgroup.png) for usage questions.
 
 ## Reporting issues
 
-1. **Check the FAQ and the Roadmap first.** If your request is already on the Roadmap, please do not open a new issue for it. Search [existing issues](https://github.com/FlashML-org/FreeToken/issues?q=is%3Aissue); if one matches, comment there.
-2. **Describe the problem clearly.** A report we cannot reproduce is a report we cannot fix. Include your hardware (GPU and VRAM, CPU, system RAM), OS, NVIDIA driver version, FreeToken version (`ft --version`, or the version shown in the Desktop app), the exact checkpoint (the Hugging Face or ModelScope ID, e.g. `Qwen/Qwen3.6-35B-A3B-FP8`, not just the model name), the command, and the full log, not a screenshot of the last line. Mention anything else that may matter: other GPUs in the machine, WSL, proxies.
+1. **Check the FAQ and the Roadmap first.** If your request is already on the Roadmap, please do not open a new issue for it. Search [existing issues](https://github.com/FlashML-org/MaxToken/issues?q=is%3Aissue); if one matches, comment there.
+2. **Describe the problem clearly.** A report we cannot reproduce is a report we cannot fix. Include your hardware (GPU and VRAM, CPU, system RAM), OS, NVIDIA driver version, MaxToken version (`ft --version`, or the version shown in the Desktop app), the exact checkpoint (the Hugging Face or ModelScope ID, e.g. `Qwen/Qwen3.6-35B-A3B-FP8`, not just the model name), the command, and the full log, not a screenshot of the last line. Mention anything else that may matter: other GPUs in the machine, WSL, proxies.
 3. **Desktop users: make sure you are on the latest version.** The Desktop app updates itself; restart it to pick up the latest version and check whether the problem still happens. Attach the output of **Logs → Server status → Copy**, which copies the full engine log.
 4. **Building from source: check against `main`.** Many problems are already fixed on `main`. Pull, rebuild, confirm the problem still happens, and include the commit you tested (`git rev-parse --short HEAD`).
 
@@ -29,7 +29,7 @@ If a PR contains AI hallucinations (code that does not do what the description s
 
 ### Roadmap features
 
-If you want to implement something on the [Roadmap](https://github.com/FlashML-org/FreeToken/issues/79), please join the [Developer Slack](https://join.slack.com/t/flashml/shared_invite/zt-3zpdh5j10-9dwTXrgLiqpVxizhA9KVbA) and discuss it with the maintainers before starting. It avoids duplicate work and makes sure the design fits the engine.
+If you want to implement something on the [Roadmap](https://github.com/FlashML-org/MaxToken/issues/79), please join the [Developer Slack](https://join.slack.com/t/flashml/shared_invite/zt-3zpdh5j10-9dwTXrgLiqpVxizhA9KVbA) and discuss it with the maintainers before starting. It avoids duplicate work and makes sure the design fits the engine.
 
 ### What a PR needs
 
@@ -42,7 +42,7 @@ If you want to implement something on the [Roadmap](https://github.com/FlashML-o
 ## Development setup
 
 ```bash
-git clone https://github.com/FlashML-org/FreeToken.git && cd FreeToken
+git clone https://github.com/FlashML-org/MaxToken.git && cd MaxToken
 uv pip install -e ".[accel]"
 ```
 
@@ -76,4 +76,4 @@ PRs are squash-merged, so the **PR title** must follow the same format, because 
 
 ## License
 
-By contributing to FreeToken, you agree that your contributions will be licensed under the [LICENSE](LICENSE) in the root of this repository.
+By contributing to MaxToken, you agree that your contributions will be licensed under the [LICENSE](LICENSE) in the root of this repository.

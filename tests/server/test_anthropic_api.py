@@ -22,11 +22,11 @@ _PY = os.path.join(_ROOT, "python")
 if _PY not in sys.path:
     sys.path.insert(0, _PY)
 
-from freetoken.message.frontend import UserReply  # noqa: E402
-from freetoken.server import anthropic_api as A  # noqa: E402
-from freetoken.server.anthropic_models import AnthropicMessagesRequest  # noqa: E402
-from freetoken.server.function_call_parser import ToolCallItem  # noqa: E402
-from freetoken.server.generation import (  # noqa: E402
+from maxtoken.message.frontend import UserReply  # noqa: E402
+from maxtoken.server import anthropic_api as A  # noqa: E402
+from maxtoken.server.anthropic_models import AnthropicMessagesRequest  # noqa: E402
+from maxtoken.server.function_call_parser import ToolCallItem  # noqa: E402
+from maxtoken.server.generation import (  # noqa: E402
     ContentDelta,
     GenDone,
     GenResult,
@@ -456,7 +456,7 @@ class FakeState:
 
 def _client(fake):
     from fastapi.testclient import TestClient
-    from freetoken.server import api_server
+    from maxtoken.server import api_server
 
     api_server._GLOBAL_STATE = fake
     return TestClient(api_server.app)
@@ -520,7 +520,7 @@ def test_stream_request_error_is_invalid_request_not_internal():
     # A request-side failure raised mid-stream (template rejection / over-length prompt) must be
     # classified as invalid_request_error — matching the non-streaming path — not internal_error,
     # so Claude Code treats it as a client error rather than a server fault to retry. (codex P3)
-    from freetoken.server.generation import GenerationError
+    from maxtoken.server.generation import GenerationError
 
     async def boom():
         raise GenerationError("prompt is too long: 8181 tokens > 7223 maximum",
@@ -719,7 +719,7 @@ def test_count_tokens_template_render_error_400():
 def test_count_tokens_excluded_from_request_ring():
     # count_tokens never enters generation accounting; its latency (incl. first-touch tokenizer
     # load) must not land in the /v1/requests ring or the /v1/stats p95.
-    from freetoken.server import request_ring
+    from maxtoken.server import request_ring
 
     request_ring.reset()
     client, _ = _count_client(_FakeTokenizeManager())
@@ -794,9 +794,9 @@ def test_frontend_tokenizer_concurrent_first_build_dedupes():
     import threading as _threading
     import time as _time
 
-    import freetoken.tokenizer.tokenize as _tok
-    import freetoken.utils as _utils
-    from freetoken.server.api_server import FrontendManager
+    import maxtoken.tokenizer.tokenize as _tok
+    import maxtoken.utils as _utils
+    from maxtoken.server.api_server import FrontendManager
 
     calls = []
 

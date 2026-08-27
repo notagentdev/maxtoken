@@ -6,14 +6,14 @@ import time
 
 import pytest
 
-from freetoken.daemon.accounting import (
+from maxtoken.daemon.accounting import (
     AccountingOutbox,
     AccountingOutboxError,
     AccountingPrepareError,
 )
-from freetoken.daemon.logring import LogRing
-from freetoken.daemon.pidfile import ServeState, ServeStateStore
-from freetoken.daemon.serve_manager import Conflict, ExitInfo, ServeManager
+from maxtoken.daemon.logring import LogRing
+from maxtoken.daemon.pidfile import ServeState, ServeStateStore
+from maxtoken.daemon.serve_manager import Conflict, ExitInfo, ServeManager
 
 
 # --------------------------------------------------------------------------- test doubles

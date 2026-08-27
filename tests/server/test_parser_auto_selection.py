@@ -18,9 +18,9 @@ from unittest.mock import patch
 
 import pytest
 
-from freetoken.server.args import parse_args
-from freetoken.server.function_call_parser import FunctionCallParser
-from freetoken.server.reasoning_parser import ReasoningParser
+from maxtoken.server.args import parse_args
+from maxtoken.server.function_call_parser import FunctionCallParser
+from maxtoken.server.reasoning_parser import ReasoningParser
 
 ARCHITECTURES = [
     "DeepseekV4ForCausalLM",
@@ -77,7 +77,7 @@ class _Config:
 def _inferred(architecture: str) -> tuple[str, str | None]:
     """(tool_call_parser, reasoning_parser) that `auto` picks for this architecture."""
     config = _Config({"architectures": [architecture], "torch_dtype": "bfloat16"})
-    with patch("freetoken.utils.cached_load_hf_config", lambda _path: config):
+    with patch("maxtoken.utils.cached_load_hf_config", lambda _path: config):
         args, _run_shell = parse_args(["--model", ANON_PATH])
     return args.tool_call_parser, args.reasoning_parser
 
@@ -114,7 +114,7 @@ def test_qwen3_5_is_not_shadowed_by_the_generic_qwen_branch():
 
 def test_an_explicit_choice_beats_inference():
     config = _Config({"architectures": ["DeepseekV4ForCausalLM"], "torch_dtype": "bfloat16"})
-    with patch("freetoken.utils.cached_load_hf_config", lambda _path: config):
+    with patch("maxtoken.utils.cached_load_hf_config", lambda _path: config):
         off, _ = parse_args(["--model", ANON_PATH, "--reasoning-parser", "off"])
         pinned, _ = parse_args(["--model", ANON_PATH, "--reasoning-parser", "qwen3"])
     assert off.reasoning_parser is None

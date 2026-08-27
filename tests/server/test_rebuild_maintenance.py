@@ -25,8 +25,8 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
-from freetoken.server.api_server import FrontendManager, dispatch_rebuild
-from freetoken.server.supervisor import (
+from maxtoken.server.api_server import FrontendManager, dispatch_rebuild
+from maxtoken.server.supervisor import (
     BackendHandle,
     LoadProgress,
     run_backend_supervisor,
@@ -153,7 +153,7 @@ def test_crash_during_rebuild_latches_failed_via_watchdog():
     PROMPTLY, instead of stranding the caller until its full (here 30 s) timeout."""
 
     class Proc:
-        name = "freetoken-TP0-scheduler"
+        name = "maxtoken-TP0-scheduler"
 
         def __init__(self):
             self._alive = True
@@ -226,7 +226,7 @@ def test_crash_during_rebuild_latches_failed_via_watchdog():
 
 
 def test_openai_gate_message_is_loading_aware():
-    from freetoken.server.openai_api import _maintenance_gate
+    from maxtoken.server.openai_api import _maintenance_gate
 
     assert _maintenance_gate(SimpleNamespace(maintenance_state="serving")) is None
     loading = _maintenance_gate(SimpleNamespace(maintenance_state="loading"))
@@ -242,7 +242,7 @@ def test_openai_gate_message_is_loading_aware():
 
 
 def test_cache_rebuild_guarded_during_loading():
-    import freetoken.server.api_server as api
+    import maxtoken.server.api_server as api
 
     prev = api._GLOBAL_STATE
     api._GLOBAL_STATE = SimpleNamespace(
@@ -265,8 +265,8 @@ def test_cache_rebuild_timeout_keeps_gate_closed():
     import asyncio
     from types import SimpleNamespace
 
-    from freetoken.server import api_server
-    from freetoken.server.api_server import CacheRebuildRequest, cache_rebuild
+    from maxtoken.server import api_server
+    from maxtoken.server.api_server import CacheRebuildRequest, cache_rebuild
 
     sent = []
 
@@ -296,8 +296,8 @@ def test_cache_rebuild_send_failure_rolls_back_gate():
     import asyncio
     from types import SimpleNamespace
 
-    from freetoken.server import api_server
-    from freetoken.server.api_server import CacheRebuildRequest, cache_rebuild
+    from maxtoken.server import api_server
+    from maxtoken.server.api_server import CacheRebuildRequest, cache_rebuild
 
     async def boom(msg):
         raise RuntimeError("zmq down")
@@ -322,7 +322,7 @@ def test_cache_rebuild_request_rejects_unknown_mode():
     import pytest
     from pydantic import ValidationError
 
-    from freetoken.server.api_server import CacheRebuildRequest
+    from maxtoken.server.api_server import CacheRebuildRequest
 
     assert CacheRebuildRequest(mode="if_idle").mode == "if_idle"
     with pytest.raises(ValidationError):

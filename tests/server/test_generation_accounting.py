@@ -17,9 +17,9 @@ _PY = os.path.join(_ROOT, "python")
 if _PY not in sys.path:
     sys.path.insert(0, _PY)
 
-from freetoken.message import UserReply  # noqa: E402
-from freetoken.server import api_server, request_ring  # noqa: E402
-from freetoken.server.generation import (  # noqa: E402
+from maxtoken.message import UserReply  # noqa: E402
+from maxtoken.server import api_server, request_ring  # noqa: E402
+from maxtoken.server.generation import (  # noqa: E402
     GenDone,
     GenSpec,
     generate_events,

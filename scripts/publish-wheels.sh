@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Publish built engine wheels to the FreeToken-Web rolling `beta` release.
+# Publish built engine wheels to the MaxToken-Web rolling `beta` release.
 #
 # Usage:
 #   scripts/publish-wheels.sh [dist-dir]       (default: ./dist)
@@ -13,12 +13,12 @@
 # with write access to the target repo.
 #
 # Environment:
-#   FREETOKEN_WEB_REPO   target repo  (default: FlashML-org/FreeToken-Web)
-#   FREETOKEN_WEB_TAG    release tag  (default: beta)
+#   MAXTOKEN_WEB_REPO   target repo  (default: FlashML-org/MaxToken-Web)
+#   MAXTOKEN_WEB_TAG    release tag  (default: beta)
 set -euo pipefail
 
-REPO="${FREETOKEN_WEB_REPO:-FlashML-org/FreeToken-Web}"
-TAG="${FREETOKEN_WEB_TAG:-beta}"
+REPO="${MAXTOKEN_WEB_REPO:-FlashML-org/MaxToken-Web}"
+TAG="${MAXTOKEN_WEB_TAG:-beta}"
 DIST="${1:-dist}"
 
 say() { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
@@ -28,8 +28,8 @@ command -v gh >/dev/null 2>&1 || die "gh not found"
 [ -d "$DIST" ] || die "no such dist dir: $DIST"
 
 shopt -s nullglob
-wheels=("$DIST"/freetoken-*.whl "$DIST"/freetoken_kernel_cache-*.whl)
-[ "${#wheels[@]}" -gt 0 ] || die "no freetoken wheels in $DIST"
+wheels=("$DIST"/maxtoken-*.whl "$DIST"/maxtoken_kernel_cache-*.whl)
+[ "${#wheels[@]}" -gt 0 ] || die "no maxtoken wheels in $DIST"
 
 # Platforms covered by this publish; pruning is per-platform, so a linux-only
 # publish leaves the win_amd64 assets alone.
@@ -52,11 +52,11 @@ while IFS= read -r p; do
   for w in "${wheels[@]}"; do
     b="${w##*/}"
     case "$b" in
-      freetoken-*"$p"*.whl)
+      maxtoken-*"$p"*.whl)
         rt_n=$((rt_n + 1))
         rt_stamp="$(grep -oE '\+g[0-9a-f]{7,}' <<<"$b" | head -1 || true)"
         ;;
-      freetoken_kernel_cache-*"$p"*.whl)
+      maxtoken_kernel_cache-*"$p"*.whl)
         kc_n=$((kc_n + 1))
         kc_stamp="$(grep -oE '\.g[0-9a-f]{7,}' <<<"$b" | head -1 || true)"
         ;;
@@ -77,7 +77,7 @@ existing="$(gh api "repos/$REPO/releases/tags/$TAG" --jq '.assets[].name')"
 while IFS= read -r p; do
   while IFS= read -r name; do
     case "$name" in
-      freetoken-*"$p"*.whl | freetoken_kernel_cache-*"$p"*.whl)
+      maxtoken-*"$p"*.whl | maxtoken_kernel_cache-*"$p"*.whl)
         say "deleting old asset $name"
         gh release delete-asset "$TAG" "$name" -R "$REPO" --yes
         ;;

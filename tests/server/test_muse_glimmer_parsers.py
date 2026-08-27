@@ -8,13 +8,13 @@ import json
 
 import pytest
 
-from freetoken.server.function_call_parser import (
+from maxtoken.server.function_call_parser import (
     Function,
     FunctionCallParser,
     MuseGlimmerDetector,
     Tool,
 )
-from freetoken.server.reasoning_parser import (
+from maxtoken.server.reasoning_parser import (
     ATEM_START,
     MuseGlimmerReasoningParser,
     ReasoningParser,
@@ -352,7 +352,7 @@ def test_truncated_call_suppressed_and_recovered():
 
 
 def test_unknown_tool_follows_forwarding_policy():
-    import freetoken.server.function_call_parser as fcp
+    import maxtoken.server.function_call_parser as fcp
 
     text = _tool_channel("nope.call", {"a": "1"})
     res = MuseGlimmerDetector().detect_and_parse(text, _tools())
@@ -671,7 +671,7 @@ def test_one_shot_keeps_second_invoke_block_in_one_channel():
 def test_reasoning_strength_kwarg_does_not_swallow_the_thinking_toggle():
     """R2 HIGH-4 (post effort-unification): a muse-style reasoning_strength kwarg
     riding along must not disable the broadcast thinking toggle."""
-    from freetoken.server.model_meta import effort_toggle_kwargs
+    from maxtoken.server.model_meta import effort_toggle_kwargs
 
     out = effort_toggle_kwargs("high", {"reasoning_strength": "high"})
     assert out.get("enable_thinking") is True  # the toggle broadcast still maps
@@ -1176,7 +1176,7 @@ def test_wire_corpus_pipeline_consistency(wire_idx, step):
 def test_auto_selection_picks_muse_glimmer():
     from unittest.mock import patch
 
-    from freetoken.server.args import parse_args
+    from maxtoken.server.args import parse_args
 
     class _Config:
         def to_dict(self):
@@ -1186,7 +1186,7 @@ def test_auto_selection_picks_muse_glimmer():
                 "text_config": {"model_type": "muse_glimmer_text"},
             }
 
-    with patch("freetoken.utils.cached_load_hf_config", lambda _p: _Config()):
+    with patch("maxtoken.utils.cached_load_hf_config", lambda _p: _Config()):
         args, _ = parse_args(["--model", "/models/anon"])
     assert args.tool_call_parser == "muse_glimmer"
     assert args.reasoning_parser == "muse_glimmer"
@@ -1214,7 +1214,7 @@ def test_effort_broadcast_reaches_reasoning_strength():
     """The render layer broadcasts reasoning_effort in every spelling the
     ecosystem's templates read (the thinking-toggle rule); muse's template picks
     up ``reasoning_strength``. An explicit caller spelling wins."""
-    from freetoken.tokenizer.tokenize import TokenizeManager
+    from maxtoken.tokenizer.tokenize import TokenizeManager
 
     manager = TokenizeManager(_MuseLikeTokenizer())
     prompt = manager._render([{"role": "user", "content": "hi"}], None, {"reasoning_effort": "low"})
@@ -1233,9 +1233,9 @@ def test_probed_muse_gears_and_effort_vocabulary():
     ladder (the model card's trained levels, xhigh included) with the template's
     own default (high); never-advertised dialects quantize onto the ladder
     instead of reaching the model verbatim."""
-    from freetoken.server.model_meta import derive_think_gears
-    from freetoken.tokenizer.effort import effective_efforts, quantize_effort
-    from freetoken.tokenizer.tokenize import TokenizeManager
+    from maxtoken.server.model_meta import derive_think_gears
+    from maxtoken.tokenizer.effort import effective_efforts, quantize_effort
+    from maxtoken.tokenizer.tokenize import TokenizeManager
 
     manager = TokenizeManager(_MuseLikeTokenizer())
     profile = manager.thinking_profile()

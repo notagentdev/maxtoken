@@ -6,8 +6,8 @@ from types import SimpleNamespace
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from freetoken.message import TokenizeMsg, UserReply
-from freetoken.server.openai_api import (
+from maxtoken.message import TokenizeMsg, UserReply
+from maxtoken.server.openai_api import (
     ChatCompletionRequest,
     CompletionRequest,
     chat_request_to_genspec,
@@ -210,7 +210,7 @@ def test_chat_reasoning_effort_broadcasts_every_toggle_spelling():
 def test_glm_reasoning_parser_honors_disabled_thinking_with_tools():
     # The parse side must match the encode side: thinking off + tools present
     # must not start the parser inside a think block.
-    from freetoken.server.generation import _make_reasoning_parser
+    from maxtoken.server.generation import _make_reasoning_parser
 
     state = FakeState([], reasoning_parser="glm")
     off = chat_request_to_genspec(chat_request(reasoning_effort="none"), {})
@@ -392,7 +392,7 @@ def test_completion_forwards_length_finish_reason():
 
 
 def test_omitted_max_tokens_defaults_to_hardcoded_32k():
-    from freetoken.server.generation import DEFAULT_MAX_OUTPUT_TOKENS
+    from maxtoken.server.generation import DEFAULT_MAX_OUTPUT_TOKENS
 
     chat_state = FakeState([UserReply(uid=42, incremental_output="hi", finished=True)])
     run(handle_chat_completion(
@@ -492,7 +492,7 @@ async def _collect(generator):
 
 
 # --------------------------------------------------------------- dsv4 reasoning
-from freetoken.server.reasoning_parser import DSML_TOKEN  # noqa: E402
+from maxtoken.server.reasoning_parser import DSML_TOKEN  # noqa: E402
 
 _TC_OPEN = f"<{DSML_TOKEN}tool_calls>"
 _DSV4_TOOL_BLOCK = (

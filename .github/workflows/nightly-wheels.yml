@@ -1,5 +1,5 @@
 # Nightly engine wheels: build on the self-hosted EC2 node and publish to the
-# FreeToken-Web rolling `beta` release.
+# MaxToken-Web rolling `beta` release.
 #
 # The node currently runs ALWAYS-ON, so this workflow does no power management.
 # Reintroduce the elastic variant (OIDC start-node/stop-node jobs around the build,
@@ -40,7 +40,7 @@ concurrency:
   group: nightly-wheels
 
 env:
-  WEB_REPO: FlashML-org/FreeToken-Web
+  WEB_REPO: FlashML-org/MaxToken-Web
   WEB_TAG: beta
 
 jobs:
@@ -48,7 +48,7 @@ jobs:
   # night costs nothing and never touches AWS.
   check:
     # Guard against runs from forks of this repo; update on an org transfer.
-    if: github.repository == 'FlashML-org/FreeToken'
+    if: github.repository == 'FlashML-org/MaxToken'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -65,7 +65,7 @@ jobs:
           # workflow only builds linux, so compare the linux runtime wheel only.
           published_stamp="$(gh api "repos/$WEB_REPO/releases/tags/$WEB_TAG" \
             --jq '.assets[].name' 2>/dev/null \
-            | grep -E '^freetoken-.*linux_x86_64\.whl$' \
+            | grep -E '^maxtoken-.*linux_x86_64\.whl$' \
             | grep -oE '\+g[0-9a-f]{7,}' | head -1 || true)"
           echo "HEAD: $head_stamp  published: ${published_stamp:-<none>}"
           if [ "$FORCE" = "true" ] || [ "$head_stamp" != "$published_stamp" ]; then
@@ -113,7 +113,7 @@ jobs:
           path: dist
       - name: Publish to the beta release
         env:
-          GH_TOKEN: ${{ secrets.FREETOKEN_WEB_TOKEN }}
-          FREETOKEN_WEB_REPO: ${{ env.WEB_REPO }}
-          FREETOKEN_WEB_TAG: ${{ env.WEB_TAG }}
+          GH_TOKEN: ${{ secrets.MAXTOKEN_WEB_TOKEN }}
+          MAXTOKEN_WEB_REPO: ${{ env.WEB_REPO }}
+          MAXTOKEN_WEB_TAG: ${{ env.WEB_TAG }}
         run: scripts/publish-wheels.sh dist

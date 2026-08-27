@@ -6,11 +6,11 @@ requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-# MaxToken: an independent fork of FlashML's FreeToken. The distribution and
-# branding are maxtoken; the import package stays `freetoken` so upstream diffs
+# MaxToken: an independent fork of FlashML's MaxToken. The distribution and
+# branding are maxtoken; the import package stays `maxtoken` so upstream diffs
 # remain readable and no import path breaks.
 name = "maxtoken"
-# Single source of truth: python/freetoken/version.py (read via the attr directive below).
+# Single source of truth: python/maxtoken/version.py (read via the attr directive below).
 dynamic = ["version"]
 description = "Serve MoE models bigger than your memory on Apple silicon — elastic expert offload, OpenAI- and Anthropic-compatible APIs, built-in web console"
 readme = "README.md"
@@ -52,11 +52,11 @@ dependencies = [
 ]
 
 [project.urls]
-Upstream = "https://github.com/FlashML-org/FreeToken"
+Upstream = "https://github.com/FlashML-org/MaxToken"
 
 [project.scripts]
-ft = "freetoken.cli:main"
-maxtoken = "freetoken.cli:main"
+ft = "maxtoken.cli:main"
+maxtoken = "maxtoken.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=6.0"]
@@ -66,7 +66,7 @@ include-package-data = true
 package-dir = {"" = "python"}
 
 [tool.setuptools.dynamic]
-version = {attr = "freetoken.version.__version__"}
+version = {attr = "maxtoken.version.__version__"}
 
 [tool.setuptools.packages.find]
 where = ["python"]

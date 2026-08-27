@@ -12,8 +12,8 @@ from typing import Iterator, List
 import pytest
 import torch
 
-from freetoken.core import SamplingParams
-from freetoken.message import (
+from maxtoken.core import SamplingParams
+from maxtoken.message import (
     AbortBackendMsg,
     BatchBackendMsg,
     CacheRebuildBackendMsg,
@@ -24,7 +24,7 @@ from freetoken.message import (
     PromptAdmittedMsg,
     UserMsg,
 )
-from freetoken.mlx_backend.worker import MlxScheduler, _filter_kwargs
+from maxtoken.mlx_backend.worker import MlxScheduler, _filter_kwargs
 
 
 EOS = 99
@@ -241,7 +241,7 @@ def test_filter_kwargs_drops_unknown_only():
 
 
 def test_parse_args_rejects_tp_for_mlx():
-    from freetoken.server.args import parse_args
+    from maxtoken.server.args import parse_args
 
     with pytest.raises(ValueError, match="tensor parallelism"):
         parse_args(["--model-path", "/nonexistent", "--backend", "mlx", "--tp-size", "2"])

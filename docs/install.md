@@ -11,7 +11,7 @@
 
 ```bash
 uv venv && source .venv/bin/activate
-uv pip install "freetoken[accel]"
+uv pip install "maxtoken[accel]"
 ```
 
 CUDA kernels are JIT-compiled on first use, need a CUDA 13 toolkit with `nvcc` on PATH.
@@ -19,7 +19,7 @@ CUDA kernels are JIT-compiled on first use, need a CUDA 13 toolkit with `nvcc` o
 ## Method 2: Install from source
 
 ```bash
-git clone https://github.com/FlashML-org/FreeToken.git && cd FreeToken
+git clone https://github.com/FlashML-org/MaxToken.git && cd MaxToken
 uv venv && source .venv/bin/activate
 uv pip install -e ".[accel]"
 ```

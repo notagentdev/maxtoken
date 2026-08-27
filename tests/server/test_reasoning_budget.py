@@ -10,9 +10,9 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-from freetoken.core import SamplingParams
-from freetoken.message import UserReply
-from freetoken.server.generation import (
+from maxtoken.core import SamplingParams
+from maxtoken.message import UserReply
+from maxtoken.server.generation import (
     ContentDelta,
     GenDone,
     GenSpec,

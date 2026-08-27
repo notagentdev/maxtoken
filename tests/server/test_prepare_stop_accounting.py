@@ -9,16 +9,16 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from freetoken.message import UserReply
-from freetoken.server.accounting import (
+from maxtoken.message import UserReply
+from maxtoken.server.accounting import (
     AccountingDrainError,
     AdmissionClosedError,
     _is_loopback,
     prepare_stop_accounting,
     register_accounting_routes,
 )
-from freetoken.server.api_server import FrontendManager
-from freetoken.server.stats import StatsTracker
+from maxtoken.server.api_server import FrontendManager
+from maxtoken.server.stats import StatsTracker
 
 
 def _state(*, maintenance: str = "serving", ready_at: float | None = None):
@@ -42,7 +42,7 @@ def test_idle_prepare_stop_seals_totals_and_is_idempotent(monkeypatch):
     state = _state(ready_at=90.0)
     state.stats.prompt_tokens_total = 12
     state.stats.completion_tokens_total = 7
-    monkeypatch.setattr("freetoken.server.accounting.time.monotonic", lambda: 100.8)
+    monkeypatch.setattr("maxtoken.server.accounting.time.monotonic", lambda: 100.8)
 
     first = asyncio.run(prepare_stop_accounting(state))
     assert first == {

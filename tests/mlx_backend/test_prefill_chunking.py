@@ -13,8 +13,8 @@ import pytest
 
 mx = pytest.importorskip("mlx.core", reason="prefill builds mx arrays")
 
-from freetoken.mlx_backend.prefix_cache import BOUNDARY_TOKENS  # noqa: E402
-from freetoken.mlx_backend.worker import MlxScheduler  # noqa: E402
+from maxtoken.mlx_backend.prefix_cache import BOUNDARY_TOKENS  # noqa: E402
+from maxtoken.mlx_backend.worker import MlxScheduler  # noqa: E402
 
 
 class _RecordingModel:

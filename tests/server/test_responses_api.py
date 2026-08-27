@@ -20,11 +20,11 @@ _PY = os.path.join(_ROOT, "python")
 if _PY not in sys.path:
     sys.path.insert(0, _PY)
 
-from freetoken.message.frontend import UserReply  # noqa: E402
-from freetoken.server import responses_api as RP  # noqa: E402
-from freetoken.server.responses_api import ResponsesRequest  # noqa: E402
-from freetoken.server.function_call_parser import ToolCallItem  # noqa: E402
-from freetoken.server.generation import ContentDelta, GenDone, GenResult, ToolCallsDelta  # noqa: E402
+from maxtoken.message.frontend import UserReply  # noqa: E402
+from maxtoken.server import responses_api as RP  # noqa: E402
+from maxtoken.server.responses_api import ResponsesRequest  # noqa: E402
+from maxtoken.server.function_call_parser import ToolCallItem  # noqa: E402
+from maxtoken.server.generation import ContentDelta, GenDone, GenResult, ToolCallsDelta  # noqa: E402
 
 
 async def _aiter(items):
@@ -345,7 +345,7 @@ class FakeState:
 
 def _client(fake):
     from fastapi.testclient import TestClient
-    from freetoken.server import api_server
+    from maxtoken.server import api_server
 
     api_server._GLOBAL_STATE = fake
     return TestClient(api_server.app)
@@ -611,7 +611,7 @@ def test_convert_merges_instructions_and_developer_into_one_system():
 def test_stream_surfaces_generation_error_as_failed():
     # A request that fails mid-generation (template/over-length) must terminate the stream with
     # response.failed, not stall — otherwise codex hits its idle timeout and "Reconnecting".
-    from freetoken.server.generation import GenerationError
+    from maxtoken.server.generation import GenerationError
 
     async def boom():
         raise GenerationError("chat template rejected the conversation")
@@ -642,7 +642,7 @@ def test_stream_surfaces_generation_error_as_failed():
 
 def test_stream_failure_keeps_the_error_code_codex_matches_on():
     """codex reads only `error.code` here to tell a blown context window from a generic failure."""
-    from freetoken.server.generation import GenerationError
+    from maxtoken.server.generation import GenerationError
 
     async def boom():
         raise GenerationError("prompt is too long: 8178 tokens > 7223 maximum",
@@ -786,7 +786,7 @@ def test_default_output_tokens_honors_server_config():
 # Reasoning streaming (codex renders response.reasoning_text.delta natively)
 # --------------------------------------------------------------------------- #
 def test_stream_reasoning_events():
-    from freetoken.server.generation import ReasoningDelta
+    from maxtoken.server.generation import ReasoningDelta
 
     req = ResponsesRequest.model_validate({"model": "gpt-x", "input": "hi", "stream": True})
     events = [

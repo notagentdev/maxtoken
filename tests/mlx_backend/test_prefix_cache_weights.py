@@ -1,9 +1,9 @@
 """Prefix-cache exactness against a real checkpoint (needs_weights).
 
-Run with FREETOKEN_TEST_MLX_MODEL pointing at a local MLX checkpoint dir (any
+Run with MAXTOKEN_TEST_MLX_MODEL pointing at a local MLX checkpoint dir (any
 mlx-lm model; a small one like OLMoE-1B-7B-4bit keeps it fast):
 
-    FREETOKEN_TEST_MLX_MODEL=~/models/olmoe pytest tests/mlx_backend -m needs_weights
+    MAXTOKEN_TEST_MLX_MODEL=~/models/olmoe pytest tests/mlx_backend -m needs_weights
 
 The contract proven here is the strongest a prefix cache can give: restoring a
 snapshot and continuing is BIT-IDENTICAL to having kept the original cache
@@ -17,9 +17,9 @@ import pytest
 
 pytestmark = pytest.mark.needs_weights
 
-MODEL_DIR = os.path.expanduser(os.environ.get("FREETOKEN_TEST_MLX_MODEL", ""))
+MODEL_DIR = os.path.expanduser(os.environ.get("MAXTOKEN_TEST_MLX_MODEL", ""))
 if not MODEL_DIR or not os.path.isdir(MODEL_DIR):
-    pytest.skip("set FREETOKEN_TEST_MLX_MODEL to a local MLX checkpoint dir",
+    pytest.skip("set MAXTOKEN_TEST_MLX_MODEL to a local MLX checkpoint dir",
                 allow_module_level=True)
 mx = pytest.importorskip("mlx.core", reason="needs mlx")
 
@@ -44,7 +44,7 @@ def _generate(model, cache, prompt_tail, n):
 def test_restore_equals_keeping_the_cache_alive():
     from mlx_lm.models.cache import make_prompt_cache
 
-    from freetoken.mlx_backend.prefix_cache import PrefixStore
+    from maxtoken.mlx_backend.prefix_cache import PrefixStore
 
     model, tokenizer = _load()
     p1 = tokenizer.apply_chat_template(

@@ -85,8 +85,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     p.add_argument(
         "--aime",
-        default=os.environ.get("FREETOKEN_AIME25_JSONL"),
-        help=f"local jsonl instead of downloading {AIME_REPO}; default $FREETOKEN_AIME25_JSONL",
+        default=os.environ.get("MAXTOKEN_AIME25_JSONL"),
+        help=f"local jsonl instead of downloading {AIME_REPO}; default $MAXTOKEN_AIME25_JSONL",
     )
     p.add_argument("--problem", type=int, default=0, help="0-based AIME problem index")
     p.add_argument("--decode", type=int, default=256, help="decode tokens to measure (D)")
@@ -183,7 +183,7 @@ def serve_cmd(args: argparse.Namespace, backend: str, port: int) -> list[str]:
         # Everything downstream (streaming, usage, stats) is the same serving
         # path, so the measurement itself is unchanged.
         cmd = [
-            sys.executable, "-m", "freetoken.cli", "serve",
+            sys.executable, "-m", "maxtoken.cli", "serve",
             "--model", args.model,
             "--host", "127.0.0.1", "--port", str(port),
             "--backend", "mlx",
@@ -201,7 +201,7 @@ def serve_cmd(args: argparse.Namespace, backend: str, port: int) -> list[str]:
                 cmd += ["--moe-cache-auto"]
         return cmd
     cmd = [
-        sys.executable, "-m", "freetoken.cli", "serve",
+        sys.executable, "-m", "maxtoken.cli", "serve",
         "--model", args.model,
         "--host", "127.0.0.1", "--port", str(port),
         "--moe-backend", backend,
@@ -321,7 +321,7 @@ def stream_generate(origin: str, model_id: str, problem: str, sampling: dict,
                     stamps.append(now)
                     pieces.append(text)
     if usage is None:
-        sys.exit("[bench] stream ended without a usage chunk; is this a FreeToken server?")
+        sys.exit("[bench] stream ended without a usage chunk; is this a MaxToken server?")
     return {"t0": t0, "stamps": stamps, "text": "".join(pieces), "usage": usage}
 
 

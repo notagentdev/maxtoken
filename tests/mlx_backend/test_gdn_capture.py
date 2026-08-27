@@ -18,7 +18,7 @@ mx = pytest.importorskip("mlx.core", reason="capture binds mx arrays")
 
 import mlx_lm.models.gated_delta as gated_delta  # noqa: E402
 
-from freetoken.mlx_backend import gdn_capture  # noqa: E402
+from maxtoken.mlx_backend import gdn_capture  # noqa: E402
 
 
 class _ArraysCache:

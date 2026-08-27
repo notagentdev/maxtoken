@@ -7,7 +7,7 @@ from typing import Any, List
 import numpy as np
 import pytest
 
-from freetoken.mlx_backend.prefix_cache import (
+from maxtoken.mlx_backend.prefix_cache import (
     MIN_MATCH_TOKENS,
     PrefixStore,
     _common_prefix_len,

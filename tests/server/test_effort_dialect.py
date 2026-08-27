@@ -14,14 +14,14 @@ from types import SimpleNamespace
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.testclient import TestClient
-from freetoken.message import TokenizeMsg, UserReply
-from freetoken.server.model_meta import effort_toggle_kwargs
-from freetoken.server.openai_api import (
+from maxtoken.message import TokenizeMsg, UserReply
+from maxtoken.server.model_meta import effort_toggle_kwargs
+from maxtoken.server.openai_api import (
     ChatCompletionRequest,
     handle_chat_completion,
     register_openai_routes,
 )
-from freetoken.tokenizer.effort import EffortProfile
+from maxtoken.tokenizer.effort import EffortProfile
 
 
 def run(coro):

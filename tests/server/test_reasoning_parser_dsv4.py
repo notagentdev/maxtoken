@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from freetoken.server.reasoning_parser import (
+from maxtoken.server.reasoning_parser import (
     DSML_TOKEN,
     ReasoningParser,
     SUPPORTED_REASONING_PARSERS,

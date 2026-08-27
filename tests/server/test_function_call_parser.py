@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from freetoken.server.function_call_parser import FunctionCallParser, SUPPORTED_TOOL_CALL_PARSERS
+from maxtoken.server.function_call_parser import FunctionCallParser, SUPPORTED_TOOL_CALL_PARSERS
 
 
 TOOLS = [

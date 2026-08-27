@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# FreeToken engine installer (Linux, NVIDIA CUDA) — user-facing, wheel-based.
+# MaxToken engine installer (Linux, NVIDIA CUDA) — user-facing, wheel-based.
 #
-# Installs the `freetoken` runtime (the `ft` CLI) and its prebuilt kernel-cache
-# wheel into a managed venv, then wires it up so FreeToken Desktop can find it.
+# Installs the `maxtoken` runtime (the `ft` CLI) and its prebuilt kernel-cache
+# wheel into a managed venv, then wires it up so MaxToken Desktop can find it.
 # Dependencies come from PyPI via uv, except torch and sglang-kernel whose cu130
 # wheels live on dedicated indexes (see CU_INDEX_ARGS below).
 #
@@ -11,19 +11,19 @@
 #   curl -fsSL https://<host>/install.sh | bash
 #
 # Configurable via environment:
-#   FREETOKEN_WHEEL               runtime wheel — local path OR URL. Defaults to the
+#   MAXTOKEN_WHEEL               runtime wheel — local path OR URL. Defaults to the
 #                                 pinned release asset ($DEFAULT_WHEEL_URL); if that is
 #                                 empty and install.sh runs from a source checkout, the
 #                                 wheels are built from source via
 #                                 scripts/build-release-wheels.sh.
-#   FREETOKEN_KERNEL_CACHE_WHEEL  prebuilt kernel-cache wheel — local path OR URL.
+#   MAXTOKEN_KERNEL_CACHE_WHEEL  prebuilt kernel-cache wheel — local path OR URL.
 #                                 Defaults to $DEFAULT_KERNEL_CACHE_WHEEL_URL; if
-#                                 unset and FREETOKEN_WHEEL is local, the script
-#                                 auto-detects a sibling freetoken_kernel_cache-*.whl.
-#   FREETOKEN_HOME                install root (default: ~/.freetoken); venv at $FREETOKEN_HOME/venv
-#   FREETOKEN_PY_VERSION          python for the venv (default: 3.12 — must match the wheel tag)
-#   FREETOKEN_BIN_DIR             where to symlink `ft` (default: ~/.local/bin)
-#   FREETOKEN_ENV_DIR             environment.d dir (default: ~/.config/environment.d)
+#                                 unset and MAXTOKEN_WHEEL is local, the script
+#                                 auto-detects a sibling maxtoken_kernel_cache-*.whl.
+#   MAXTOKEN_HOME                install root (default: ~/.maxtoken); venv at $MAXTOKEN_HOME/venv
+#   MAXTOKEN_PY_VERSION          python for the venv (default: 3.12 — must match the wheel tag)
+#   MAXTOKEN_BIN_DIR             where to symlink `ft` (default: ~/.local/bin)
+#   MAXTOKEN_ENV_DIR             environment.d dir (default: ~/.config/environment.d)
 #
 # NOTE: common TVM FFI kernels come from the kernel-cache wheel. A working CUDA
 # toolkit (nvcc) is still needed when falling back to JIT for an uncovered kernel
@@ -33,18 +33,18 @@ set -euo pipefail
 DEFAULT_WHEEL_URL=""   # filled in once GitHub Releases are live
 DEFAULT_KERNEL_CACHE_WHEEL_URL=""   # filled in once GitHub Releases are live
 
-FT_HOME="${FREETOKEN_HOME:-$HOME/.freetoken}"
+FT_HOME="${MAXTOKEN_HOME:-$HOME/.maxtoken}"
 VENV="$FT_HOME/venv"
-PY_VERSION="${FREETOKEN_PY_VERSION:-3.12}"
-BIN_DIR="${FREETOKEN_BIN_DIR:-$HOME/.local/bin}"
-ENV_DIR="${FREETOKEN_ENV_DIR:-$HOME/.config/environment.d}"
-WHEEL="${FREETOKEN_WHEEL:-$DEFAULT_WHEEL_URL}"
-KERNEL_CACHE_WHEEL="${FREETOKEN_KERNEL_CACHE_WHEEL:-$DEFAULT_KERNEL_CACHE_WHEEL_URL}"
+PY_VERSION="${MAXTOKEN_PY_VERSION:-3.12}"
+BIN_DIR="${MAXTOKEN_BIN_DIR:-$HOME/.local/bin}"
+ENV_DIR="${MAXTOKEN_ENV_DIR:-$HOME/.config/environment.d}"
+WHEEL="${MAXTOKEN_WHEEL:-$DEFAULT_WHEEL_URL}"
+KERNEL_CACHE_WHEEL="${MAXTOKEN_KERNEL_CACHE_WHEEL:-$DEFAULT_KERNEL_CACHE_WHEEL_URL}"
 
-# --yes / -y (or FREETOKEN_ASSUME_YES=1): run non-interactively — in particular, bootstrap uv
-# without asking. FreeToken Desktop's in-app installer passes --yes (its stdout is piped into a
+# --yes / -y (or MAXTOKEN_ASSUME_YES=1): run non-interactively — in particular, bootstrap uv
+# without asking. MaxToken Desktop's in-app installer passes --yes (its stdout is piped into a
 # modal, so there is no terminal to prompt at).
-ASSUME_YES="${FREETOKEN_ASSUME_YES:-0}"
+ASSUME_YES="${MAXTOKEN_ASSUME_YES:-0}"
 for _arg in "$@"; do
   case "$_arg" in
     -y|--yes) ASSUME_YES=1 ;;
@@ -74,14 +74,14 @@ infer_kernel_cache_wheel() {
   wheel_dir="$(cd "$(dirname "$WHEEL")" && pwd -P)"
   found=""
   count=0
-  for candidate in "$wheel_dir"/freetoken_kernel_cache-*.whl "$wheel_dir"/freetoken-kernel-cache-*.whl; do
+  for candidate in "$wheel_dir"/maxtoken_kernel_cache-*.whl "$wheel_dir"/maxtoken-kernel-cache-*.whl; do
     [ -f "$candidate" ] || continue
     found="$candidate"
     count=$((count + 1))
   done
 
   if [ "$count" -gt 1 ]; then
-    die "multiple freetoken kernel-cache wheels found next to $WHEEL — set FREETOKEN_KERNEL_CACHE_WHEEL explicitly."
+    die "multiple maxtoken kernel-cache wheels found next to $WHEEL — set MAXTOKEN_KERNEL_CACHE_WHEEL explicitly."
   fi
   if [ "$count" -eq 1 ]; then
     KERNEL_CACHE_WHEEL="$found"
@@ -101,15 +101,15 @@ build_from_repo_if_needed() {
   # Unstamped by default: this path serves tarball checkouts (no .git) and dev trees
   # (often dirty), where the release stamp's clean-git requirement would turn a working
   # install into a die -- and a wheel installed from a local path has no URL-cache
-  # staleness to defend against. FREETOKEN_BUILD_NO_STAMP=0 forces a stamp anyway.
-  FREETOKEN_BUILD_OUT_DIR="$out_dir" FREETOKEN_BUILD_NO_STAMP="${FREETOKEN_BUILD_NO_STAMP:-1}" bash "$builder"
+  # staleness to defend against. MAXTOKEN_BUILD_NO_STAMP=0 forces a stamp anyway.
+  MAXTOKEN_BUILD_OUT_DIR="$out_dir" MAXTOKEN_BUILD_NO_STAMP="${MAXTOKEN_BUILD_NO_STAMP:-1}" bash "$builder"
 
-  rt="$(ls -t "$out_dir"/freetoken-*.whl 2>/dev/null | head -1)" || true
-  [ -n "$rt" ] || die "build finished but no freetoken-*.whl found in $out_dir"
+  rt="$(ls -t "$out_dir"/maxtoken-*.whl 2>/dev/null | head -1)" || true
+  [ -n "$rt" ] || die "build finished but no maxtoken-*.whl found in $out_dir"
   WHEEL="$rt"
   say "built runtime wheel: $WHEEL"
   if [ -z "$KERNEL_CACHE_WHEEL" ]; then
-    kc="$(ls -t "$out_dir"/freetoken_kernel_cache-*.whl 2>/dev/null | head -1)" || true
+    kc="$(ls -t "$out_dir"/maxtoken_kernel_cache-*.whl 2>/dev/null | head -1)" || true
     if [ -n "$kc" ]; then
       KERNEL_CACHE_WHEEL="$kc"
       say "built kernel-cache wheel: $KERNEL_CACHE_WHEEL"
@@ -117,14 +117,14 @@ build_from_repo_if_needed() {
   fi
 }
 
-# The FreeToken Desktop engine bundle ships the wheels in ./dist next to this script.
+# The MaxToken Desktop engine bundle ships the wheels in ./dist next to this script.
 find_bundled_wheel() {
   [ -z "$WHEEL" ] || return 0
   local script_dir dist rt
   script_dir="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd -P)"
   dist="$script_dir/dist"
   [ -d "$dist" ] || return 0
-  rt="$(ls -t "$dist"/freetoken-*.whl 2>/dev/null | grep -Ev 'freetoken[_-]kernel[_-]cache-' | head -1)" || true
+  rt="$(ls -t "$dist"/maxtoken-*.whl 2>/dev/null | grep -Ev 'maxtoken[_-]kernel[_-]cache-' | head -1)" || true
   [ -n "$rt" ] && { WHEEL="$rt"; say "found bundled runtime wheel: $WHEEL"; }
 }
 
@@ -157,9 +157,9 @@ say "uv $("$UV" --version | awk '{print $2}')"
 find_bundled_wheel
 build_from_repo_if_needed
 
-[ -n "$WHEEL" ] || die "no runtime wheel to install — set FREETOKEN_WHEEL to a local path or URL, or run install.sh from a source checkout to build one."
+[ -n "$WHEEL" ] || die "no runtime wheel to install — set MAXTOKEN_WHEEL to a local path or URL, or run install.sh from a source checkout to build one."
 infer_kernel_cache_wheel
-[ -n "$KERNEL_CACHE_WHEEL" ] || die "no kernel-cache wheel to install — set FREETOKEN_KERNEL_CACHE_WHEEL to a local path or URL."
+[ -n "$KERNEL_CACHE_WHEEL" ] || die "no kernel-cache wheel to install — set MAXTOKEN_KERNEL_CACHE_WHEEL to a local path or URL."
 
 # --- 2. NVIDIA driver + CUDA toolkit -----------------------------------------
 # CUDA major the kernel-cache wheel was built for, from its +cuNNN tag
@@ -231,20 +231,20 @@ say "installing $WHEEL + accel (flashinfer prebuilt + sglang-kernel) + $KERNEL_C
 # (the venv is fresh each time, the cache is not). Force revalidation of just our two
 # packages; every other dependency keeps hitting the cache.
 "$UV" pip install --python "$VENV" \
-  --refresh-package freetoken --refresh-package freetoken-kernel-cache \
+  --refresh-package maxtoken --refresh-package maxtoken-kernel-cache \
   "${CU_INDEX_ARGS[@]}" "${INSTALL_WHEELS[@]}"
 
 FT_BIN="$VENV/bin/ft"
 [ -x "$FT_BIN" ] || die "install finished but $FT_BIN is missing."
 
-# --- 4. Wire up for PATH + FreeToken Desktop -------------------------------
+# --- 4. Wire up for PATH + MaxToken Desktop -------------------------------
 mkdir -p "$BIN_DIR"
 ln -sf "$FT_BIN" "$BIN_DIR/ft"
 say "symlinked $BIN_DIR/ft -> $FT_BIN"
 
 mkdir -p "$ENV_DIR"
-printf 'FREETOKEN_FT_BIN=%s\n' "$FT_BIN" > "$ENV_DIR/50-freetoken.conf"
-say "wrote $ENV_DIR/50-freetoken.conf (FREETOKEN_FT_BIN) — GUI picks it up after next login"
+printf 'MAXTOKEN_FT_BIN=%s\n' "$FT_BIN" > "$ENV_DIR/50-maxtoken.conf"
+say "wrote $ENV_DIR/50-maxtoken.conf (MAXTOKEN_FT_BIN) — GUI picks it up after next login"
 
 # --- 5. Self-check ---------------------------------------------------------
 if "$FT_BIN" --help >/dev/null 2>&1; then
@@ -255,14 +255,14 @@ fi
 
 cat <<EOF
 
-${C_GREEN}FreeToken engine installed.${C_RESET}
+${C_GREEN}MaxToken engine installed.${C_RESET}
 
   ft binary        $FT_BIN
   on PATH as       $BIN_DIR/ft   (ensure $BIN_DIR is on PATH)
-  Desktop env      FREETOKEN_FT_BIN via environment.d (re-login to apply)
+  Desktop env      MAXTOKEN_FT_BIN via environment.d (re-login to apply)
 
 Run in this shell without re-login:
-  export FREETOKEN_FT_BIN="$FT_BIN"
+  export MAXTOKEN_FT_BIN="$FT_BIN"
   ft serve --model <path> --port 1919
 
 EOF
