@@ -60,7 +60,12 @@ def register_control_routes(
 
     from . import request_ring
 
-    @app.get("/v1/requests")
+    # /v1 belongs to the OpenAI and Anthropic protocols. These are ours, so
+    # they live under /admin; the old paths stay as hidden aliases so existing
+    # clients, dashboards and scripts keep working, but they no longer appear
+    # in the OpenAPI schema a protocol client discovers.
+    @app.get("/admin/requests")
+    @app.get("/v1/requests", include_in_schema=False)
     async def list_requests(since: int = 0, limit: int = 100):
         limit = max(1, min(limit, 512))
         entries, next_cursor = request_ring.requests_since(since, limit)
@@ -68,7 +73,8 @@ def register_control_routes(
 
     from .stats import build_stats
 
-    @app.get("/v1/stats")
+    @app.get("/admin/stats")
+    @app.get("/v1/stats", include_in_schema=False)
     async def stats():
         doc = build_stats(
             get_state(), request_ring.requests_p95_ms(), request_ring.requests_ttft_mean_ms()

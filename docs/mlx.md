@@ -59,7 +59,7 @@ ecosystem (torch, triton, flashlib) is installed.
 `mt serve` ships a built-in GUI at **`http://localhost:1919/`** (any platform,
 not just macOS): live throughput/usage/cost cards, model status, streaming chat
 with TTFT / tok/s / `cached_tokens` per response, a request log, and the elastic
-MoE expert-cache slider (slot-cache mode) that applies `/v1/cache/rebuild` live.
+MoE expert-cache slider (slot-cache mode) that applies `/admin/cache/rebuild` live.
 It is a single self-contained HTML file served from the same origin as the APIs.
 
 ## Serve
@@ -92,7 +92,7 @@ size the cache. It can be resized at runtime, without a restart or reload
 (elastic memory management):
 
 ```bash
-curl -X POST localhost:1919/v1/cache/rebuild -H 'Content-Type: application/json' \
+curl -X POST localhost:1919/admin/cache/rebuild -H 'Content-Type: application/json' \
      -d '{"moe_cache_size": 4096}'
 ```
 
@@ -177,7 +177,7 @@ is clean file-backed page cache the OS can *drop* under pressure and re-fault
 from SSD later, while the resident row's 18.3 GiB are dirty allocations that
 have to be *written to swap* first. Only ~1.3 GiB (dense weights + KV) is
 owned, non-reclaimable memory. `mx.get_active_memory` reports the mapped bytes
-as well, so `/v1/stats` shows ~18 GiB either way.
+as well, so `/admin/stats` shows ~18 GiB either way.
 
 Measured under memory pressure (a competing process holding 10 GiB of dirty
 memory on the 32 GiB machine): with a *passive* competitor both modes recover
@@ -196,7 +196,7 @@ OS-elastic residency (mapped), or inside a chosen hard budget (slot cache),
 on a 32 GiB machine the resident mode nearly fills.
 
 The reported `vram` figure is `mx.get_active_memory()` from the serving process —
-live Metal allocations, surfaced through the same `/v1/stats` field the CUDA engine
+live Metal allocations, surfaced through the same `/admin/stats` field the CUDA engine
 uses.
 
 ## Behavior and limitations vs. the CUDA engine
@@ -223,7 +223,7 @@ uses.
   round-robin (its speculate/verify loop is per-request).
 - Tensor parallelism (`--tp-size > 1`) is rejected — MLX uses the unified memory of
   one chip.
-- Runtime cache rebuilds (`/v1/cache/rebuild`) resize the expert slot cache live
+- Runtime cache rebuilds (`/admin/cache/rebuild`) resize the expert slot cache live
   (`moe_cache_size`) and/or move the context-window ceiling (`max_seq_len`,
   clamped to [1024, model max]) — KV is per-request on MLX, so the ceiling IS
   this backend's capacity knob: admission, generation caps and the
@@ -443,7 +443,7 @@ uses.
   its whole output budget is gone and answering nothing (seen on research-grade
   MoEs). Tokens in the answer never count against it; unlimited by default.
   Adjustable at runtime without a restart — the console has a slider for it,
-  or `POST /v1/cache/rebuild {"max_reasoning_tokens": N}` (0 = off). Unlike the
+  or `POST /admin/cache/rebuild {"max_reasoning_tokens": N}` (0 = off). Unlike the
   other knobs there it needs no engine work: the budget is enforced in the
   frontend, so it applies to the next request immediately.
 - Remaining CUDA-specific flags (`--attention-backend`, `--cuda-graph-*`,

@@ -15,7 +15,7 @@ which stays correct even when the detokenizer coalesces a few tokens into one ev
 arrival. ``ignore_eos`` keeps the step count at exactly ``D`` regardless of sampling.
 TTFT is the measured run's warm first-token latency (template rendering + prefill
 included). Engine-internal diagnostics (expert-cache miss rate, hybrid fetch split) are
-not exposed over the API and are not reported; VRAM is the server's live /v1/stats figure.
+not exposed over the API and are not reported; VRAM is the server's live /admin/stats figure.
 
 Prompt: an AIME-25 problem sent as a chat message with thinking enabled -- a real
 reasoning workload, so expert routing is representative. The server renders the chat
@@ -357,7 +357,7 @@ def run_one(args: argparse.Namespace, backend: str) -> dict:
             # Warm the expert cache to a steady-state decode working set.
             stream_generate(origin, model_id, problem, sampling, args)
             r = stream_generate(origin, model_id, problem, sampling, args)
-            stats = get_json(f"{origin}/v1/stats")
+            stats = get_json(f"{origin}/admin/stats")
         finally:
             stop_server(proc)
             pump.join(timeout=10)

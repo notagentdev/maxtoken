@@ -136,7 +136,8 @@ def register_accounting_routes(app: FastAPI, get_state: Callable[[], Any]) -> No
 
     app.add_exception_handler(AdmissionClosedError, _admission_closed)
 
-    @app.post("/v1/admin/prepare-stop")
+    @app.post("/admin/prepare-stop")
+    @app.post("/v1/admin/prepare-stop", include_in_schema=False)
     async def prepare_stop(request: Request, body: PrepareStopBody | None = None):
         # This endpoint closes admission and can abort live requests, so it must never be a
         # remotely callable part of an engine bound to 0.0.0.0. The daemon/Desktop control plane

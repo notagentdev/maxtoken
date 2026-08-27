@@ -1,8 +1,8 @@
 """Hide desktop-app polling traffic from uvicorn's access log.
 
 The MaxToken desktop app polls a handful of read-only endpoints every 1-2s to keep its UI
-current: ``GET /health`` (lifecycle), ``GET /v1/stats`` (runtime metrics), ``GET /v1/requests``
-(request-log ring, carries a ``?since=&limit=`` query string), ``GET /v1/cache/status``, and a
+current: ``GET /health`` (lifecycle), ``GET /admin/stats`` (runtime metrics), ``GET /admin/requests``
+(request-log ring, carries a ``?since=&limit=`` query string), ``GET /admin/cache/status``, and a
 bare ``GET /v1`` liveness probe. Uvicorn's ``uvicorn.access`` logger logs every one of these at
 INFO, which floods both the engine's own stdout and the desktop's "Logs" screen (which tails
 that stdout) with lines nobody reads.
@@ -21,17 +21,23 @@ import os
 
 # Path prefixes considered desktop-polling traffic. Matched against the request path with
 # any query string stripped (uvicorn's access record embeds the query string in the logged
-# path, e.g. "/v1/requests?since=123&limit=50").
+# path, e.g. "/admin/requests?since=123&limit=50").
 _POLLING_PATH_PREFIXES: tuple[str, ...] = (
     "/health",
+    "/admin/stats",
+    "/admin/requests",
+    "/admin/cache/status",
+    # The pre-/admin spellings still answer, so a console or script that has not
+    # moved yet would otherwise fill the log with the polling this list exists
+    # to hide.
     "/v1/stats",
     "/v1/requests",
     "/v1/cache/status",
 )
 
-# The bare "/v1" probe is matched *exactly*, never as a prefix -- every path above (and
-# other real endpoints like "/v1/models") also starts with "/v1", so prefix-matching it
-# would silently swallow everything under /v1.
+# The bare "/v1" probe is matched *exactly*, never as a prefix -- the legacy paths above,
+# and every protocol endpoint like "/v1/models", also start with "/v1", so prefix-matching
+# it would silently swallow the whole protocol surface.
 _BARE_PROBE_PATH = "/v1"
 
 

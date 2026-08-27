@@ -94,7 +94,7 @@ mt serve --model mlx-community/Qwen3-Coder-Next-4bit \
 ```
 
 Then open `http://localhost:1919/` for the console, or point any OpenAI/Anthropic
-client at it. The cache budget resizes live (`/v1/cache/rebuild` or the console
+client at it. The cache budget resizes live (`/admin/cache/rebuild` or the console
 slider), and between requests the scheduler rebalances slots across layers by
 observed miss pressure. See **[docs/mlx.md](docs/mlx.md)** for the full macOS
 guide: serving modes, benchmarks, speculative decoding (`--draft-model`), and

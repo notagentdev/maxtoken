@@ -98,11 +98,11 @@ mt ctl [--base-url http://127.0.0.1:1919] [--timeout 10] [--json] <subcommand>
 | Subcommand | Endpoint | Purpose |
 |---|---|---|
 | `health` | `GET /health` | Server status, model, load progress |
-| `stats` | `GET /v1/stats` | Throughput, latency, VRAM, pool occupancy |
+| `stats` | `GET /admin/stats` | Throughput, latency, VRAM, pool occupancy |
 | `generate [prompt] [--max-tokens N] [--ignore-eos]` | `POST /generate` | Raw completion smoke test (no chat template) |
-| `cache` | `GET /v1/cache/status` | Cache pool table |
-| `cache --moe N \| --kv N \| --mamba N \| --swa N [--wait 300]` | `POST /v1/cache/rebuild` | Live pool resizing without a restart (`k`/`m` suffixes; `--kv`/`--swa` in tokens) |
-| `requests [--since N] [--limit N]` | `GET /v1/requests` | Recent request ring |
+| `cache` | `GET /admin/cache/status` | Cache pool table |
+| `cache --moe N \| --kv N \| --mamba N \| --swa N [--wait 300]` | `POST /admin/cache/rebuild` | Live pool resizing without a restart (`k`/`m` suffixes; `--kv`/`--swa` in tokens) |
+| `requests [--since N] [--limit N]` | `GET /admin/requests` | Recent request ring |
 
 ## mt launch
 

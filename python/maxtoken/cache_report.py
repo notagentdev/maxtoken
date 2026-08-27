@@ -3,7 +3,7 @@ one is, and what it costs in VRAM.
 
 Shared by the two clients that report it -- ``mt ctl cache`` and the shell's ``/cache`` -- so
 the same server document reads the same way whichever one you are holding. Everything here is
-derived from ``GET /v1/cache/status``; nothing talks to a server and nothing imports torch or
+derived from ``GET /admin/cache/status``; nothing talks to a server and nothing imports torch or
 prompt_toolkit, so ``mt ctl`` stays a dependency-light CLI.
 """
 

@@ -289,7 +289,7 @@ def _build_parser(prog: str) -> argparse.ArgumentParser:
 
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("health", help="Show /health")
-    sub.add_parser("stats", help="Show /v1/stats")
+    sub.add_parser("stats", help="Show /admin/stats")
 
     generate = sub.add_parser("generate", help="Run one prompt through /generate")
     generate.add_argument("prompt", nargs="?", default="Hello", help="Prompt text")
@@ -299,11 +299,11 @@ def _build_parser(prog: str) -> argparse.ArgumentParser:
     cache = sub.add_parser("cache", help="Inspect or rebuild cache pools")
     _add_rebuild_args(cache)
     cache_sub = cache.add_subparsers(dest="cache_command")
-    cache_sub.add_parser("status", help="Show /v1/cache/status")
-    rebuild = cache_sub.add_parser("rebuild", help="POST /v1/cache/rebuild")
+    cache_sub.add_parser("status", help="Show /admin/cache/status")
+    rebuild = cache_sub.add_parser("rebuild", help="POST /admin/cache/rebuild")
     _add_rebuild_args(rebuild)
 
-    requests = sub.add_parser("requests", help="Show /v1/requests")
+    requests = sub.add_parser("requests", help="Show /admin/requests")
     requests.add_argument("--since", type=int, default=0)
     requests.add_argument("--limit", type=int, default=100)
     return parser
@@ -362,7 +362,7 @@ def main(argv: Sequence[str] | None = None, *, prog: str = "mt ctl") -> int:
             _print_doc(doc, _format_health, raw_json=args.json)
             return 0
         if args.command == "stats":
-            doc = _request_json("GET", args.base_url, "/v1/stats", timeout=args.timeout)
+            doc = _request_json("GET", args.base_url, "/admin/stats", timeout=args.timeout)
             _print_doc(doc, _format_stats, raw_json=args.json)
             return 0
         if args.command == "generate":
@@ -387,7 +387,7 @@ def main(argv: Sequence[str] | None = None, *, prog: str = "mt ctl") -> int:
             doc = _request_json(
                 "GET",
                 args.base_url,
-                "/v1/requests",
+                "/admin/requests",
                 query=query,
                 timeout=args.timeout,
             )
@@ -396,7 +396,7 @@ def main(argv: Sequence[str] | None = None, *, prog: str = "mt ctl") -> int:
         if args.command == "cache" and args.cache_command in (None, "status"):
             if args.cache_command is None and _cache_targets(args):
                 return _run_cache_rebuild(args)
-            doc = _request_json("GET", args.base_url, "/v1/cache/status", timeout=args.timeout)
+            doc = _request_json("GET", args.base_url, "/admin/cache/status", timeout=args.timeout)
             _print_doc(doc, _format_cache_status, raw_json=args.json)
             return 0
         if args.command == "cache" and args.cache_command == "rebuild":
@@ -444,13 +444,13 @@ def _run_cache_rebuild(args: argparse.Namespace) -> int:
         print("error: cache rebuild requires at least one cache target", file=sys.stderr)
         return 2
     # The token targets can only be converted against the live geometry, so read it first.
-    status = _request_json("GET", args.base_url, "/v1/cache/status", timeout=args.timeout)
+    status = _request_json("GET", args.base_url, "/admin/cache/status", timeout=args.timeout)
     body = _rebuild_body(targets, status.get("geometry") or {})
     body["timeout"] = args.wait
     doc = _request_json(
         "POST",
         args.base_url,
-        "/v1/cache/rebuild",
+        "/admin/cache/rebuild",
         body=body,
         timeout=args.wait + args.timeout,
     )
@@ -462,7 +462,7 @@ def _run_cache_rebuild(args: argparse.Namespace) -> int:
     # /cache prints. Best-effort -- the rebuild already succeeded.
     print("status=ok")
     try:
-        print(_format_cache_status(_request_json("GET", args.base_url, "/v1/cache/status")))
+        print(_format_cache_status(_request_json("GET", args.base_url, "/admin/cache/status")))
     except ControlCliError:
         pass
     return 0

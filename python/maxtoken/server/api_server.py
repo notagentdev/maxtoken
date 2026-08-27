@@ -600,7 +600,8 @@ def _resolve_num_swa_pages(state: FrontendManager, req: CacheRebuildRequest) -> 
     return max(1, -(-window_tokens // swa_page_size))  # ceil-div to the pool's page unit
 
 
-@app.post("/v1/cache/rebuild")
+@app.post("/admin/cache/rebuild")
+@app.post("/v1/cache/rebuild", include_in_schema=False)
 async def cache_rebuild(req: CacheRebuildRequest):
     """Trigger a runtime KV/MoE cache resize. Blocks until the scheduler reports a result
     (or timeout). New generation is gated (503) while a rebuild is in flight."""
@@ -875,7 +876,8 @@ def cache_geometry(state: Any) -> dict:
     return geo
 
 
-@app.get("/v1/cache/status")
+@app.get("/admin/cache/status")
+@app.get("/v1/cache/status", include_in_schema=False)
 async def cache_status():
     state = get_global_state()
     try:

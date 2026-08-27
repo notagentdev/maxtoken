@@ -419,7 +419,7 @@ document.querySelectorAll(".copybtn").forEach(b => b.onclick = async () => {
 
 async function pollStats() {
   try {
-    stats = await (await fetch("/v1/stats")).json();
+    stats = await (await fetch("/admin/stats")).json();
     fillApiCard();
     const r = stats.requests || {}, t = stats.throughput || {};
     const tin = r.prompt_tokens_total || 0, tout = r.completion_tokens_total || 0;
@@ -449,7 +449,7 @@ async function pollStats() {
 let cacheGeom = null;
 async function pollCache() {
   try {
-    const resp = await (await fetch("/v1/cache/status")).json();
+    const resp = await (await fetch("/admin/cache/status")).json();
     cacheGeom = resp.geometry || resp;
     const size = cacheGeom.moe_cache_size || 0;
     const known = (cacheGeom.num_experts || 0) * (cacheGeom.num_moe_layers || 0);
@@ -500,7 +500,7 @@ $("thinkApply").onclick = async () => {
   const v = THINK_STEPS[+$("thinkRange").value];
   $("thinkMsg").textContent = "applying…";
   try {
-    const r = await (await fetch("/v1/cache/rebuild", {
+    const r = await (await fetch("/admin/cache/rebuild", {
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({ max_reasoning_tokens: v }),
     })).json();
@@ -547,7 +547,7 @@ $("ctxApply").onclick = async () => {
   if (!v) return;
   $("ctxMsg").textContent = "applying…";
   try {
-    const r = await (await fetch("/v1/cache/rebuild", {
+    const r = await (await fetch("/admin/cache/rebuild", {
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({ max_seq_len: v }),
     })).json();
@@ -585,7 +585,7 @@ $("moeRange").oninput = sliderChanged;
 $("cacheApply").onclick = async () => {
   $("cacheMsg").textContent = "applying…";
   try {
-    const r = await (await fetch("/v1/cache/rebuild", {
+    const r = await (await fetch("/admin/cache/rebuild", {
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({ moe_cache_size: parseInt($("moeRange").value, 10) }),
     })).json();
@@ -597,7 +597,7 @@ $("cacheApply").onclick = async () => {
 
 async function pollLogs() {
   try {
-    const rows = await (await fetch("/v1/requests")).json();
+    const rows = await (await fetch("/admin/requests")).json();
     const list = Array.isArray(rows) ? rows : rows.entries || rows.requests || [];
     if (!list.length) return;
     $("logRows").innerHTML = list.slice(-40).reverse().map(r => {

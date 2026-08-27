@@ -1,5 +1,5 @@
 """Aggregate the per-serve control API (``server/control_api.py``: ``/health``,
-``/v1/stats``, ``/v1/admin/prepare-stop``) up to the daemon. The per-serve ``/health`` answers
+``/admin/stats``, ``/admin/prepare-stop``) up to the daemon. The per-serve ``/health`` answers
 "how is the model doing?" and dies with the serve; the daemon re-exposes it under
 ``/engine/health`` alongside
 its own reachability, so a client has one control endpoint that OUTLIVES any single serve.
@@ -64,15 +64,15 @@ class ServeProbe:
         return self._cached("health", "/health", port)
 
     def stats(self, port: int) -> dict:
-        return self._cached("stats", "/v1/stats", port)
+        return self._cached("stats", "/admin/stats", port)
 
     def fresh_stats(self, port: int) -> dict:
         """Fetch uncached stats for a legacy stop receipt."""
-        return self._fetch("/v1/stats", port)
+        return self._fetch("/admin/stats", port)
 
     def prepare_stop(self, port: int) -> dict:
         """Quiesce the engine and return its sealed final accounting snapshot."""
-        url = f"http://{self._host}:{port}/v1/admin/prepare-stop"
+        url = f"http://{self._host}:{port}/admin/prepare-stop"
         try:
             doc = self._prepare_opener(url, self._prepare_timeout)
         except urllib.error.HTTPError as exc:

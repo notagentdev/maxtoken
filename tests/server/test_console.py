@@ -11,8 +11,9 @@ def test_console_served():
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/html")
     assert "MaxToken Console" in r.text
-    # the page drives exactly these same-origin endpoints
-    for path in ("/health", "/v1/stats", "/v1/cache/status", "/v1/requests"):
+    # the page drives exactly these same-origin endpoints, and reaches our own
+    # ones under /admin rather than in the protocols' /v1 namespace
+    for path in ("/health", "/admin/stats", "/admin/cache/status", "/admin/requests"):
         assert path in r.text
 
 
