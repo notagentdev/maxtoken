@@ -104,7 +104,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="hybrid: max PCIe fetches/layer; -1 = auto (benched pcie/cpu bandwidth fraction)",
     )
     p.add_argument("--mem-ratio", type=float, default=0.9, help="target VRAM utilization")
-    p.add_argument("--no-graph", action="store_true", help="eager decode instead of CUDA graph")
     p.add_argument(
         "--greedy",
         action="store_true",
@@ -186,7 +185,6 @@ def serve_cmd(args: argparse.Namespace, backend: str, port: int) -> list[str]:
             sys.executable, "-m", "maxtoken.cli", "serve",
             "--model", args.model,
             "--host", "127.0.0.1", "--port", str(port),
-            "--backend", "mlx",
             "--max-running-requests", "1",
             "--max-seq-len-override", str(8192 + args.decode),
             "--memory-ratio", str(args.mem_ratio),
@@ -208,7 +206,6 @@ def serve_cmd(args: argparse.Namespace, backend: str, port: int) -> list[str]:
         "--max-running-requests", "1",
         "--max-seq-len-override", str(8192 + args.decode),
         "--memory-ratio", str(args.mem_ratio),
-        "--cuda-graph-max-bs", "0" if args.no_graph else "1",
         "--moe-hybrid-max-fetch", str(args.hybrid_fetch),
     ]
     if args.cache > 0:
@@ -336,7 +333,7 @@ def run_one(args: argparse.Namespace, backend: str) -> dict:
     print(
         f"[bench] model={args.model}\n"
         f"[bench] backend={backend} cache={args.cache or args.cache_rate or 'auto'} "
-        f"mem_ratio={args.mem_ratio} decode={args.decode} graph={not args.no_graph}\n"
+        f"mem_ratio={args.mem_ratio} decode={args.decode}\n"
         f"[bench] sampling={sampling} <- {sampling_src}\n"
         f"[bench] server log: {log_path}",
         flush=True,

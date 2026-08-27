@@ -4,19 +4,14 @@ from dataclasses import dataclass
 from functools import cached_property
 from typing import List
 
-from maxtoken.distributed import DistributedInfo
 from maxtoken.utils import cached_load_hf_config
 
 @dataclass(frozen=True)
 class EngineConfig:
     model_path: str
-    tp_info: DistributedInfo
     dtype: str = "bfloat16"
     max_running_req: int = 4
-    attention_backend: str = "auto"
     moe_backend: str = "auto"
-    # NVFP4 routed-expert GEMM backend (--nvfp4-backend): auto|marlin|flashinfer|triton.
-    nvfp4_backend: str = "triton"
     # Expert-bank host load (--expert-load): auto|serial|parallel. "auto" reads scattered
     # experts in parallel but falls back to serial when free RAM can't cover the banks + the
     # parallel reader's extra (non-reclaimable) whole-shard buffer; "serial" forces the
@@ -63,8 +58,6 @@ class EngineConfig:
     # misses so the PCIe fetch and the CPU compute finish together (perfect overlap);
     # falls back to a fixed cap of 1.
     moe_hybrid_max_fetch: int = -1
-    cuda_graph_bs: List[int] | None = None
-    cuda_graph_max_bs: int | None = None
     page_size: int = 1
     memory_ratio: float = 0.9
     # Hybrid GDN models default to the HybridRadixCache (cross-request GDN-state prefix reuse);
@@ -81,9 +74,7 @@ class EngineConfig:
     # ratio default above. A runtime cache rebuild sets this (num_swa_pages) to pin the window
     # regardless of the full anchor; the ratio is the startup default and the fallback.
     swa_num_pages_override: int | None = None
-    distributed_timeout: float = 60.0
     use_dummy_weight: bool = False
-    use_pynccl: bool = True
     max_seq_len_override: int | None = None
     num_page_override: int | None = None  # if not None, will override the number of pages
     # KV capacity in tokens; resolved into num_page_override by _adjust_config once page_size

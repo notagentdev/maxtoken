@@ -3,14 +3,14 @@
 These run on any platform: the scheduler's message handling, termination logic and
 round-robin stepping are exercised against fake generators and a fake tokenizer, so
 neither mlx nor model weights are needed. Real-model execution is covered by the
-smoke path in docs/mlx.md (`mt serve --backend mlx`).
+smoke path in docs/mlx.md (`mt serve --model ...`).
 """
 
 from types import SimpleNamespace
 from typing import Iterator, List
 
+import numpy as np
 import pytest
-import torch
 
 from maxtoken.core import SamplingParams
 from maxtoken.message import (
@@ -72,7 +72,7 @@ def user_msg(uid: int, prompt_len: int = 4, **sp) -> UserMsg:
     ids = [uid] + [7] * (prompt_len - 1)
     return UserMsg(
         uid=uid,
-        input_ids=torch.tensor(ids, dtype=torch.int32),
+        input_ids=np.array(ids, dtype=np.int32),
         sampling_params=SamplingParams(**sp),
     )
 
@@ -240,11 +240,24 @@ def test_filter_kwargs_drops_unknown_only():
     assert _filter_kwargs(var_kw, {"x": 1}) == {"x": 1}
 
 
-def test_parse_args_rejects_tp_for_mlx():
+def test_the_cuda_only_flags_are_gone():
+    """There is one execution backend now, so its flags are not options to get
+    wrong. A flag that parses but reaches nothing is worse than no flag."""
     from maxtoken.server.args import parse_args
 
-    with pytest.raises(ValueError, match="tensor parallelism"):
-        parse_args(["--model-path", "/nonexistent", "--backend", "mlx", "--tp-size", "2"])
+    for flag, value in (
+        ("--backend", "cuda"),
+        ("--tp-size", "2"),
+        ("--cuda-graph-max-bs", "8"),
+        ("--attention-backend", "flashinfer"),
+        ("--nvfp4-backend", "marlin"),
+        ("--disable-pynccl", None),
+    ):
+        argv = ["--model-path", "/nonexistent", flag]
+        if value is not None:
+            argv.append(value)
+        with pytest.raises(SystemExit):
+            parse_args(argv)
 
 
 # ------------------------------------------------- cache snapshot / rollback

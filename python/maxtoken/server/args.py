@@ -5,7 +5,6 @@ import os
 from dataclasses import dataclass
 from typing import List, Tuple
 
-from maxtoken.distributed import DistributedInfo
 from maxtoken.scheduler import SchedulerConfig
 from maxtoken.utils import init_logger
 
@@ -21,10 +20,6 @@ SUPPORTED_CACHE_TYPES = ["naive", "radix"]
 class ServerArgs(SchedulerConfig):
     server_host: str = "127.0.0.1"
     server_port: int = 1919
-    # Execution backend for the scheduler worker: "cuda" (the native engine) or "mlx"
-    # (Apple-silicon, mlx-lm model zoo). "auto" resolves to mlx on Darwin, cuda elsewhere.
-    # The API server, tokenizer workers and shell are shared between both.
-    backend: str = "auto"
     num_tokenizer: int = 0
     silent_output: bool = False
     # The terminal shell is attached to this server (mt shell --model / mt serve --shell-mode).
@@ -259,31 +254,11 @@ def parse_args(
     )
 
     parser.add_argument(
-        "--backend",
-        type=str,
-        default=ServerArgs.backend,
-        choices=["auto", "cuda", "mlx"],
-        help=(
-            "Scheduler execution backend. 'cuda' runs the native engine; 'mlx' runs "
-            "models via mlx-lm on Apple silicon. 'auto' picks mlx on macOS, cuda "
-            "elsewhere."
-        ),
-    )
-
-    parser.add_argument(
         "--dtype",
         type=str,
         default="auto",
         choices=["auto", "float16", "bfloat16", "float32"],
         help="Data type for model weights and activations. 'auto' will use FP16 for FP32/FP16 models and BF16 for BF16 models.",
-    )
-
-    parser.add_argument(
-        "--tensor-parallel-size",
-        "--tp-size",
-        type=int,
-        default=1,
-        help="The tensor parallelism size.",
     )
 
     parser.add_argument(
@@ -339,14 +314,6 @@ def parse_args(
         help="Use dummy weights for testing.",
     )
 
-    assert ServerArgs.use_pynccl == True
-    parser.add_argument(
-        "--disable-pynccl",
-        action="store_false",
-        dest="use_pynccl",
-        help="Disable PyNCCL for tensor parallelism.",
-    )
-
     parser.add_argument(
         "--host",
         type=str,
@@ -361,14 +328,6 @@ def parse_args(
         dest="server_port",
         default=ServerArgs.server_port,
         help="The port number for the server to listen on.",
-    )
-
-    parser.add_argument(
-        "--cuda-graph-max-bs",
-        "--graph",
-        type=int,
-        default=ServerArgs.cuda_graph_max_bs,
-        help="The maximum batch size for CUDA graph capture. None means auto-tuning based on the GPU memory.",
     )
 
     parser.add_argument(
@@ -421,15 +380,6 @@ def parse_args(
         type=int,
         default=ServerArgs.page_size,
         help="Set the page size for system management.",
-    )
-
-    parser.add_argument(
-        "--attention-backend",
-        "--attn",
-        type=str,
-        default=ServerArgs.attention_backend,
-        help="Attention backend (accepted for compatibility; the MLX scheduler "
-        "always uses Metal attention and ignores this).",
     )
 
     parser.add_argument(
@@ -529,17 +479,6 @@ def parse_args(
             "The MoE backend to use. 'auto' resolves a MoE model to the offload family "
             "(offload for MoE, fused for dense); resident "
             "'fused' experts must be requested explicitly."
-        ),
-    )
-
-    parser.add_argument(
-        "--nvfp4-backend",
-        default=ServerArgs.nvfp4_backend,
-        choices=["auto", "marlin", "flashinfer", "triton"],
-        help=(
-            "NVFP4 routed-expert GEMM backend (default: triton, the portable inline-dequant "
-            "kernel). auto picks by GPU (marlin on sm80-99 + vLLM; flashinfer b12x on sm120+ "
-            "& CUDA>=13; else triton). Force one to override; it fails loudly if it cannot run."
         ),
     )
 
@@ -710,37 +649,29 @@ def parse_args(
     run_shell |= kwargs.pop("shell_mode")
     kwargs["shell_mode"] = run_shell
     if run_shell:
-        kwargs["cuda_graph_max_bs"] = 1
         kwargs["max_running_req"] = 1
         kwargs["silent_output"] = True
 
     if kwargs["model_path"].startswith("~"):
         kwargs["model_path"] = os.path.expanduser(kwargs["model_path"])
 
-    if kwargs["backend"] == "auto":
-        import platform
+    # The mlx-lm model zoo covers architectures maxtoken's own model registry may not;
+    # ``max_seq_len`` walks that registry. Pin the override from the HF config so the
+    # frontend (context-length metadata, prompt-length guard) works for any mlx-lm-served
+    # model.
+    if kwargs["max_seq_len_override"] is None:
+        from maxtoken.utils import cached_load_hf_config
 
-        kwargs["backend"] = "mlx" if platform.system() == "Darwin" else "cuda"
-    if kwargs["backend"] == "mlx":
-        if kwargs["tensor_parallel_size"] != 1:
-            raise ValueError("--backend mlx does not support tensor parallelism")
-        # The mlx-lm model zoo covers architectures maxtoken's own model registry may
-        # not; ``max_seq_len`` walks that registry. Pin the override from the HF config
-        # so the frontend (context-length metadata, prompt-length guard) works for any
-        # mlx-lm-served model.
-        if kwargs["max_seq_len_override"] is None:
-            from maxtoken.utils import cached_load_hf_config
-
-            try:
-                cfg = cached_load_hf_config(kwargs["model_path"]).to_dict()
-            except Exception:  # noqa: BLE001 -- fall through to the registry path
-                cfg = {}
-            text_cfg = cfg.get("text_config") or {}
-            max_pos = cfg.get("max_position_embeddings") or text_cfg.get(
-                "max_position_embeddings"
-            )
-            if max_pos:
-                kwargs["max_seq_len_override"] = int(max_pos)
+        try:
+            cfg = cached_load_hf_config(kwargs["model_path"]).to_dict()
+        except Exception:  # noqa: BLE001 -- fall through to the registry path
+            cfg = {}
+        text_cfg = cfg.get("text_config") or {}
+        max_pos = cfg.get("max_position_embeddings") or text_cfg.get(
+            "max_position_embeddings"
+        )
+        if max_pos:
+            kwargs["max_seq_len_override"] = int(max_pos)
 
     if kwargs["served_model_name"] is None:
         kwargs["served_model_name"] = (
@@ -754,23 +685,6 @@ def parse_args(
         kwargs["reasoning_parser"] = _infer_reasoning_parser(kwargs["model_path"])
     elif kwargs["reasoning_parser"] == "off":
         kwargs["reasoning_parser"] = None
-
-    # Offload-family backends (offload/cpu/hybrid) need a slot cache; if the user gave no
-    # sizing flag at all, default to --moe-cache-auto so a bare `mt serve <FTW MoE>` works
-    # out of the box (the scheduler resolves the size from free VRAM). Explicit
-    # size/rate/auto is preserved.
-    _no_cache_flag = (
-        kwargs["moe_cache_size"] == 0
-        and not kwargs["moe_cache_auto"]
-        and (kwargs["moe_cache_rate"] is None or kwargs["moe_cache_rate"] == 0)
-    )
-    # mlx: unified memory, no expert slot cache -- the sizing default is meaningless there.
-    if (
-        kwargs["moe_backend"] in OFFLOAD_MOE_BACKENDS
-        and _no_cache_flag
-        and kwargs["backend"] != "mlx"
-    ):
-        kwargs["moe_cache_auto"] = True
 
     if kwargs["model_source"] == "modelscope":
         model_path = kwargs["model_path"]
@@ -799,8 +713,6 @@ def parse_args(
 
     # Kept as a plain name: MLX derives the compute dtype from the checkpoint itself.
     kwargs["dtype"] = str(dtype_str)
-    kwargs["tp_info"] = DistributedInfo(0, kwargs["tensor_parallel_size"])
-    del kwargs["tensor_parallel_size"]
 
     result = ServerArgs(**kwargs)
     logger = init_logger(__name__)

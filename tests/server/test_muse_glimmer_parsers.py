@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import json
 
+import numpy as np
 import pytest
 
 from maxtoken.server.function_call_parser import (
@@ -1204,10 +1205,9 @@ class _MuseLikeTokenizer:
         return f"<|begin_of_text|>system: Reasoning strength: {strength}. user: ping"
 
     def encode(self, prompt, return_tensors=None, add_special_tokens=True):
-        import torch
-
+        
         assert add_special_tokens is False  # the template owns the bos
-        return torch.tensor([[1, 2, 3]], dtype=torch.long)
+        return np.array([[1, 2, 3]], dtype=np.int64)
 
 
 def test_effort_broadcast_reaches_reasoning_strength():

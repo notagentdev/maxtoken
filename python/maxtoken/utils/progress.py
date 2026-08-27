@@ -9,8 +9,6 @@ from __future__ import annotations
 
 from tqdm import tqdm
 
-from maxtoken.distributed import try_get_tp_info
-
 import time
 from typing import Callable, Optional
 
@@ -26,8 +24,9 @@ def set_progress_sink(sink: Optional[Callable[[str, int, int], None]]) -> None:
 
 
 def _on_primary() -> bool:
-    info = try_get_tp_info()
-    return info is None or info.is_primary()
+    # One process since tensor parallelism went; kept so the call sites keep
+    # reading as "only the process that owns the terminal draws".
+    return True
 
 
 def emit_progress(desc: str, done: int, total: int) -> None:
