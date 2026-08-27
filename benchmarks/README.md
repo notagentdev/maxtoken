@@ -35,6 +35,3 @@ batch size x miss rate.
 ```bash
 python benchmarks/bench_offload_cache_copy.py
 ```
-
-For host RAM vs PCIe bandwidth and the offload/hybrid backend pick, use `mt bench bw`
-instead — it writes the JSON profile the engine reads.

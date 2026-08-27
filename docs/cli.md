@@ -10,8 +10,6 @@ mt <command> [args]
 | `mt shell` | Chat with a server in the terminal |
 | `mt ctl` | Query and manage a running server over HTTP |
 | `mt launch` | Configure and launch a coding agent against a server |
-| `mt checkpoint` | Convert an HF checkpoint to the FTW fast-load format |
-| `mt bench bw` | Benchmark CPU vs PCIe bandwidth to calibrate the MoE backend |
 
 `mt --version` prints the installed version (torch-free; nightly wheels carry a
 `+g<sha>` build stamp, tagged releases a bare version). Every command supports
@@ -63,7 +61,7 @@ See [models.md](models.md#moe-backends) for what each backend does.
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--moe-backend` | auto | `fused`/`offload`/`cpu`/`hybrid`; auto → offload, or hybrid with a `mt bench bw` profile |
+| `--moe-backend` | auto | `fused`/`offload`/`cpu`/`hybrid`; auto → offload for MoE, fused for dense |
 | `--moe-cache-size` / `--moe-cache-rate` / `--moe-cache-auto` | auto | GPU expert-cache size as slots / fraction of all experts / sized from free VRAM (mutually exclusive; auto is enabled by default for offload-family backends) |
 | `--kv-reserve-tokens` | 8192 | KV token floor reserved before `--moe-cache-auto` fills experts |
 | `--moe-cpu-threads` | physical cores | CPU worker threads for the cpu/hybrid executor |
@@ -126,31 +124,3 @@ environment so the agent cannot silently fall back to a paid endpoint.
 | `--install-only` | Just install the agent CLI (needs no server) |
 | `--force-reinstall` | Re-run the agent installer |
 | `-- <args>` | Forwarded verbatim to the agent |
-
-## mt checkpoint
-
-```bash
-mt checkpoint --model <hf_dir> --out <ftw_dir> [--dtype bfloat16] [--moe-backend offload] [--shard-gib 8] [--device cuda:0]
-```
-
-Converts an HF safetensors checkpoint to FTW, MaxToken's self-contained
-fast-load format; point `mt serve --model` at the output dir. `--moe-backend
-offload` (default) packs experts into offload banks; `--moe-backend triton`
-keeps them dense for resident serving. See the FTW caveats in
-[models.md](models.md#notes).
-
-## mt bench bw
-
-```bash
-mt bench bw                       # once per machine
-mt bench bw --dtype nvfp4,bf16    # only the formats you serve
-```
-
-Measures host-RAM vs PCIe bandwidth with the real cpu/offload MoE kernels and
-writes a profile (`~/.cache/maxtoken/benchbw.json`) that `mt serve
---moe-backend auto` and `--moe-hybrid-max-fetch -1` read. Profiles are keyed on
-expert format + GPU name, so a profile from different hardware is ignored
-rather than misapplied. Selection flags: `--dtype`, `--model`, `--formats`,
-`--isa`; decision rule: `--threshold` (default 2.0 — recommend hybrid when CPU
-bandwidth > 2× PCIe).
-
