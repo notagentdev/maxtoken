@@ -942,7 +942,7 @@ def ensure_agent_installed(
         raise RuntimeError(
             f"{installer.display_name} is not installed and required dependencies are missing\n\n"
             f"Install the following first:\n  {joined}\n\n"
-            f"Then re-run:\n  ft launch {agent}"
+            f"Then re-run:\n  mt launch {agent}"
         )
 
     if not assume_yes:

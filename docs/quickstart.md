@@ -5,7 +5,7 @@ Assumes MaxToken is installed — see [install.md](install.md).
 ## Launch a server
 
 ```bash
-ft serve --model ~/models/Qwen3.6-35B-A3B
+mt serve --model ~/models/Qwen3.6-35B-A3B
 ```
 
 `--model` also takes a Hugging Face repo id. Everything else — dtype, attention
@@ -44,8 +44,8 @@ its base URL at the server.
 A simple TUI to interact with the server:
 
 ```bash
-ft shell                                    # attach to the server above
-ft shell --model ~/models/Qwen3.6-35B-A3B   # start an engine and chat, one process
+mt shell                                    # attach to the server above
+mt shell --model ~/models/Qwen3.6-35B-A3B   # start an engine and chat, one process
 ```
 
 `/help` lists the in-shell commands. Attach mode needs no GPU, so it also drives
@@ -54,7 +54,7 @@ a server on another machine (`--server URL`).
 ## Use a coding agent
 
 ```bash
-ft launch claude   # claude / codex / dsh / hermes / openclaw / opencode
+mt launch claude   # claude / codex / dsh / hermes / openclaw / opencode
 ```
 
 Writes that agent's provider config, installs its CLI if missing, and starts it

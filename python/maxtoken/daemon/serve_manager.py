@@ -1,7 +1,7 @@
-"""The supervisor heart: own exactly one ``ft serve`` child's lifecycle.
+"""The supervisor heart: own exactly one ``mt serve`` child's lifecycle.
 
 Spawn, kill, and orphan detection all live here, in the daemon's own process, so parent and child
-are co-located and ordinary signals suffice. Torch-free: it only ever launches ``ft serve`` in a
+are co-located and ordinary signals suffice. Torch-free: it only ever launches ``mt serve`` in a
 child process and talks to it via signals + ``/proc`` — it never imports the runtime.
 
 Threading contract:
@@ -727,7 +727,7 @@ class ServeManager:
         child = self._adopt_fn(state)
         if child is None:
             self._store.clear()
-            self._emit(f"stale serve state cleared (pid={state.pid} no longer an ft serve)")
+            self._emit(f"stale serve state cleared (pid={state.pid} no longer an mt serve)")
             return False
         with self._cond:
             self._child = child
@@ -752,7 +752,7 @@ class ServeManager:
             if tailer is not None:
                 tailer.start()
         threading.Thread(
-            target=self._monitor, args=(child,), name=f"ft-daemon-monitor-{child.pid}", daemon=True
+            target=self._monitor, args=(child,), name=f"mt-daemon-monitor-{child.pid}", daemon=True
         ).start()
 
     def _monitor(self, child) -> None:
@@ -834,7 +834,7 @@ class ServeManager:
             except Exception as exc:  # noqa: BLE001
                 self._emit(f"auto-restart failed: {exc}")
 
-        threading.Thread(target=_run, name="ft-daemon-autorestart", daemon=True).start()
+        threading.Thread(target=_run, name="mt-daemon-autorestart", daemon=True).start()
 
     # ---- oom ----
 

@@ -37,7 +37,7 @@ def _detach_process_group() -> None:
     signal reaching them: the parent tears the workers down explicitly on every stop path
     (uvicorn's lifespan, plus the SIGTERM/SIGHUP handler and the reap backstop in api_server).
 
-    ``ft serve`` keeps the default — uvicorn owns ^C there, and the group-wide delivery is part
+    ``mt serve`` keeps the default — uvicorn owns ^C there, and the group-wide delivery is part
     of how it stops."""
     try:
         os.setpgrp()

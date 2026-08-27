@@ -157,7 +157,7 @@ def read_pss_bytes(pid: int) -> int:
 
 
 def is_ft_serve_on_port(pid: int, port: int, *, starttime: int | None = None) -> bool:
-    """Verify ``pid`` is (still) an ``ft serve`` bound to ``port`` — the re-adoption / liveness
+    """Verify ``pid`` is (still) an ``mt serve`` bound to ``port`` — the re-adoption / liveness
     identity check. Requires: alive, unchanged start time (PID-reuse
     guard), an argv that looks like our serve invocation, and a matching ``--port`` (or the serve
     default when unspecified). Off-/proc it degrades to a bare liveness check."""
@@ -172,7 +172,7 @@ def is_ft_serve_on_port(pid: int, port: int, *, starttime: int | None = None) ->
         return False
     joined = " ".join(argv)
     looks_like_serve = "serve" in argv and (
-        "maxtoken.cli" in joined or "maxtoken" in joined or os.path.basename(argv[0]) in {"ft", "ft.exe"}
+        "maxtoken.cli" in joined or "maxtoken" in joined or os.path.basename(argv[0]) in {"mt", "mt.exe"}
     )
     if not looks_like_serve:
         return False

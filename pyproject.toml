@@ -55,7 +55,7 @@ dependencies = [
 Upstream = "https://github.com/FlashML-org/MaxToken"
 
 [project.scripts]
-ft = "maxtoken.cli:main"
+mt = "maxtoken.cli:main"
 maxtoken = "maxtoken.cli:main"
 
 [project.optional-dependencies]

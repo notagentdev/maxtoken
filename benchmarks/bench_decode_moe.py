@@ -1,6 +1,6 @@
 """Single-stream (bs=1) decode benchmark for any MoE model on any offload backend.
 
-Measures through the real serving path: for each backend the bench spawns ``ft serve``,
+Measures through the real serving path: for each backend the bench spawns ``mt serve``,
 sends a warmed chat request over /v1/chat/completions with ``stream=true``, and
 timestamps every SSE event as it arrives. Numbers therefore include the scheduler,
 detokenizer, and HTTP/SSE hop -- what a client actually sees -- not bare engine forwards.

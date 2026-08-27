@@ -1,14 +1,14 @@
-# `ft daemon` — a simple daemon mode for MaxToken
+# `mt daemon` — a simple daemon mode for MaxToken
 
-A small, durable, **torch-free** control plane that owns an `ft serve` child's lifecycle and
+A small, durable, **torch-free** control plane that owns an `mt serve` child's lifecycle and
 exposes control / logs / metrics over HTTP. The engine becomes a persistent service; anything that
 speaks HTTP is a thin client. This file is the design reference.
 
 ```
-client (ft ctl / curl / any HTTP client)             chat traffic → serve DIRECTLY
+client (mt ctl / curl / any HTTP client)             chat traffic → serve DIRECTLY
         │ HTTP control plane (loopback :1900)                     │
         ▼                                                         ▼
-   ft daemon  ──spawn / signal / tail──▶  ft serve  (model · inference · MAY crash)
+   mt daemon  ──spawn / signal / tail──▶  mt serve  (model · inference · MAY crash)
    (no torch)                              └─ /health /v1/stats  (per-serve control API)
         ▲
    systemd  Restart=always · RestartSec=1 · KillMode=process
@@ -21,35 +21,35 @@ The daemon imports **only** stdlib + `fastapi` + `uvicorn` (+ tiny `/proc` reads
 `maxtoken.server.*` (its `__init__` pulls torch) or `maxtoken.utils.*` (its `__init__` pulls
 transformers). This is what makes it un-crashable: a CUDA fault or native-extension segfault kills
 the process that loaded it — and the daemon loads none of them. All risky work lives in the
-isolated `ft serve` child. `tests/daemon/test_daemon_import_safety.py` enforces this with an import
+isolated `mt serve` child. `tests/daemon/test_daemon_import_safety.py` enforces this with an import
 sentinel.
 
 ## Run the server
 
 ```bash
-ft daemon --host 127.0.0.1 --port 1900         # bare/flags = run the daemon server
-# or as a service (survives logout, auto-restarts): see ft-daemon.service
+mt daemon --host 127.0.0.1 --port 1900         # bare/flags = run the daemon server
+# or as a service (survives logout, auto-restarts): see mt-daemon.service
 ```
 
 State (single-instance lock, serve pidfile for re-adoption, per-serve logs) lives under
 `--state-dir` (default `~/.maxtoken/daemon`, override with `$MAXTOKEN_DAEMON_DIR`).
 
-## Control it (`ft daemon <verb>` — its own entry, distinct from `ft ctl`)
+## Control it (`mt daemon <verb>` — its own entry, distinct from `mt ctl`)
 
-`ft daemon` with a **verb** is the client (controls a running daemon over HTTP); bare `ft daemon`
-runs the server. `ft ctl` is left untouched — it targets a running *serve*, not the daemon.
+`mt daemon` with a **verb** is the client (controls a running daemon over HTTP); bare `mt daemon`
+runs the server. `mt ctl` is left untouched — it targets a running *serve*, not the daemon.
 
 ```bash
-ft daemon self                                 # daemon self-health
-ft daemon start MODEL --port 1919 -- --moe-cache-auto   # args after -- go to ft serve
-ft daemon status
-ft daemon logs                                 # stream engine logs (SSE)
-ft daemon health                               # proxied serve /health (camelCased)
-ft daemon metrics                              # engine-only RAM(PSS)+VRAM footprint
-ft daemon switch OTHER_MODEL                    # stop old + start new
-ft daemon stop
+mt daemon self                                 # daemon self-health
+mt daemon start MODEL --port 1919 -- --moe-cache-auto   # args after -- go to mt serve
+mt daemon status
+mt daemon logs                                 # stream engine logs (SSE)
+mt daemon health                               # proxied serve /health (camelCased)
+mt daemon metrics                              # engine-only RAM(PSS)+VRAM footprint
+mt daemon switch OTHER_MODEL                    # stop old + start new
+mt daemon stop
 # Recovery only: permit a degraded receipt if the failed engine cannot seal final totals.
-ft daemon stop --force
+mt daemon stop --force
 ```
 
 Target a non-default daemon with `--url http://host:1900` (or `$MAXTOKEN_DAEMON_URL`) and
@@ -70,7 +70,7 @@ Target a non-default daemon with `--url http://host:1900` (or `$MAXTOKEN_DAEMON_
 | `GET /engine/stats` | Proxied serve `/v1/stats`. |
 | `GET /accounting/pending` | Unacknowledged durable final-accounting receipts, replayable after a Desktop/client crash. |
 | `POST /accounting/ack` `{receiptId}` | Idempotently removes a receipt only after the client has durably applied it. |
-| `POST /checkpoint/start\|cancel` | Supervised `ft checkpoint` (GPU-exclusive: stops the serve first). |
+| `POST /checkpoint/start\|cancel` | Supervised `mt checkpoint` (GPU-exclusive: stops the serve first). |
 
 Set `--token` (or `$MAXTOKEN_DAEMON_TOKEN`) to require an `X-FT-Token` header on everything
 except `/health`.

@@ -56,7 +56,7 @@ ecosystem (torch, triton, flashlib) is installed.
 
 ## Web console
 
-`ft serve` ships a built-in GUI at **`http://localhost:1919/`** (any platform,
+`mt serve` ships a built-in GUI at **`http://localhost:1919/`** (any platform,
 not just macOS): live throughput/usage/cost cards, model status, streaming chat
 with TTFT / tok/s / `cached_tokens` per response, a request log, and the elastic
 MoE expert-cache slider (slot-cache mode) that applies `/v1/cache/rebuild` live.
@@ -65,7 +65,7 @@ It is a single self-contained HTML file served from the same origin as the APIs.
 ## Serve
 
 ```bash
-ft serve --model mlx-community/OLMoE-1B-7B-0125-Instruct-4bit
+mt serve --model mlx-community/OLMoE-1B-7B-0125-Instruct-4bit
 ```
 
 `--backend auto` (the default) resolves to `mlx` on macOS, so no extra flag is needed;
@@ -79,10 +79,10 @@ expert offload (this is what MaxToken is for):
 ```bash
 # Zero-copy mapped store (default): resident-speed serving, experts live in
 # reclaimable page cache instead of allocated memory:
-ft serve --model ornith-ai/Ornith-1.5-35B-A3B-MLX-4bit --moe-backend offload
+mt serve --model ornith-ai/Ornith-1.5-35B-A3B-MLX-4bit --moe-backend offload
 
 # Hard memory budget via the expert slot cache (~12 GiB total instead of ~18):
-ft serve --model ornith-ai/Ornith-1.5-35B-A3B-MLX-4bit \
+mt serve --model ornith-ai/Ornith-1.5-35B-A3B-MLX-4bit \
     --moe-backend offload --moe-cache-rate 0.6
 ```
 
@@ -108,7 +108,7 @@ curl http://127.0.0.1:1919/v1/chat/completions -H 'Content-Type: application/jso
 ## Benchmarks
 
 `benchmarks/bench_decode_moe.py` supports `--backend mlx` and measures through the
-real serving path (spawned `ft serve`, streamed `/v1/chat/completions`, SSE arrival
+real serving path (spawned `mt serve`, streamed `/v1/chat/completions`, SSE arrival
 stamps). Reference numbers from an Apple-silicon Mac (32 GB unified memory), AIME-25
 prompt, 256 decode tokens:
 

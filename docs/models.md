@@ -19,22 +19,22 @@ for them; other checkpoints of the same architectures work too.
 
 ## MoE backends
 
-`ft serve --moe-backend {auto,fused,offload,cpu,hybrid}`:
+`mt serve --moe-backend {auto,fused,offload,cpu,hybrid}`:
 
 - **fused** — experts resident on GPU (needs the VRAM); never auto-selected.
 - **offload** — experts live in host RAM, an LRU cache of expert slots on GPU;
   misses stream over PCIe.
 - **cpu** — misses are computed on the CPU instead of fetched.
 - **hybrid** — per step, fetches some misses over PCIe and computes the rest on
-  CPU, overlapped. Run `ft bench bw` once per machine to calibrate the split.
+  CPU, overlapped. Run `mt bench bw` once per machine to calibrate the split.
 - **auto** — dense models always resolve to `fused`; MoE models resolve to
-  `offload`, upgraded to `hybrid` when a cached `ft bench bw` profile
+  `offload`, upgraded to `hybrid` when a cached `mt bench bw` profile
   recommends it.
 
 ## Notes
 
-- `ft checkpoint` conversion is optional — it pre-converts a checkpoint into
-  MaxToken's fast-load format, and `ft serve --model` auto-detects the result.
+- `mt checkpoint` conversion is optional — it pre-converts a checkpoint into
+  MaxToken's fast-load format, and `mt serve --model` auto-detects the result.
 - DeepSeek-V4 checkpoints must keep the `inference/config.json` subdir — the
   authoritative model args are read from there.
 - Multimodal checkpoints are served text-only.

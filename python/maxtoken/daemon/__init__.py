@@ -1,4 +1,4 @@
-"""``ft daemon`` — the MaxToken engine supervisor (persistent, torch-free control plane).
+"""``mt daemon`` — the MaxToken engine supervisor (persistent, torch-free control plane).
 
 This package MUST NOT import torch / CUDA / flashinfer / sgl_kernel / any model or kernel code,
 directly or transitively. That includes ``maxtoken.server.*`` (its ``__init__`` pulls
@@ -11,8 +11,8 @@ from __future__ import annotations
 import sys
 
 
-def main(argv=None, *, prog: str = "ft daemon") -> int:
-    """Single entry for ``ft daemon``. A leading client verb (``ft daemon status`` …) controls a
+def main(argv=None, *, prog: str = "mt daemon") -> int:
+    """Single entry for ``mt daemon``. A leading client verb (``mt daemon status`` …) controls a
     running daemon; anything else (bare, or server flags like ``--host``/``--port``, which is what
     the systemd unit uses) runs the daemon server."""
     from .client import CLIENT_VERBS

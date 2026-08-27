@@ -1,26 +1,26 @@
 # CLI reference
 
 ```
-ft <command> [args]
+mt <command> [args]
 ```
 
 | Command | Purpose |
 |---|---|
-| `ft serve` | Start the API server (OpenAI `/v1/*`, Anthropic `/v1/messages`, Responses) |
-| `ft shell` | Chat with a server in the terminal |
-| `ft ctl` | Query and manage a running server over HTTP |
-| `ft launch` | Configure and launch a coding agent against a server |
-| `ft checkpoint` | Convert an HF checkpoint to the FTW fast-load format |
-| `ft bench bw` | Benchmark CPU vs PCIe bandwidth to calibrate the MoE backend |
+| `mt serve` | Start the API server (OpenAI `/v1/*`, Anthropic `/v1/messages`, Responses) |
+| `mt shell` | Chat with a server in the terminal |
+| `mt ctl` | Query and manage a running server over HTTP |
+| `mt launch` | Configure and launch a coding agent against a server |
+| `mt checkpoint` | Convert an HF checkpoint to the FTW fast-load format |
+| `mt bench bw` | Benchmark CPU vs PCIe bandwidth to calibrate the MoE backend |
 
-`ft --version` prints the installed version (torch-free; nightly wheels carry a
+`mt --version` prints the installed version (torch-free; nightly wheels carry a
 `+g<sha>` build stamp, tagged releases a bare version). Every command supports
 `--help`.
 
-## ft serve
+## mt serve
 
 ```bash
-ft serve --model <path-or-hf-id> [options]
+mt serve --model <path-or-hf-id> [options]
 ```
 
 `--model` is the only required flag — dtype, attention backend, MoE backend,
@@ -63,7 +63,7 @@ See [models.md](models.md#moe-backends) for what each backend does.
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--moe-backend` | auto | `fused`/`offload`/`cpu`/`hybrid`; auto → offload, or hybrid with a `ft bench bw` profile |
+| `--moe-backend` | auto | `fused`/`offload`/`cpu`/`hybrid`; auto → offload, or hybrid with a `mt bench bw` profile |
 | `--moe-cache-size` / `--moe-cache-rate` / `--moe-cache-auto` | auto | GPU expert-cache size as slots / fraction of all experts / sized from free VRAM (mutually exclusive; auto is enabled by default for offload-family backends) |
 | `--kv-reserve-tokens` | 8192 | KV token floor reserved before `--moe-cache-auto` fills experts |
 | `--moe-cpu-threads` | physical cores | CPU worker threads for the cpu/hybrid executor |
@@ -81,20 +81,20 @@ See [models.md](models.md#moe-backends) for what each backend does.
 | `--reasoning-parser` | auto | Splits chain-of-thought into `reasoning_content`; auto-inferred; `off` disables |
 | `--enable-cache-report` | off | Report prefix-cache hits in each response's usage block |
 
-## ft shell
+## mt shell
 
 ```bash
-ft shell                                    # attach to a running server
-ft shell --model ~/models/Qwen3.6-35B-A3B   # serve + chat in one process
+mt shell                                    # attach to a running server
+mt shell --model ~/models/Qwen3.6-35B-A3B   # serve + chat in one process
 ```
 
 - Attach mode talks to `--server URL` (default `http://127.0.0.1:1919`)
 - `/help` inside the shell lists the commands (`/think`, `/cache`, `/reset`).
 
-## ft ctl
+## mt ctl
 
 ```bash
-ft ctl [--base-url http://127.0.0.1:1919] [--timeout 10] [--json] <subcommand>
+mt ctl [--base-url http://127.0.0.1:1919] [--timeout 10] [--json] <subcommand>
 ```
 
 | Subcommand | Endpoint | Purpose |
@@ -106,10 +106,10 @@ ft ctl [--base-url http://127.0.0.1:1919] [--timeout 10] [--json] <subcommand>
 | `cache --moe N \| --kv N \| --mamba N \| --swa N [--wait 300]` | `POST /v1/cache/rebuild` | Live pool resizing without a restart (`k`/`m` suffixes; `--kv`/`--swa` in tokens) |
 | `requests [--since N] [--limit N]` | `GET /v1/requests` | Recent request ring |
 
-## ft launch
+## mt launch
 
 ```bash
-ft launch {claude,codex,dsh,hermes,openclaw,opencode} [options] [-- <agent args>]
+mt launch {claude,codex,dsh,hermes,openclaw,opencode} [options] [-- <agent args>]
 ```
 
 Discovers the served model via `/v1/models`, writes the agent's provider
@@ -127,27 +127,27 @@ environment so the agent cannot silently fall back to a paid endpoint.
 | `--force-reinstall` | Re-run the agent installer |
 | `-- <args>` | Forwarded verbatim to the agent |
 
-## ft checkpoint
+## mt checkpoint
 
 ```bash
-ft checkpoint --model <hf_dir> --out <ftw_dir> [--dtype bfloat16] [--moe-backend offload] [--shard-gib 8] [--device cuda:0]
+mt checkpoint --model <hf_dir> --out <ftw_dir> [--dtype bfloat16] [--moe-backend offload] [--shard-gib 8] [--device cuda:0]
 ```
 
 Converts an HF safetensors checkpoint to FTW, MaxToken's self-contained
-fast-load format; point `ft serve --model` at the output dir. `--moe-backend
+fast-load format; point `mt serve --model` at the output dir. `--moe-backend
 offload` (default) packs experts into offload banks; `--moe-backend triton`
 keeps them dense for resident serving. See the FTW caveats in
 [models.md](models.md#notes).
 
-## ft bench bw
+## mt bench bw
 
 ```bash
-ft bench bw                       # once per machine
-ft bench bw --dtype nvfp4,bf16    # only the formats you serve
+mt bench bw                       # once per machine
+mt bench bw --dtype nvfp4,bf16    # only the formats you serve
 ```
 
 Measures host-RAM vs PCIe bandwidth with the real cpu/offload MoE kernels and
-writes a profile (`~/.cache/maxtoken/benchbw.json`) that `ft serve
+writes a profile (`~/.cache/maxtoken/benchbw.json`) that `mt serve
 --moe-backend auto` and `--moe-hybrid-max-fetch -1` read. Profiles are keyed on
 expert format + GPU name, so a profile from different hardware is ignored
 rather than misapplied. Selection flags: `--dtype`, `--model`, `--formats`,

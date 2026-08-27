@@ -27,7 +27,7 @@ class ServerArgs(SchedulerConfig):
     backend: str = "auto"
     num_tokenizer: int = 0
     silent_output: bool = False
-    # The terminal shell is attached to this server (ft shell --model / ft serve --shell-mode).
+    # The terminal shell is attached to this server (mt shell --model / mt serve --shell-mode).
     # The workers read it to leave the shell's foreground process group, so the ^C that cancels
     # a turn cannot also kill the engine — see server/launch.py:_detach_process_group.
     shell_mode: bool = False
@@ -527,7 +527,7 @@ def parse_args(
         choices=SUPPORTED_MOE_BACKENDS,
         help=(
             "The MoE backend to use. 'auto' resolves a MoE model to the offload family "
-            "(offload, or hybrid when a `ft bench bw` profile recommends it); resident "
+            "(offload, or hybrid when a `mt bench bw` profile recommends it); resident "
             "'fused' experts must be requested explicitly."
         ),
     )
@@ -642,7 +642,7 @@ def parse_args(
             "For --moe-backend hybrid: max experts fetched over PCIe per (layer, decode "
             "step); the rest of that step's misses are computed on the CPU, overlapped. "
             "-1 (default) = auto: fetch the benched pcie/cpu bandwidth fraction of each "
-            "step's misses (perfect overlap; needs an `ft bench bw` profile, else 1). "
+            "step's misses (perfect overlap; needs an `mt bench bw` profile, else 1). "
             "0 = never fetch (all misses on CPU); large = behaves like plain offload."
         ),
     )
@@ -756,7 +756,7 @@ def parse_args(
         kwargs["reasoning_parser"] = None
 
     # Offload-family backends (offload/cpu/hybrid) need a slot cache; if the user gave no
-    # sizing flag at all, default to --moe-cache-auto so a bare `ft serve <FTW MoE>` works
+    # sizing flag at all, default to --moe-cache-auto so a bare `mt serve <FTW MoE>` works
     # out of the box (the scheduler resolves the size from free VRAM). Explicit
     # size/rate/auto is preserved.
     _no_cache_flag = (

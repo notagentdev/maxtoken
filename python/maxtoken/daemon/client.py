@@ -1,7 +1,7 @@
-"""``ft daemon <verb>`` — the client half of the daemon's own control entry point.
+"""``mt daemon <verb>`` — the client half of the daemon's own control entry point.
 
-Kept separate from ``ft ctl`` (which targets a running *serve*): the daemon has its own dedicated
-CLI. Bare ``ft daemon`` (or ``ft daemon --host/--port …``) runs the server; ``ft daemon <verb>``
+Kept separate from ``mt ctl`` (which targets a running *serve*): the daemon has its own dedicated
+CLI. Bare ``mt daemon`` (or ``mt daemon --host/--port …``) runs the server; ``mt daemon <verb>``
 below controls a running daemon over HTTP. Torch-free — stdlib ``urllib`` only."""
 
 from __future__ import annotations
@@ -115,7 +115,7 @@ def _stream_logs(url, since, token, timeout) -> None:
 
 def _build_parser(prog: str) -> argparse.ArgumentParser:
     # The package dispatcher routes to the client only when a verb is argv[0], so --url/--token/
-    # --timeout live on each verb (`ft daemon status --url X`), not before it.
+    # --timeout live on each verb (`mt daemon status --url X`), not before it.
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--url", default=os.environ.get("MAXTOKEN_DAEMON_URL", DEFAULT_URL),
                         help=f"daemon URL (default {DEFAULT_URL})")
@@ -127,7 +127,7 @@ def _build_parser(prog: str) -> argparse.ArgumentParser:
         help="HTTP timeout (default 10s; stop/switch 40s)",
     )
 
-    p = argparse.ArgumentParser(prog=prog, description="Control a running ft daemon")
+    p = argparse.ArgumentParser(prog=prog, description="Control a running mt daemon")
     sub = p.add_subparsers(dest="verb", required=True)
     sub.add_parser("self", parents=[common], help="Daemon self-health (GET /health)")
     sub.add_parser("status", parents=[common], help="Engine status (GET /engine/status)")
@@ -150,15 +150,15 @@ def _build_parser(prog: str) -> argparse.ArgumentParser:
                 action="store_true",
                 help="replace even if final accounting cannot be sealed (may lose the unobserved token tail)",
             )
-        # Everything after `--` is forwarded verbatim to ft serve (opaque passthrough):
-        #   ft daemon start MODEL --port 1919 -- --moe-cache-auto --graph 256
-        sp.add_argument("serve_args", nargs="*", default=[], help="Extra ft serve args (after --)")
+        # Everything after `--` is forwarded verbatim to mt serve (opaque passthrough):
+        #   mt daemon start MODEL --port 1919 -- --moe-cache-auto --graph 256
+        sp.add_argument("serve_args", nargs="*", default=[], help="Extra mt serve args (after --)")
     lg = sub.add_parser("logs", parents=[common], help="Stream engine logs (SSE, GET /engine/logs)")
     lg.add_argument("--since", type=int, default=0, help="Replay from this seq cursor")
     return p
 
 
-def main(argv: Sequence[str] | None = None, *, prog: str = "ft daemon") -> int:
+def main(argv: Sequence[str] | None = None, *, prog: str = "mt daemon") -> int:
     args = _build_parser(prog).parse_args(list(argv) if argv is not None else None)
     timeout = _effective_timeout(args.verb, args.timeout)
     try:

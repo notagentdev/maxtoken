@@ -7,7 +7,7 @@ from typing import TextIO
 
 def _print_help(file: TextIO) -> None:
     print(
-        """usage: ft <command> [args]
+        """usage: mt <command> [args]
 
 Commands:
   serve       Start the MaxToken API server
@@ -16,8 +16,8 @@ Commands:
   daemon      Run the MaxToken supervisor (persistent engine service)
   launch      Configure and launch an agent against a MaxToken server
 
-Use "ft <command> --help" for command-specific options.
-Use "ft --version" to print the MaxToken version.""",
+Use "mt <command> --help" for command-specific options.
+Use "mt --version" to print the MaxToken version.""",
         file=file,
     )
 
@@ -25,32 +25,32 @@ Use "ft --version" to print the MaxToken version.""",
 def _run_serve(argv: list[str]) -> int:
     from maxtoken.server import launch_server
 
-    launch_server(argv=argv, prog="ft serve")
+    launch_server(argv=argv, prog="mt serve")
     return 0
 
 
 def _run_shell(argv: list[str]) -> int:
     from maxtoken.shell import main
 
-    return main(argv, prog="ft shell")
+    return main(argv, prog="mt shell")
 
 
 def _run_launch(argv: list[str]) -> int:
     from maxtoken.launch import main
 
-    return main(argv, prog="ft launch")
+    return main(argv, prog="mt launch")
 
 
 def _run_ctl(argv: list[str]) -> int:
     from maxtoken.control_cli import main
 
-    return main(argv, prog="ft ctl")
+    return main(argv, prog="mt ctl")
 
 
 def _run_daemon(argv: list[str]) -> int:
     from maxtoken.daemon import main  # torch-free supervisor
 
-    return main(argv, prog="ft daemon")
+    return main(argv, prog="mt daemon")
 
 
 COMMANDS = {
@@ -79,7 +79,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     command = args[0]
     runner_name = COMMANDS.get(command)
     if runner_name is None:
-        print(f"unknown ft command: {command}", file=sys.stderr)
+        print(f"unknown mt command: {command}", file=sys.stderr)
         _print_help(sys.stderr)
         return 2
 

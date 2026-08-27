@@ -2,7 +2,7 @@
 #
 # MaxToken engine installer (Linux, NVIDIA CUDA) — user-facing, wheel-based.
 #
-# Installs the `maxtoken` runtime (the `ft` CLI) and its prebuilt kernel-cache
+# Installs the `maxtoken` runtime (the `mt` CLI) and its prebuilt kernel-cache
 # wheel into a managed venv, then wires it up so MaxToken Desktop can find it.
 # Dependencies come from PyPI via uv, except torch and sglang-kernel whose cu130
 # wheels live on dedicated indexes (see CU_INDEX_ARGS below).
@@ -22,7 +22,7 @@
 #                                 auto-detects a sibling maxtoken_kernel_cache-*.whl.
 #   MAXTOKEN_HOME                install root (default: ~/.maxtoken); venv at $MAXTOKEN_HOME/venv
 #   MAXTOKEN_PY_VERSION          python for the venv (default: 3.12 — must match the wheel tag)
-#   MAXTOKEN_BIN_DIR             where to symlink `ft` (default: ~/.local/bin)
+#   MAXTOKEN_BIN_DIR             where to symlink `mt` (default: ~/.local/bin)
 #   MAXTOKEN_ENV_DIR             environment.d dir (default: ~/.config/environment.d)
 #
 # NOTE: common TVM FFI kernels come from the kernel-cache wheel. A working CUDA
@@ -234,13 +234,13 @@ say "installing $WHEEL + accel (flashinfer prebuilt + sglang-kernel) + $KERNEL_C
   --refresh-package maxtoken --refresh-package maxtoken-kernel-cache \
   "${CU_INDEX_ARGS[@]}" "${INSTALL_WHEELS[@]}"
 
-FT_BIN="$VENV/bin/ft"
+FT_BIN="$VENV/bin/mt"
 [ -x "$FT_BIN" ] || die "install finished but $FT_BIN is missing."
 
 # --- 4. Wire up for PATH + MaxToken Desktop -------------------------------
 mkdir -p "$BIN_DIR"
-ln -sf "$FT_BIN" "$BIN_DIR/ft"
-say "symlinked $BIN_DIR/ft -> $FT_BIN"
+ln -sf "$FT_BIN" "$BIN_DIR/mt"
+say "symlinked $BIN_DIR/mt -> $FT_BIN"
 
 mkdir -p "$ENV_DIR"
 printf 'MAXTOKEN_FT_BIN=%s\n' "$FT_BIN" > "$ENV_DIR/50-maxtoken.conf"
@@ -248,21 +248,21 @@ say "wrote $ENV_DIR/50-maxtoken.conf (MAXTOKEN_FT_BIN) — GUI picks it up after
 
 # --- 5. Self-check ---------------------------------------------------------
 if "$FT_BIN" --help >/dev/null 2>&1; then
-  say "self-check: \`ft --help\` OK"
+  say "self-check: \`mt --help\` OK"
 else
-  warn "self-check: \`ft --help\` returned non-zero — inspect with: $FT_BIN --help"
+  warn "self-check: \`mt --help\` returned non-zero — inspect with: $FT_BIN --help"
 fi
 
 cat <<EOF
 
 ${C_GREEN}MaxToken engine installed.${C_RESET}
 
-  ft binary        $FT_BIN
-  on PATH as       $BIN_DIR/ft   (ensure $BIN_DIR is on PATH)
+  mt binary        $FT_BIN
+  on PATH as       $BIN_DIR/mt   (ensure $BIN_DIR is on PATH)
   Desktop env      MAXTOKEN_FT_BIN via environment.d (re-login to apply)
 
 Run in this shell without re-login:
   export MAXTOKEN_FT_BIN="$FT_BIN"
-  ft serve --model <path> --port 1919
+  mt serve --model <path> --port 1919
 
 EOF

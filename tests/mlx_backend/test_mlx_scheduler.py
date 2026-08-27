@@ -3,7 +3,7 @@
 These run on any platform: the scheduler's message handling, termination logic and
 round-robin stepping are exercised against fake generators and a fake tokenizer, so
 neither mlx nor model weights are needed. Real-model execution is covered by the
-smoke path in docs/mlx.md (`ft serve --backend mlx`).
+smoke path in docs/mlx.md (`mt serve --backend mlx`).
 """
 
 from types import SimpleNamespace

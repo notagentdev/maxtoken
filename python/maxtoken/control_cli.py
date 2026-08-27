@@ -349,7 +349,7 @@ def _print_doc(doc: dict[str, Any], formatter, *, raw_json: bool) -> None:
         print(formatter(doc))
 
 
-def main(argv: Sequence[str] | None = None, *, prog: str = "ft ctl") -> int:
+def main(argv: Sequence[str] | None = None, *, prog: str = "mt ctl") -> int:
     parser = _build_parser(prog)
     try:
         args = parser.parse_args(list(argv) if argv is not None else None)
@@ -458,7 +458,7 @@ def _run_cache_rebuild(args: argparse.Namespace) -> int:
         _print_doc(doc, _format_rebuild, raw_json=args.json)
         return 0 if doc.get("status") == "ok" else 1
     # Report the geometry the engine landed on rather than an echo of the request: it resolves
-    # the sizes itself. Same answer `ft ctl cache status` gives, and the same table the shell's
+    # the sizes itself. Same answer `mt ctl cache status` gives, and the same table the shell's
     # /cache prints. Best-effort -- the rebuild already succeeded.
     print("status=ok")
     try:

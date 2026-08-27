@@ -1,4 +1,4 @@
-"""``ft daemon`` entrypoint: the persistent, torch-free engine supervisor.
+"""``mt daemon`` entrypoint: the persistent, torch-free engine supervisor.
 
 Wires the pieces together, applies the self-preservation policies (single-instance lock, signal
 hygiene, degraded start, periodic OOM reapply), re-adopts a still-running serve, and runs uvicorn.
@@ -50,7 +50,7 @@ def _build_parser(prog: str) -> argparse.ArgumentParser:
     p.add_argument("--state-dir", default=_default_state_dir(), help="Lock/pidfile/log directory")
     p.add_argument("--token", default=os.environ.get("MAXTOKEN_DAEMON_TOKEN"), help="Optional X-FT-Token shared secret")
     p.add_argument("--default-serve-port", type=int, default=DEFAULT_SERVE_PORT, help="Port used when /engine/start omits one")
-    p.add_argument("--serve-python", default=sys.executable, help="Interpreter used to launch ft serve")
+    p.add_argument("--serve-python", default=sys.executable, help="Interpreter used to launch mt serve")
     p.add_argument("--grace", type=float, default=10.0, help="SIGTERM→SIGKILL grace seconds on stop")
     p.add_argument("--poll-interval", type=float, default=1.0, help="Adopted-serve liveness / OOM reapply interval")
     p.add_argument("--oom-child-score", type=int, default=500, help="oom_score_adj written to the serve tree")
@@ -96,16 +96,16 @@ def _start_oom_reaper(manager, interval: float, stop: threading.Event) -> thread
             except Exception:  # noqa: BLE001
                 pass
 
-    t = threading.Thread(target=_run, name="ft-daemon-oom-reaper", daemon=True)
+    t = threading.Thread(target=_run, name="mt-daemon-oom-reaper", daemon=True)
     t.start()
     return t
 
 
-def main(argv: Sequence[str] | None = None, *, prog: str = "ft daemon") -> int:
+def main(argv: Sequence[str] | None = None, *, prog: str = "mt daemon") -> int:
     args = _build_parser(prog).parse_args(list(argv) if argv is not None else None)
     logging.basicConfig(
         level=getattr(logging, args.log_level.upper(), logging.INFO),
-        format="%(asctime)s [ft-daemon] %(levelname)s %(message)s",
+        format="%(asctime)s [mt-daemon] %(levelname)s %(message)s",
     )
 
     from .checkpoint import CheckpointManager
@@ -125,7 +125,7 @@ def main(argv: Sequence[str] | None = None, *, prog: str = "ft daemon") -> int:
     try:
         lock.acquire()
     except AlreadyRunning as exc:
-        print(f"ft daemon: {exc}", file=sys.stderr)
+        print(f"mt daemon: {exc}", file=sys.stderr)
         return 1
 
     _install_signal_hygiene(args.setsid)
@@ -170,8 +170,8 @@ def main(argv: Sequence[str] | None = None, *, prog: str = "ft daemon") -> int:
     if not args.no_oom:
         _start_oom_reaper(manager, args.poll_interval, stop_reaper)
 
-    lifecycle_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ft-daemon-lifecycle")
-    proxy_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="ft-daemon-proxy")
+    lifecycle_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="mt-daemon-lifecycle")
+    proxy_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="mt-daemon-proxy")
 
     def shutdown_hook() -> None:
         stop_reaper.set()
@@ -220,7 +220,7 @@ def main(argv: Sequence[str] | None = None, *, prog: str = "ft daemon") -> int:
     )
     app.state.request_shutdown = lambda: setattr(server, "should_exit", True)
 
-    logger.info("ft daemon %s listening on %s:%s (state-dir=%s)", DAEMON_VERSION, args.host, args.port, state_dir)
+    logger.info("mt daemon %s listening on %s:%s (state-dir=%s)", DAEMON_VERSION, args.host, args.port, state_dir)
     try:
         server.run()
     finally:

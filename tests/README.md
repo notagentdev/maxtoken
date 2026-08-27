@@ -18,7 +18,7 @@ in its filename (`kvcache/test_dsv4_pool.py`, `models/test_glm4_nvfp4.py`).
 | `models/`    | `maxtoken.models` — the registry, and the loading machinery every model shares (sharding, qkv/expert merge, streaming layers into banks) |
 | `e2e/`       | real-server gates: AIME 24/25/26 generation, runtime cache rebuild |
 
-The CLI surface itself is not unit-tested. `ft` dispatch, `ft ctl`, `ft launch` and
+The CLI surface itself is not unit-tested. `mt` dispatch, `mt ctl`, `mt launch` and
 `install.sh` are thin, they change often, and a test written after the fact only
 restates whatever the code currently does — running the command is the real gate.
 What does live here is the logic reachable *through* those commands when it has its

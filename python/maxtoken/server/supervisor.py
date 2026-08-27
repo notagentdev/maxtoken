@@ -155,7 +155,7 @@ def run_backend_supervisor(
     ``on_meta`` receives the optional ("meta", …) backend metadata during the drain.
 
     ``is_shutting_down`` distinguishes a crash from an orderly stop: on SIGTERM/SIGINT
-    (``ft serve`` ^C, or the desktop's stop) the api server sets a shutting-down flag before
+    (``mt serve`` ^C, or the desktop's stop) the api server sets a shutting-down flag before
     the workers exit, so their expected deaths are NOT misreported. When the flag is set at
     the moment a death is observed, the supervisor returns silently — no ``on_failure``, no
     ERROR log, no "failed" latch. A death seen while the flag is clear is a real crash and

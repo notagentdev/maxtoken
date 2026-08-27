@@ -341,7 +341,7 @@ async def _handle_cache_command(
     args: List[str], client: ShellClient, stats: ShellStats, renderer: ShellConsoleRenderer
 ) -> CachePools | None:
     """Shell ``/cache`` command: print the cache geometry, or resize any pool the model has at
-    runtime (idle-only). Drives the same endpoints as ``ft ctl cache``.
+    runtime (idle-only). Drives the same endpoints as ``mt ctl cache``.
 
     Returns the pools it read off the live geometry (None when the server was unreachable), so
     the caller can keep ``/help``'s command hints in sync with the served model."""

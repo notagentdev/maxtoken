@@ -35,7 +35,7 @@ class LogTailer(threading.Thread):
         wall_now: Callable[[], float] = time.time,
         chunk: int = 65536,
     ) -> None:
-        super().__init__(name=f"ft-daemon-tailer", daemon=True)
+        super().__init__(name=f"mt-daemon-tailer", daemon=True)
         self._path = log_path
         self._ring = ring
         self._from_start = from_start

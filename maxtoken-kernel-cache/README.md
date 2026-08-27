@@ -66,7 +66,7 @@ sibling `maxtoken_kernel_cache-*.whl` when only `MAXTOKEN_WHEEL` is set.
 For release validation, disable runtime JIT:
 
 ```bash
-MAXTOKEN_DISABLE_JIT=1 ft serve --model <path>
+MAXTOKEN_DISABLE_JIT=1 mt serve --model <path>
 ```
 
 With this flag, any cache miss fails immediately instead of compiling at runtime.

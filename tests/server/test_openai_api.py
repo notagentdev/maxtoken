@@ -432,7 +432,7 @@ def test_models_route_returns_served_model_name():
 
 
 def test_models_route_publishes_the_model_context_length():
-    """`ft launch` reads this to size each agent's context window."""
+    """`mt launch` reads this to size each agent's context window."""
     state = FakeState([])
     state.config.max_seq_len = 262144
     app = FastAPI()

@@ -28,8 +28,8 @@ uv pip install -e ".[accel]"
 
 ```bash
 source .venv/bin/activate
-ft --version
-ft serve --model ~/path/to/Qwen3.6-35B-A3B
+mt --version
+mt serve --model ~/path/to/Qwen3.6-35B-A3B
 curl http://127.0.0.1:1919/v1/chat/completions -H 'Content-Type: application/json' \
   -d '{"model":"Qwen3.6-35B-A3B","messages":[{"role":"user","content":"hi"}]}'
 ```

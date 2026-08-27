@@ -1,10 +1,10 @@
-"""Supervise ``ft checkpoint`` conversions the same way the serve is supervised. GPU exclusivity
+"""Supervise ``mt checkpoint`` conversions the same way the serve is supervised. GPU exclusivity
 (a convert needs the GPU, so the caller stops the serve first) is enforced at the route layer
 (app.py).
 
 One job at a time, transient (no re-adoption): a conversion that outlives a daemon restart is not
 worth re-attaching to. Output streams into the same LogRing tagged ``kind="line"``. Torch-free —
-it only spawns ``ft checkpoint`` as a child."""
+it only spawns ``mt checkpoint`` as a child."""
 
 from __future__ import annotations
 
@@ -103,7 +103,7 @@ class CheckpointManager:
             if tailer is not None:
                 tailer.start()
         threading.Thread(
-            target=self._monitor, args=(child, job_id), name=f"ft-daemon-ckpt-{child.pid}", daemon=True
+            target=self._monitor, args=(child, job_id), name=f"mt-daemon-ckpt-{child.pid}", daemon=True
         ).start()
         self._emit(f"checkpoint started (id={job_id} pid={child.pid})")
         return {"jobId": job_id, "pid": child.pid, "idempotent": False}

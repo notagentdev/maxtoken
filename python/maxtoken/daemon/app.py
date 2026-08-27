@@ -54,7 +54,7 @@ class CancelBody(BaseModel):
 
 
 class BenchBody(BaseModel):
-    # Raw `ft bench bw` args (e.g. ["--dtype", "nvfp4", "--threshold", "2.5"]); empty = all dtypes.
+    # Raw `mt bench bw` args (e.g. ["--dtype", "nvfp4", "--threshold", "2.5"]); empty = all dtypes.
     args: list[str] = []
 
 
@@ -78,7 +78,7 @@ def _bench_sse(event: str, data) -> str:
 
 
 def _parse_ftbench(line: str) -> dict | None:
-    """``FTBENCH <done> <total> <label>`` -> a progress dict (mirrors ft checkpoint's FTCONVERT)."""
+    """``FTBENCH <done> <total> <label>`` -> a progress dict (mirrors mt checkpoint's FTCONVERT)."""
     parts = line.split(maxsplit=3)
     if len(parts) < 4 or parts[0] != "FTBENCH":
         return None
@@ -313,10 +313,10 @@ def build_app(
     @app.post("/bench/run", dependencies=auth)
     async def bench_run(body: BenchBody):
         # GPU exclusivity: the bench allocates transient device memory, so stop any serve first
-        # (mirrors /checkpoint/start). Runs `ft bench bw` on the engine HOST (so the profile lands
+        # (mirrors /checkpoint/start). Runs `mt bench bw` on the engine HOST (so the profile lands
         # where this daemon's serve reads it) and STREAMS progress back as SSE: `progress` events
         # per measured format, then a terminal `result` (the profile) or `error` event. `body.args`
-        # is the raw arg list, so any `ft bench bw` flag (--dtype/--model/--threshold/...) passes
+        # is the raw arg list, so any `mt bench bw` flag (--dtype/--model/--threshold/...) passes
         # through. torch stays out of the daemon (child process), which also frees VRAM on exit.
         await run(lifecycle_pool, manager.stop)
 

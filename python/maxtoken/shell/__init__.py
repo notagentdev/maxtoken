@@ -1,12 +1,12 @@
-"""``ft shell`` -- an interactive terminal chat that drives a MaxToken server over its API.
+"""``mt shell`` -- an interactive terminal chat that drives a MaxToken server over its API.
 
 Two ways in, one code path:
 
-* ``ft shell`` attaches to a server that is already running (``--server``, ``$MAXTOKEN_HOST``,
-  else ``http://127.0.0.1:1919``), exactly like ``ft launch`` attaches an agent. Nothing is
+* ``mt shell`` attaches to a server that is already running (``--server``, ``$MAXTOKEN_HOST``,
+  else ``http://127.0.0.1:1919``), exactly like ``mt launch`` attaches an agent. Nothing is
   loaded locally -- no torch import, no GPU -- so it works against a remote box too.
-* ``ft shell --model <path> [engine flags]`` starts the engine here first (the same thing
-  ``ft serve --shell-mode`` does) and then attaches to it over the loopback.
+* ``mt shell --model <path> [engine flags]`` starts the engine here first (the same thing
+  ``mt serve --shell-mode`` does) and then attaches to it over the loopback.
 
 Either way the conversation travels over ``POST /v1/chat/completions``, so the shell gets the
 prompt rendering, sampling defaults, reasoning split and accounting every other client gets.
@@ -34,7 +34,7 @@ def _build_parser(prog: str) -> argparse.ArgumentParser:
         prog=prog,
         description="Chat with a running MaxToken server in the terminal.",
         epilog=(
-            "Pass --model <path> (plus any ft serve flag) to start an engine here instead of "
+            "Pass --model <path> (plus any mt serve flag) to start an engine here instead of "
             "attaching to one."
         ),
     )
@@ -48,7 +48,7 @@ def _build_parser(prog: str) -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Sequence[str] | None = None, *, prog: str = "ft shell") -> int:
+def main(argv: Sequence[str] | None = None, *, prog: str = "mt shell") -> int:
     args = list(sys.argv[1:] if argv is None else argv)
 
     if _wants_local_engine(args):

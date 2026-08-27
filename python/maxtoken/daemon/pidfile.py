@@ -33,7 +33,7 @@ class SingleInstance:
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except OSError as exc:
             os.close(fd)
-            raise AlreadyRunning(f"another ft daemon holds {self.path}") from exc
+            raise AlreadyRunning(f"another mt daemon holds {self.path}") from exc
         os.ftruncate(fd, 0)
         os.write(fd, f"{os.getpid()}\n".encode())
         os.fsync(fd)

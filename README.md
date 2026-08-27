@@ -86,10 +86,10 @@ python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 
 # a model that fits: zero-copy mapped experts, resident speed
-ft serve --model ornith-ai/Ornith-1.5-35B-A3B-MLX-4bit --moe-backend offload
+mt serve --model ornith-ai/Ornith-1.5-35B-A3B-MLX-4bit --moe-backend offload
 
 # a model that does NOT fit: hard memory budget via the expert slot cache
-ft serve --model mlx-community/Qwen3-Coder-Next-4bit \
+mt serve --model mlx-community/Qwen3-Coder-Next-4bit \
     --moe-backend offload --moe-cache-rate 0.2
 ```
 

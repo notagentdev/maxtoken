@@ -1,10 +1,10 @@
 """Rendering a server's cache geometry for a human: which pools the model has, how big each
 one is, and what it costs in VRAM.
 
-Shared by the two clients that report it -- ``ft ctl cache`` and the shell's ``/cache`` -- so
+Shared by the two clients that report it -- ``mt ctl cache`` and the shell's ``/cache`` -- so
 the same server document reads the same way whichever one you are holding. Everything here is
 derived from ``GET /v1/cache/status``; nothing talks to a server and nothing imports torch or
-prompt_toolkit, so ``ft ctl`` stays a dependency-light CLI.
+prompt_toolkit, so ``mt ctl`` stays a dependency-light CLI.
 """
 
 from __future__ import annotations

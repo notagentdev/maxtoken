@@ -430,7 +430,7 @@ register_control_routes(app, get_global_state, lambda: _MODEL_SAMPLING)
 register_accounting_routes(app, get_global_state)
 
 # Built-in web console (chat, live stats, elastic cache control) served from the
-# same origin as the APIs — `ft serve` then has a GUI at http://host:port/.
+# same origin as the APIs — `mt serve` then has a GUI at http://host:port/.
 _CONSOLE_HTML = os.path.join(os.path.dirname(__file__), "console.html")
 
 
@@ -541,7 +541,7 @@ async def dispatch_rebuild(
     """Send a cache-rebuild request to the scheduler and await its result, managing the
     maintenance gate. Returns the scheduler's result dict, or a synthesized
     ``{"status": "failed"|"timeout"}`` on dispatch error / timeout. Every caller reaches it
-    through ``POST /v1/cache/rebuild`` (``ft ctl cache``, the desktop panel, the shell's
+    through ``POST /v1/cache/rebuild`` (``mt ctl cache``, the desktop panel, the shell's
     ``/cache``), which does the pre-flight maintenance_state checks (409/503 short-circuits)."""
     request_id = str(uuid.uuid4())
     fut = asyncio.get_running_loop().create_future()
@@ -961,11 +961,11 @@ def _serve_and_run_shell(host: str, port: int) -> None:
     """Shell mode: serve the API here, and attach the terminal client to it over the loopback.
 
     The shell is an ordinary API client (see ``maxtoken.shell``), so shell mode is just
-    ``ft serve`` plus that client -- one generation path for every caller, none of it
+    ``mt serve`` plus that client -- one generation path for every caller, none of it
     shell-private. uvicorn owns the HTTP surface on a worker thread and, through its lifespan,
     the orderly shutdown that flags ``_SHUTTING_DOWN`` before the workers exit; the main thread
     belongs to the TUI. Access logging is off because those lines would land in the middle of
-    the chat as it streams -- ``/v1/requests`` still records every request for ``ft ctl``.
+    the chat as it streams -- ``/v1/requests`` still records every request for ``mt ctl``.
 
     Signals: uvicorn's capture is a no-op off the main thread, so ^C stays with the shell, which
     binds it to "cancel this turn". That only works because the engine workers leave our process

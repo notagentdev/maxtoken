@@ -2,13 +2,13 @@
 #
 # Install (user service, works under WSL which supports systemd):
 #   mkdir -p ~/.config/systemd/user
-#   cp ft-daemon.service ~/.config/systemd/user/
+#   cp mt-daemon.service ~/.config/systemd/user/
 #   # edit ExecStart to point at your checkout's venv, then:
 #   systemctl --user daemon-reload
-#   systemctl --user enable --now ft-daemon
-#   systemctl --user status ft-daemon
+#   systemctl --user enable --now mt-daemon
+#   systemctl --user status mt-daemon
 #
-# The engine (`ft serve`) is a CHILD of this daemon but MUST outlive it: closing/restarting the
+# The engine (`mt serve`) is a CHILD of this daemon but MUST outlive it: closing/restarting the
 # control plane must not unload ~22 GB of weights. Two settings make that true:
 #   * KillMode=process — on stop/restart systemd signals ONLY the daemon's main process, not the
 #     whole control group, so the serve keeps running and the next daemon re-adopts it from the
@@ -18,13 +18,13 @@
 #     --stop-serve-on-exit only if the engine should die together with the daemon.
 
 [Unit]
-Description=MaxToken engine supervisor (ft daemon)
+Description=MaxToken engine supervisor (mt daemon)
 After=network.target
 
 [Service]
 Type=simple
 # Point this at your checkout's venv-installed entrypoint:
-ExecStart=%h/MaxToken/.venv/bin/ft daemon --host 127.0.0.1 --port 1900
+ExecStart=%h/MaxToken/.venv/bin/mt daemon --host 127.0.0.1 --port 1900
 Restart=always
 RestartSec=1
 # Do not give up restarting after N fast failures — the control plane must always come back.
