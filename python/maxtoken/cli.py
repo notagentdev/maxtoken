@@ -77,6 +77,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     command = args[0]
+    if command.startswith("-"):
+        # Flags where a command was expected mean serve. `python -m maxtoken`
+        # used to BE the server and took its flags directly, so that spelling
+        # is in people's shells and scripts; routing it here keeps it working
+        # while `python -m maxtoken serve ...` -- the form every doc shows --
+        # starts working too.
+        return _run_serve(args)
     runner_name = COMMANDS.get(command)
     if runner_name is None:
         print(f"unknown mt command: {command}", file=sys.stderr)

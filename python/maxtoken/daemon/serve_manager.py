@@ -120,9 +120,9 @@ class AdoptedChild:
 def build_serve_command(
     model: str, port: int, args: list[str], *, python: str, log_dir: str
 ) -> tuple[list[str], str]:
-    """The serve invocation + its log path. ``python -m maxtoken.cli serve`` (NOT ``-m
-    maxtoken``, which is a direct-server entrypoint that ignores subcommand argv) so it uses the
-    daemon's own interpreter/venv with no PATH dependency."""
+    """The serve invocation + its log path. Spelled as a module (``-m maxtoken.cli``)
+    rather than the ``mt`` script so it runs on the daemon's own interpreter and venv
+    with no PATH dependency."""
     argv = [python, "-m", "maxtoken.cli", "serve", "--model", model, "--port", str(port), *args]
     log_path = os.path.join(log_dir, f"serve-{port}.log")
     return argv, log_path
