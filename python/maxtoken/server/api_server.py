@@ -143,7 +143,7 @@ class FrontendManager:
     ack_map: Dict[int, List[UserReply]] = field(default_factory=dict)
     event_map: Dict[int, asyncio.Event] = field(default_factory=dict)
     # Stable identity for this serve process. Generated before the backend is ready so every
-    # /health state (loading/ok/error) and /v1/stats can identify the same engine generation.
+    # /health state (loading/ok/error) and /admin/stats can identify the same engine generation.
     instance_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     # Runtime cache-rebuild control plane (correlated by uuid request_id, separate from
     # the int-uid generation ack machinery).
@@ -154,13 +154,13 @@ class FrontendManager:
     maintenance_state: str = "loading"
     last_rebuild: Dict[str, Any] | None = None
     load_progress: Any = None
-    # Monotonic timestamp the server became ready; drives /health + /v1/stats uptime without
+    # Monotonic timestamp the server became ready; drives /health + /admin/stats uptime without
     # being affected by wall-clock adjustments.
     ready_at: float | None = None
     # Set when a backend worker dies (startup OR post-ready). /health reports status "error"
     # with this message; the API gate already blocks new work via maintenance_state="failed".
     fatal_error: str | None = None
-    # Runtime metrics for /v1/stats: throughput sliding window + last-known kv/mamba/vram
+    # Runtime metrics for /admin/stats: throughput sliding window + last-known kv/mamba/vram
     # snapshot, fed from every UserReply in listen().
     stats: Any = None
     # Optional backend metadata delivered once on the ack path at ready: per-unit cache VRAM
@@ -217,7 +217,7 @@ class FrontendManager:
 
     def warm_frontend_tokenizer(self) -> None:
         """Build the frontend tokenizer and probe its thinking profile off-thread,
-        once — /v1/cache/status polls call this so the gear picker self-populates
+        once — /admin/cache/status polls call this so the gear picker self-populates
         without ever blocking the event loop on a tokenizer load."""
         if self._frontend_warm_started:
             return
@@ -455,7 +455,7 @@ _TRACKED_REQUEST_PREFIXES = (
 
 # Subpaths that share a tracked prefix but are NOT generation requests. count_tokens never
 # enters generation accounting, and its first-touch tokenizer load would otherwise dominate the
-# /v1/stats p95 and pollute /v1/requests — exclude it before the prefix check below.
+# /admin/stats p95 and pollute /admin/requests — exclude it before the prefix check below.
 _UNTRACKED_REQUEST_PREFIXES = ("/v1/messages/count_tokens",)
 
 
@@ -467,7 +467,7 @@ def _served_model_name() -> str | None:
 
 @app.middleware("http")
 async def _record_request_middleware(request: Request, call_next):
-    """Time every generation request into the ring for /v1/requests + /v1/stats p95. Single-
+    """Time every generation request into the ring for /admin/requests + /admin/stats p95. Single-
     model server, so model = served_model_name; stream is inferred from the response media
     type. Token counts are P3 (SSE usage arrives after the handler returns) — kept as None."""
     path = request.url.path
@@ -541,7 +541,7 @@ async def dispatch_rebuild(
     """Send a cache-rebuild request to the scheduler and await its result, managing the
     maintenance gate. Returns the scheduler's result dict, or a synthesized
     ``{"status": "failed"|"timeout"}`` on dispatch error / timeout. Every caller reaches it
-    through ``POST /v1/cache/rebuild`` (``mt ctl cache``, the desktop panel, the shell's
+    through ``POST /admin/cache/rebuild`` (``mt ctl cache``, the desktop panel, the shell's
     ``/cache``), which does the pre-flight maintenance_state checks (409/503 short-circuits)."""
     request_id = str(uuid.uuid4())
     fut = asyncio.get_running_loop().create_future()
@@ -601,7 +601,6 @@ def _resolve_num_swa_pages(state: FrontendManager, req: CacheRebuildRequest) -> 
 
 
 @app.post("/admin/cache/rebuild")
-@app.post("/v1/cache/rebuild", include_in_schema=False)
 async def cache_rebuild(req: CacheRebuildRequest):
     """Trigger a runtime KV/MoE cache resize. Blocks until the scheduler reports a result
     (or timeout). New generation is gated (503) while a rebuild is in flight."""
@@ -877,7 +876,6 @@ def cache_geometry(state: Any) -> dict:
 
 
 @app.get("/admin/cache/status")
-@app.get("/v1/cache/status", include_in_schema=False)
 async def cache_status():
     state = get_global_state()
     try:
@@ -967,7 +965,7 @@ def _serve_and_run_shell(host: str, port: int) -> None:
     shell-private. uvicorn owns the HTTP surface on a worker thread and, through its lifespan,
     the orderly shutdown that flags ``_SHUTTING_DOWN`` before the workers exit; the main thread
     belongs to the TUI. Access logging is off because those lines would land in the middle of
-    the chat as it streams -- ``/v1/requests`` still records every request for ``mt ctl``.
+    the chat as it streams -- ``/admin/requests`` still records every request for ``mt ctl``.
 
     Signals: uvicorn's capture is a no-op off the main thread, so ^C stays with the shell, which
     binds it to "cancel this turn". That only works because the engine workers leave our process

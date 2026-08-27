@@ -1,5 +1,5 @@
 """Read-only control-plane endpoints consumed by the desktop app: /health (lifecycle),
-/v1/stats (runtime metrics, Task 6), /v1/requests (request log ring, Task 5).
+/admin/stats (runtime metrics, Task 6), /admin/requests (request log ring, Task 5).
 
 All handlers read a shared FrontendManager snapshot via ``get_state``; nothing here touches
 the scheduler or blocks. Registered on the app alongside the OpenAI/Anthropic/Responses routes.
@@ -60,12 +60,8 @@ def register_control_routes(
 
     from . import request_ring
 
-    # /v1 belongs to the OpenAI and Anthropic protocols. These are ours, so
-    # they live under /admin; the old paths stay as hidden aliases so existing
-    # clients, dashboards and scripts keep working, but they no longer appear
-    # in the OpenAPI schema a protocol client discovers.
+    # /v1 belongs to the OpenAI and Anthropic protocols; ours live under /admin.
     @app.get("/admin/requests")
-    @app.get("/v1/requests", include_in_schema=False)
     async def list_requests(since: int = 0, limit: int = 100):
         limit = max(1, min(limit, 512))
         entries, next_cursor = request_ring.requests_since(since, limit)
@@ -74,7 +70,6 @@ def register_control_routes(
     from .stats import build_stats
 
     @app.get("/admin/stats")
-    @app.get("/v1/stats", include_in_schema=False)
     async def stats():
         doc = build_stats(
             get_state(), request_ring.requests_p95_ms(), request_ring.requests_ttft_mean_ms()

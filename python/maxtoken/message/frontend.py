@@ -60,7 +60,7 @@ class UserReply(BaseFrontendMsg):
 
 @dataclass
 class CacheRebuildReply(BaseFrontendMsg):
-    # detokenizer worker -> api server: result of a /v1/cache/rebuild request.
+    # detokenizer worker -> api server: result of a /admin/cache/rebuild request.
     request_id: str
     status: str  # "ok" | "busy" | "failed"
     moe_cache_size: int = 0

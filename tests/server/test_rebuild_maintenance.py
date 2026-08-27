@@ -252,7 +252,7 @@ def test_cache_rebuild_guarded_during_loading():
     )
     try:
         client = TestClient(api.app)
-        r = client.post("/v1/cache/rebuild", json={})
+        r = client.post("/admin/cache/rebuild", json={})
         assert r.status_code == 503
         assert "loading" in r.json().get("error", "").lower()
     finally:

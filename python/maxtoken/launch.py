@@ -178,7 +178,7 @@ def _positive_int(value: object) -> int | None:
 def _stats_context_length(server: ServerURL) -> int | None:
     """Fallback for servers whose /v1/models predates the context fields."""
     try:
-        payload = _get_json(f"{server.origin}/v1/stats")
+        payload = _get_json(f"{server.origin}/admin/stats")
     except (HTTPError, URLError, OSError, TimeoutError, ValueError):
         return None
     if not isinstance(payload, dict):

@@ -1,4 +1,4 @@
-"""Runtime metrics for /v1/stats. The FrontendManager owns one StatsTracker and feeds it
+"""Runtime metrics for /admin/stats. The FrontendManager owns one StatsTracker and feeds it
 every UserReply (the single chokepoint in listen()). kv/mamba/vram keep their last-known-value
 semantics like ShellStats; throughput uses an independent sliding-window rate (NOT cumulative
 average like tok_s), so idle polls decay to zero by wall clock."""
@@ -14,7 +14,7 @@ class StatsTracker:
     def __init__(self, window_s: float = 5.0) -> None:
         self.window_s = window_s
         # maxlen bounds memory on the headless path: stale-sample eviction is poll-driven
-        # (only _rate() trims to window_s), and clients that never hit /v1/stats (e.g.
+        # (only _rate() trims to window_s), and clients that never hit /admin/stats (e.g.
         # codex/claude via /v1/chat/completions) would otherwise grow these unbounded.
         # 4096 is generous vs the sliding window's span at any realistic reply rate.
         self._decode: "deque[tuple[float, int]]" = deque(maxlen=4096)
@@ -26,7 +26,7 @@ class StatsTracker:
         self._aborting: set[int] = set()
         self.completed = 0
         # Cumulative prompt/completion tokens since this process started (lifetime for THIS served
-        # model). Exposed in /v1/stats so the desktop can diff consecutive polls into per-model
+        # model). Exposed in /admin/stats so the desktop can diff consecutive polls into per-model
         # "cost saved by running locally" accounting. Monotonic; resets when the process restarts.
         self.prompt_tokens_total = 0
         self.completion_tokens_total = 0
@@ -133,7 +133,7 @@ def _swa_page_size(config: Any) -> int:
 
 
 def build_stats(state: Any, p95_ms: int, ttft_mean_ms: int) -> dict:
-    """Full /v1/stats doc. throughput is 0 when idle; kv/mamba/swa are null
+    """Full /admin/stats doc. throughput is 0 when idle; kv/mamba/swa are null
     when their total is 0 (owned-KV / non-hybrid / non-SWA). kv and swa share one shape:
     pages + the pool's own page_size (tokens = pages x page_size)."""
     tr: StatsTracker = state.stats

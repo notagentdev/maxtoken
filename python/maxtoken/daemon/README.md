@@ -9,7 +9,7 @@ client (mt ctl / curl / any HTTP client)             chat traffic → serve DIRE
         │ HTTP control plane (loopback :1900)                     │
         ▼                                                         ▼
    mt daemon  ──spawn / signal / tail──▶  mt serve  (model · inference · MAY crash)
-   (no torch)                              └─ /health /v1/stats  (per-serve control API)
+   (no torch)                              └─ /health /admin/stats  (per-serve control API)
         ▲
    systemd  Restart=always · RestartSec=1 · KillMode=process
 ```
@@ -67,14 +67,14 @@ Target a non-default daemon with `--url http://host:1900` (or `$MAXTOKEN_DAEMON_
 | `GET /engine/logs?since=` | SSE, ANSI-stripped, tqdm-`\r` collapsed, ring replay, `id:<seq>`, `Last-Event-ID` resume. |
 | `GET /engine/metrics` | `{ramBytes,vramBytes}` — the serve tree's own footprint only. |
 | `GET /engine/health` | Proxied serve `/health` + daemon reachability. |
-| `GET /engine/stats` | Proxied serve `/v1/stats`. |
+| `GET /engine/stats` | Proxied serve `/admin/stats`. |
 | `GET /accounting/pending` | Unacknowledged durable final-accounting receipts, replayable after a Desktop/client crash. |
 | `POST /accounting/ack` `{receiptId}` | Idempotently removes a receipt only after the client has durably applied it. |
 
 Set `--token` (or `$MAXTOKEN_DAEMON_TOKEN`) to require an `X-FT-Token` header on everything
 except `/health`.
 
-The daemon reaches the serve's destructive `POST /v1/admin/prepare-stop` endpoint only over
+The daemon reaches the serve's destructive `POST /admin/prepare-stop` endpoint only over
 loopback; the serve rejects non-loopback callers even when its inference API is bound to
 `0.0.0.0`. `force` is never implicit: it is an explicit recovery choice that may record null
 totals for an unobservable tail when a broken engine cannot be drained or queried.

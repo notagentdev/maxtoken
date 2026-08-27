@@ -718,7 +718,7 @@ def test_count_tokens_template_render_error_400():
 
 def test_count_tokens_excluded_from_request_ring():
     # count_tokens never enters generation accounting; its latency (incl. first-touch tokenizer
-    # load) must not land in the /v1/requests ring or the /v1/stats p95.
+    # load) must not land in the /admin/requests ring or the /admin/stats p95.
     from maxtoken.server import request_ring
 
     request_ring.reset()

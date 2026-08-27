@@ -129,7 +129,7 @@ class TokenizeManager:
     def thinking_profile(self) -> ThinkingProfile:
         """The checkpoint's thinking controls (toggle behavior + effort
         vocabulary), probed on first use and cached for the process lifetime.
-        Feeds the /v1/cache/status gear derivation."""
+        Feeds the /admin/cache/status gear derivation."""
         efforts = self.effort_profile()
         with self._effort_lock:
             if self._thinking_profile is None:

@@ -3,8 +3,8 @@
 Chat goes through ``POST /v1/chat/completions`` (SSE) -- the same endpoint opencode and the
 desktop app use -- so the shell shares one code path with every other client: prompt rendering,
 sampling defaults, the reasoning split, tool-call parsing, request accounting. The status bar
-reads the public control plane (``/health``, ``/v1/stats``, ``/v1/cache/status``, ``/v1/models``),
-and ``/cache`` drives ``POST /v1/cache/rebuild``. There is no shell-private server interface, so
+reads the public control plane (``/health``, ``/admin/stats``, ``/admin/cache/status``, ``/v1/models``),
+and ``/cache`` drives ``POST /admin/cache/rebuild``. There is no shell-private server interface, so
 ``mt shell`` can attach to any server, in this process or on another machine.
 
 Transport follows what the repo already does: the ``openai`` SDK for generation (like
@@ -171,10 +171,10 @@ class ShellClient:
         return await self._request_json("GET", "/health")
 
     async def stats(self) -> dict[str, Any]:
-        return await self._request_json("GET", "/v1/stats")
+        return await self._request_json("GET", "/admin/stats")
 
     async def cache_status(self) -> dict[str, Any]:
-        return await self._request_json("GET", "/v1/cache/status")
+        return await self._request_json("GET", "/admin/cache/status")
 
     async def cache_rebuild(
         self,
@@ -199,7 +199,7 @@ class ShellClient:
                 body[key] = value
         # The server blocks for the whole rebuild, so the client must outwait it.
         return await self._request_json(
-            "POST", "/v1/cache/rebuild", body=body, timeout=wait + self.timeout
+            "POST", "/admin/cache/rebuild", body=body, timeout=wait + self.timeout
         )
 
     async def model_id(self) -> str | None:

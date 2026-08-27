@@ -5,10 +5,9 @@ either protocol reaches this server without knowing anything about it, so a
 route that quietly disappears or moves is a broken integration somewhere else,
 found by somebody else, later.
 
-The second half of the file guards the other direction: the ``/v1`` prefix
-belongs to those protocols, and our own endpoints have no business appearing
-there. The ones that already do are listed by name, so the list can shrink but
-never silently grow.
+The second half guards the other direction: the ``/v1`` prefix belongs to those
+protocols, and nothing of ours may appear there — our own endpoints are served
+under ``/admin``.
 """
 
 import pytest
@@ -31,19 +30,6 @@ ANTHROPIC = {
     "/v1/messages/count_tokens",
 }
 
-# Ours. They answer under /admin now; these spellings remain so existing
-# clients, dashboards and scripts keep working, and they are kept out of the
-# published schema so a protocol client never discovers them. Shrinking this
-# set is welcome — growing it is what the test forbids.
-LEGACY_ALIASES = {
-    "/v1/stats",
-    "/v1/requests",
-    "/v1/cache/status",
-    "/v1/cache/rebuild",
-    "/v1/admin/prepare-stop",
-}
-
-
 def _paths() -> set[str]:
     return {r.path for r in app.routes if getattr(r, "path", "").startswith("/v1")}
 
@@ -59,7 +45,7 @@ def test_anthropic_route_is_served(route):
 
 
 def test_nothing_new_squats_in_the_protocol_namespace():
-    unexpected = _paths() - OPENAI - ANTHROPIC - LEGACY_ALIASES
+    unexpected = _paths() - OPENAI - ANTHROPIC
     assert not unexpected, (
         "these are ours, not protocol, and /v1 is the protocol's namespace — "
         f"serve them under /admin instead: {sorted(unexpected)}"
@@ -77,26 +63,6 @@ def test_the_published_schema_under_v1_is_protocol_only():
     # FastAPI renders path params without their converter.
     expected = {p.replace("{model_id:path}", "{model_id}") for p in OPENAI | ANTHROPIC}
     assert published == expected
-
-
-@pytest.mark.parametrize("legacy", sorted(LEGACY_ALIASES))
-def test_legacy_alias_still_answers_and_shares_its_handler(legacy):
-    canonical = {
-        "/v1/stats": "/admin/stats",
-        "/v1/requests": "/admin/requests",
-        "/v1/cache/status": "/admin/cache/status",
-        "/v1/cache/rebuild": "/admin/cache/rebuild",
-        "/v1/admin/prepare-stop": "/admin/prepare-stop",
-    }[legacy]
-    handlers = {}
-    for route in app.routes:
-        path = getattr(route, "path", None)
-        if path in (legacy, canonical):
-            handlers.setdefault(path, getattr(route, "endpoint", None))
-    assert handlers.get(legacy) is not None, f"{legacy} stopped answering"
-    assert handlers[legacy] is handlers[canonical], (
-        f"{legacy} and {canonical} drifted apart"
-    )
 
 
 def test_the_protocol_routes_accept_their_methods():

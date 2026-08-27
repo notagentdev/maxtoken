@@ -1,7 +1,7 @@
 """In-memory ring of recent API requests for the desktop Logs tab.
 
 A bounded deque + a monotonic all-time cursor: clients pull incrementally with
-``?since=<next_cursor>``. Records are appended by an HTTP middleware; p95 (for /v1/stats)
+``?since=<next_cursor>``. Records are appended by an HTTP middleware; p95 (for /admin/stats)
 reads the same ring. Purely in-process — request_logger.py still owns the on-disk JSONL."""
 
 from __future__ import annotations

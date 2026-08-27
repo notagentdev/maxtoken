@@ -2,7 +2,7 @@
 
 These used to sit in the shell's TUI module, back when the shell ran inside the server
 process and could read ``ServerArgs`` directly. The shell is an ordinary HTTP client now,
-so they belong on the server side of the wire: ``/v1/cache/status`` is what hands them out
+so they belong on the server side of the wire: ``/admin/cache/status`` is what hands them out
 (``geometry.reasoning`` for the thinking gears, ``geometry.moe_*`` for the cache panel).
 """
 
@@ -33,7 +33,7 @@ def thinking_toggle_kwargs(enabled: bool) -> dict:
 def derive_think_gears(
     profile: ThinkingProfile, parser_configured: bool
 ) -> Tuple[Tuple[str, ...], str | None, dict] | None:
-    """``(gears, default_gear, kwargs_per_gear)`` for the /v1/cache/status
+    """``(gears, default_gear, kwargs_per_gear)`` for the /admin/cache/status
     ``geometry.reasoning`` block, derived from the checkpoint's probed thinking
     controls -- the checkpoint owns this knowledge; nothing here is keyed by
     model family. ``None`` when there is nothing controllable to offer.

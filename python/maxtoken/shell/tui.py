@@ -48,7 +48,7 @@ from .render import (
     ShellStatusLine,
 )
 
-# How often the status bar re-reads /v1/stats while a turn is streaming. Matched to the bar's
+# How often the status bar re-reads /admin/stats while a turn is streaming. Matched to the bar's
 # own repaint interval; the endpoint is a dict read on the server and is excluded from its
 # access log (see server/access_log_filter.py), so polling it is free.
 STATS_POLL_INTERVAL = SHELL_STATUS_REFRESH_INTERVAL
@@ -263,7 +263,7 @@ class ShellStats:
             self.completion_tokens = done.completion_tokens
 
     def apply_stats_doc(self, doc: dict) -> None:
-        """Absorb a ``/v1/stats`` document. Every pool keeps last-known-value semantics: a
+        """Absorb a ``/admin/stats`` document. Every pool keeps last-known-value semantics: a
         model without that pool reports null and the segment stays off the bar."""
         kv = doc.get("kv")
         if isinstance(kv, dict) and int(kv.get("total_pages", 0) or 0) > 0:
@@ -276,7 +276,7 @@ class ShellStats:
             self.mamba_total_slots = int(mamba["total_slots"])
         swa = doc.get("swa")
         if isinstance(swa, dict) and int(swa.get("total_pages", 0) or 0) > 0:
-            # /v1/stats denominates the window pool in its own pages; the bar shows tokens.
+            # /admin/stats denominates the window pool in its own pages; the bar shows tokens.
             swa_page_size = int(swa.get("page_size", 1) or 1)
             self.swa_used_tokens = int(swa.get("used_pages", 0) or 0) * swa_page_size
             self.swa_total_tokens = int(swa["total_pages"]) * swa_page_size
@@ -285,7 +285,7 @@ class ShellStats:
             self.gpu_mem_bytes = vram
 
     def apply_geometry(self, geometry: dict) -> None:
-        """Absorb the ``geometry`` block of ``/v1/cache/status``: the MoE slot cache and its
+        """Absorb the ``geometry`` block of ``/admin/cache/status``: the MoE slot cache and its
         residency rate against the model's total routed experts."""
         self.cache_size = int(geometry.get("moe_cache_size", 0) or 0)
         self.cache_policy = str(geometry.get("moe_cache_policy") or self.cache_policy)

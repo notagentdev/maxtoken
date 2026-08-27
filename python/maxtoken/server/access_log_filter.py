@@ -27,17 +27,11 @@ _POLLING_PATH_PREFIXES: tuple[str, ...] = (
     "/admin/stats",
     "/admin/requests",
     "/admin/cache/status",
-    # The pre-/admin spellings still answer, so a console or script that has not
-    # moved yet would otherwise fill the log with the polling this list exists
-    # to hide.
-    "/v1/stats",
-    "/v1/requests",
-    "/v1/cache/status",
 )
 
-# The bare "/v1" probe is matched *exactly*, never as a prefix -- the legacy paths above,
-# and every protocol endpoint like "/v1/models", also start with "/v1", so prefix-matching
-# it would silently swallow the whole protocol surface.
+# The bare "/v1" probe is matched *exactly*, never as a prefix -- every protocol endpoint
+# ("/v1/models", "/v1/chat/completions", ...) also starts with "/v1", so prefix-matching it
+# would silently swallow the whole protocol surface.
 _BARE_PROBE_PATH = "/v1"
 
 

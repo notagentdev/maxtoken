@@ -148,7 +148,7 @@ def test_prepare_stop_route_reports_fail_closed_timeout():
     app = FastAPI()
     register_accounting_routes(app, lambda: state)
     response = TestClient(app, client=("127.0.0.1", 50000)).post(
-        "/v1/admin/prepare-stop",
+        "/admin/prepare-stop",
         json={"drain_timeout_s": 0, "abort_timeout_s": 0},
     )
     assert response.status_code == 503
@@ -161,7 +161,7 @@ def test_prepare_stop_route_rejects_non_loopback_without_closing_admission():
     app = FastAPI()
     register_accounting_routes(app, lambda: state)
     response = TestClient(app, client=("192.0.2.10", 50000)).post(
-        "/v1/admin/prepare-stop",
+        "/admin/prepare-stop",
         json={},
     )
     assert response.status_code == 403
