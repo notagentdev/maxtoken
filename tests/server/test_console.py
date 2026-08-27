@@ -17,6 +17,23 @@ def test_console_served():
         assert path in r.text
 
 
+def test_a_waiting_turn_shows_a_spinner_and_a_clock():
+    """An empty assistant bubble reads as a hung server.
+
+    A long prompt or a reasoning model can take seconds before its first token,
+    so the bubble carries a spinner and a running clock until then, and the
+    clock has to be stopped on every exit — including an abort or an HTTP error,
+    or it ticks forever in a bubble nobody is filling.
+    """
+    page = TestClient(app).get("/console").text
+    assert ".spinner" in page and "@keyframes spin" in page
+    assert "Processing prompt" in page
+    assert "prefers-reduced-motion" in page, "an infinite spinner needs the opt-out"
+    # started once, cleared on the first content token and again in `finally`
+    assert page.count("endStatus()") >= 2
+    assert "clearInterval(ticker)" in page
+
+
 def test_root_redirects_to_console():
     client = TestClient(app)
     r = client.get("/", follow_redirects=False)

@@ -165,6 +165,18 @@
   .msg .think { color: var(--text-3); font-size: 12px; border-left: 3px solid var(--border); padding-left: 9px; margin-bottom: 8px; white-space: pre-wrap; }
   .msg .meta { font: 10.5px var(--mono); color: var(--text-3); margin-top: 8px; }
   .msg .meta b { color: var(--text-2); }
+  /* Shown from the moment a turn is sent until its first token lands. A long
+     prompt or a reasoning model can take seconds to answer, and an empty bubble
+     reads as a hung server. */
+  .msg .status { display: flex; align-items: center; gap: 8px; font: 11.5px var(--mono); color: var(--text-3); }
+  .msg .status b { color: var(--text-2); font-weight: 500; }
+  .spinner {
+    width: 11px; height: 11px; flex: none; border-radius: 50%;
+    border: 2px solid var(--border); border-top-color: var(--accent);
+    animation: spin .7s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.4s; } }
   #composer { display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border); }
   #composer textarea {
     flex: 1; resize: none; background: var(--panel); color: var(--text-1);
@@ -634,11 +646,25 @@ async function send() {
   addMsg("user").textContent = text;
 
   const el = addMsg("assistant");
+  const statusEl = document.createElement("div"); statusEl.className = "status";
+  statusEl.innerHTML = '<span class="spinner"></span><span class="phase">Processing prompt</span><b></b>';
   const thinkEl = document.createElement("div"); thinkEl.className = "think"; thinkEl.hidden = true;
   const bodyEl = document.createElement("div");
   const metaEl = document.createElement("div"); metaEl.className = "meta";
-  el.append(thinkEl, bodyEl, metaEl);
+  el.append(statusEl, thinkEl, bodyEl, metaEl);
   scrollDown();
+
+  // The prompt-processing clock. It runs from the request leaving the browser
+  // until the first token arrives, so what it counts is exactly the wait the
+  // TTFT figure reports afterwards.
+  const t0 = performance.now();
+  const elapsedEl = statusEl.querySelector("b");
+  const phaseEl = statusEl.querySelector(".phase");
+  const ticker = setInterval(() => {
+    elapsedEl.textContent = ((performance.now() - t0) / 1000).toFixed(1) + "s";
+  }, 100);
+  elapsedEl.textContent = "0.0s";
+  const endStatus = () => { clearInterval(ticker); statusEl.remove(); };
 
   const messages = [];
   if ($("sysPrompt").value.trim()) messages.push({ role: "system", content: $("sysPrompt").value.trim() });
@@ -646,7 +672,6 @@ async function send() {
 
   aborter = new AbortController();
   $("sendBtn").disabled = true; $("stopBtn").disabled = false; $("stopBtnTop").disabled = false;
-  const t0 = performance.now();
   let tFirst = null, answer = "", think = "", usage = null;
 
   try {
@@ -678,10 +703,15 @@ async function send() {
         const delta = chunk.choices?.[0]?.delta || {};
         if (delta.reasoning_content) {
           if (tFirst === null) tFirst = performance.now();
+          // The prompt is through; the model is reasoning. Keep the spinner —
+          // the reasoning block is collapsed by default, so this is still the
+          // only sign that anything is happening.
+          phaseEl.textContent = "Thinking";
           think += delta.reasoning_content; thinkEl.hidden = false; thinkEl.textContent = think;
         }
         if (delta.content) {
           if (tFirst === null) tFirst = performance.now();
+          endStatus();
           answer += delta.content; bodyEl.textContent = answer;
         }
         scrollDown();
@@ -703,6 +733,9 @@ async function send() {
     if (e.name === "AbortError") { metaEl.textContent = "stopped"; historyMsgs.push({ role: "assistant", content: answer }); }
     else { bodyEl.textContent = (answer ? answer + "\n\n" : "") + "⚠ " + e.message; }
   } finally {
+    // Also covers the paths the stream never reaches: an abort, an HTTP error,
+    // or a turn that produced nothing but reasoning.
+    endStatus();
     aborter = null;
     $("sendBtn").disabled = false; $("stopBtn").disabled = true; $("stopBtnTop").disabled = true;
     pollStats();

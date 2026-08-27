@@ -298,6 +298,19 @@ class ShellStats:
         self.status = "done"
         self.finished_at = time.time() if now is None else now
 
+    def wait_seconds(self, now: float | None = None) -> float | None:
+        """Seconds spent waiting for the turn's first token.
+
+        Live while the prompt is still being processed, frozen at the turn's
+        TTFT once a token has arrived, and None between turns.
+        """
+        if self.started_at is None or self.status in ("idle", "done"):
+            return None
+        end = self.first_token_at
+        if end is None:
+            end = time.time() if now is None else now
+        return max(0.0, end - self.started_at)
+
     def tok_s(self, now: float | None = None) -> float:
         if self.first_token_at is None or self.completion_tokens == 0:
             return 0.0
@@ -315,7 +328,16 @@ class ShellStats:
         if self.cache_rate is not None:
             cache_status += f" {format_percent(self.cache_rate)}"
         token_status = f"↓{self.prompt_tokens} ↑{self.completion_tokens} {self.tok_s(now):.1f} tok/s"
-        segments = [prefix, token_status, cache_status]
+        segments = [prefix, token_status]
+        wait = self.wait_seconds(now)
+        if wait is not None:
+            # While the prompt is being processed this is the only number that
+            # moves, so it is what tells the user the engine is working rather
+            # than stuck. It keeps its final value afterwards as the turn's TTFT.
+            segments.append(
+                f"{'prompt' if self.first_token_at is None else 'ttft'} {wait:.1f}s"
+            )
+        segments.append(cache_status)
         if self.kv_total_pages > 0:
             kv_pct = format_percent(self.kv_used_pages / self.kv_total_pages)
             ps = self.page_size
