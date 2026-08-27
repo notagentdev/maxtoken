@@ -9,11 +9,8 @@ starve an operator's stop."""
 from __future__ import annotations
 
 import asyncio
-import collections
 import functools
 import json
-import os
-import sys
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
@@ -44,48 +41,8 @@ class AccountingAckBody(BaseModel):
     receiptId: str
 
 
-class CheckpointBody(BaseModel):
-    id: str
-    args: list[str] = []
-
-
 class CancelBody(BaseModel):
     id: str
-
-
-class BenchBody(BaseModel):
-    # Raw `mt bench bw` args (e.g. ["--dtype", "nvfp4", "--threshold", "2.5"]); empty = all dtypes.
-    args: list[str] = []
-
-
-def _bench_profile_path() -> str:
-    from maxtoken.moe.bench_profile import default_profile_path  # torch-free
-
-    return default_profile_path()
-
-
-def _read_bench_profile() -> dict | None:
-    """The engine host's cached benchbw.json (this is where the serve reads it too), or None."""
-    try:
-        with open(_bench_profile_path()) as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return None
-
-
-def _bench_sse(event: str, data) -> str:
-    return f"event: {event}\ndata: {json.dumps(data)}\n\n"
-
-
-def _parse_ftbench(line: str) -> dict | None:
-    """``FTBENCH <done> <total> <label>`` -> a progress dict (mirrors mt checkpoint's FTCONVERT)."""
-    parts = line.split(maxsplit=3)
-    if len(parts) < 4 or parts[0] != "FTBENCH":
-        return None
-    try:
-        return {"done": int(parts[1]), "total": int(parts[2]), "label": parts[3]}
-    except ValueError:
-        return None
 
 
 def build_app(
@@ -98,7 +55,6 @@ def build_app(
     proxy_pool: ThreadPoolExecutor,
     default_serve_port: int = 1919,
     token: str | None = None,
-    checkpoints=None,
     started_wall: float = 0.0,
     wall_now: Callable[[], float] | None = None,
     shutdown_hook: Callable[[], None] | None = None,
@@ -284,76 +240,6 @@ def build_app(
     @app.get("/engine/logs", dependencies=auth)
     async def engine_logs(request: Request, since: int = 0):
         return _log_stream(request, ring, since)
-
-    # ---- checkpoint (phase 3; optional) ----
-
-    if checkpoints is not None:
-
-        @app.post("/checkpoint/start", dependencies=auth)
-        async def checkpoint_start(body: CheckpointBody):
-            # GPU exclusivity: a convert needs the GPU, so stop any serve first.
-            await run(lifecycle_pool, manager.stop)
-            try:
-                return await run(lifecycle_pool, checkpoints.start, body.id, list(body.args))
-            except Conflict as exc:
-                raise HTTPException(status_code=409, detail=str(exc))
-            except Exception as exc:  # noqa: BLE001
-                raise HTTPException(status_code=500, detail=f"checkpoint start failed: {exc}")
-
-        @app.post("/checkpoint/cancel", dependencies=auth)
-        async def checkpoint_cancel(body: CancelBody):
-            return await run(lifecycle_pool, checkpoints.cancel, body.id)
-
-        @app.get("/checkpoint/status", dependencies=auth)
-        async def checkpoint_status():
-            return checkpoints.status()
-
-    # ---- hardware bandwidth bench (hardware-adaptive config) ----
-
-    @app.post("/bench/run", dependencies=auth)
-    async def bench_run(body: BenchBody):
-        # GPU exclusivity: the bench allocates transient device memory, so stop any serve first
-        # (mirrors /checkpoint/start). Runs `mt bench bw` on the engine HOST (so the profile lands
-        # where this daemon's serve reads it) and STREAMS progress back as SSE: `progress` events
-        # per measured format, then a terminal `result` (the profile) or `error` event. `body.args`
-        # is the raw arg list, so any `mt bench bw` flag (--dtype/--model/--threshold/...) passes
-        # through. torch stays out of the daemon (child process), which also frees VRAM on exit.
-        await run(lifecycle_pool, manager.stop)
-
-        async def gen():
-            env = {**os.environ, "MAXTOKEN_BENCH_PROGRESS": "1"}
-            argv = [sys.executable, "-m", "maxtoken.cli", "bench", "bw", *body.args]
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, env=env
-                )
-            except Exception as exc:  # noqa: BLE001
-                yield _bench_sse("error", {"message": f"failed to spawn bench: {exc}"})
-                return
-            tail: collections.deque = collections.deque(maxlen=8)  # last non-progress lines (errors)
-            assert proc.stdout is not None
-            async for raw in proc.stdout:
-                line = raw.decode(errors="replace").rstrip()
-                prog = _parse_ftbench(line)
-                if prog is not None:
-                    yield _bench_sse("progress", prog)
-                elif line:
-                    tail.append(line)
-            rc = await proc.wait()
-            if rc != 0:
-                yield _bench_sse("error", {"message": "\n".join(tail) or f"bench exited {rc}"})
-                return
-            prof = _read_bench_profile()
-            if prof is None:
-                yield _bench_sse("error", {"message": "bench finished but no profile was written"})
-            else:
-                yield _bench_sse("result", prof)
-
-        return StreamingResponse(gen(), media_type="text/event-stream")
-
-    @app.get("/bench/profile", dependencies=auth)
-    async def bench_profile():
-        return await run(proxy_pool, _read_bench_profile)
 
     return app
 

@@ -70,7 +70,6 @@ Target a non-default daemon with `--url http://host:1900` (or `$MAXTOKEN_DAEMON_
 | `GET /engine/stats` | Proxied serve `/v1/stats`. |
 | `GET /accounting/pending` | Unacknowledged durable final-accounting receipts, replayable after a Desktop/client crash. |
 | `POST /accounting/ack` `{receiptId}` | Idempotently removes a receipt only after the client has durably applied it. |
-| `POST /checkpoint/start\|cancel` | Supervised `mt checkpoint` (GPU-exclusive: stops the serve first). |
 
 Set `--token` (or `$MAXTOKEN_DAEMON_TOKEN`) to require an `X-FT-Token` header on everything
 except `/health`.

@@ -527,7 +527,7 @@ def parse_args(
         choices=SUPPORTED_MOE_BACKENDS,
         help=(
             "The MoE backend to use. 'auto' resolves a MoE model to the offload family "
-            "(offload, or hybrid when a `mt bench bw` profile recommends it); resident "
+            "(offload for MoE, fused for dense); resident "
             "'fused' experts must be requested explicitly."
         ),
     )
@@ -642,7 +642,7 @@ def parse_args(
             "For --moe-backend hybrid: max experts fetched over PCIe per (layer, decode "
             "step); the rest of that step's misses are computed on the CPU, overlapped. "
             "-1 (default) = auto: fetch the benched pcie/cpu bandwidth fraction of each "
-            "step's misses (perfect overlap; needs an `mt bench bw` profile, else 1). "
+            "step's misses (perfect overlap; 1 by default). "
             "0 = never fetch (all misses on CPU); large = behaves like plain offload."
         ),
     )

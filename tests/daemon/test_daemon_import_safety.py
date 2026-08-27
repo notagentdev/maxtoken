@@ -28,7 +28,6 @@ DAEMON_MODULES = [
     "maxtoken.daemon.proxy",
     "maxtoken.daemon.tailer",
     "maxtoken.daemon.serve_manager",
-    "maxtoken.daemon.checkpoint",
     "maxtoken.daemon.app",
     "maxtoken.daemon.client",
     "maxtoken.daemon.server",

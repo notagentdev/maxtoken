@@ -108,7 +108,6 @@ def main(argv: Sequence[str] | None = None, *, prog: str = "mt daemon") -> int:
         format="%(asctime)s [mt-daemon] %(levelname)s %(message)s",
     )
 
-    from .checkpoint import CheckpointManager
     from .logring import LogRing
     from .metrics import FootprintCache
     from .pidfile import AlreadyRunning, ServeStateStore, SingleInstance
@@ -154,9 +153,6 @@ def main(argv: Sequence[str] | None = None, *, prog: str = "mt daemon") -> int:
         prepare_stop=probe.prepare_stop,
         read_stats=probe.fresh_stats,
     )
-    checkpoints = CheckpointManager(
-        ring, python=args.serve_python, log_dir=log_dir, tailer_factory=tailer_factory
-    )
     footprint = FootprintCache()
 
     # Degraded start: re-adoption must never keep the daemon from booting.
@@ -194,7 +190,6 @@ def main(argv: Sequence[str] | None = None, *, prog: str = "mt daemon") -> int:
         proxy_pool=proxy_pool,
         default_serve_port=args.default_serve_port,
         token=args.token,
-        checkpoints=checkpoints,
         started_wall=time.time(),
         shutdown_hook=shutdown_hook,
     )
