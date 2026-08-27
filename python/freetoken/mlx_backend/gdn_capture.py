@@ -6,27 +6,29 @@ rows, so a rejected draft costs nothing; a gated-delta layer keeps a single
 state tensor that has already absorbed the whole window by the time the
 acceptance rule runs, and there is no arithmetic that takes it back.
 
-The way out is to keep the state the recurrence passes through anyway. Run the
-window one position at a time and hold each intermediate state; once the
-acceptance rule has decided that ``keep`` of the window's positions survive,
-the committed state is simply the one recorded at ``keep - 1``. Attention
-layers trim as usual. Nothing is recomputed and nothing is carried into the
-next round.
+Without a way back, a rejected round has to roll every cache to where the
+window started and re-feed the accepted tokens in the next window, where they
+cost rows a second time and crowd out the drafts that would have earned them
+back.
 
-Without this a rejected round has to roll every cache back to where the window
-started and re-feed the accepted tokens in the next window, where they cost
-rows a second time and crowd out the drafts that would have earned them back.
+The way out is that the recurrence is cheap and everything in front of it is
+not. The window's forward runs exactly as it always did — one call into
+mlx-lm's kernel, which carries the state through all T positions in registers
+and returns the last one. What the capture keeps is only the recurrence's
+INPUTS: the post-convolution q/k/v, the gates, and the state the window
+started from. If the acceptance rule then keeps a shorter prefix, replaying
+that prefix is one more pass over the recurrence alone — no projections, no
+convolution, no MLP, no attention.
 
-The approach is MTPLX's (Apache-2.0, https://github.com/youssofal/MTPLX): its
-``gdn_capture`` records per-position conv and recurrent state during the verify
-forward and commits the accepted prefix from it. This is an independent
-implementation of that idea against mlx-lm's own operators, narrowed to the
-layout our checkpoints use.
+So an all-accept round pays nothing at all for the ability to commit, and a
+rejected one pays only for the part that is small. Holding the inputs costs
+about 180 KiB per layer for a four-row window; holding a state per position
+would have cost 3 MiB per layer per position.
 
-The captured state is not small — one position of one layer is
-``num_v_heads * head_v_dim * head_k_dim`` float32, 3 MiB on Qwen3.8-27B, so a
-four-row window across 48 recurrent layers holds about 0.56 GiB until the round
-commits. That is the price of not re-running the trunk.
+The idea of committing a captured prefix is MTPLX's (Apache-2.0,
+https://github.com/youssofal/MTPLX). Their kernel records per-position state
+during the forward and replays from a tape of deltas; this reaches the same
+place with mlx-lm's own operators and no custom Metal.
 """
 
 from __future__ import annotations
@@ -41,8 +43,8 @@ logger = init_logger(__name__)
 # The projections a capturable gated-delta layer must expose. Anything else
 # (a fused qkvz layout, a future rename) declines capture and leaves the
 # caller on its snapshot-and-rollback path.
-_REQUIRED = ("in_proj_qkv", "in_proj_z", "in_proj_b", "in_proj_a", "conv1d", "norm",
-             "out_proj", "A_log", "dt_bias")
+_REQUIRED = ("in_proj_qkv", "in_proj_z", "in_proj_b", "in_proj_a", "conv1d",
+             "norm", "out_proj", "A_log", "dt_bias")
 
 
 def _layers(model):
@@ -90,9 +92,6 @@ def _make_capture_call(original, captures: dict):
         if mask is not None:
             qkv = mx.where(mask[..., None], qkv, 0)
         conv_input = mx.concatenate([conv_state, qkv], axis=1)
-        # The convolution's state after position i is the window of `keep`
-        # inputs ending at i — a view per position, no copy.
-        conv_states = [conv_input[:, i + 1 : i + 1 + keep, :] for i in range(S)]
         conv_out = nn.silu(self.conv1d(conv_input))
 
         q, k, v = [
@@ -107,43 +106,35 @@ def _make_capture_call(original, captures: dict):
         q = (inv_scale**2) * mx.fast.rms_norm(q, None, 1e-6)
         k = inv_scale * mx.fast.rms_norm(k, None, 1e-6)
 
-        # One position at a time: the whole point is the intermediate states,
-        # and mlx-lm's kernel returns only the last one.
-        state = cache[1]
-        outs, states = [], []
-        step_mask = None
-        for i in range(S):
-            if mask is not None and not isinstance(mask, str):
-                step_mask = mask[:, i : i + 1]
-            out_i, state = gated_delta_update(
-                q[:, i : i + 1],
-                k[:, i : i + 1],
-                v[:, i : i + 1],
-                a[:, i : i + 1],
-                b[:, i : i + 1],
-                self.A_log,
-                self.dt_bias,
-                state,
-                step_mask,
-                use_kernel=not self.training,
-            )
-            outs.append(out_i)
-            states.append(state)
+        state_in = cache[1]
+        out, state = gated_delta_update(
+            q, k, v, a, b, self.A_log, self.dt_bias, state_in, mask,
+            use_kernel=not self.training,
+        )
 
-        captures[id(self)] = (conv_states, states)
-        cache[0] = mx.contiguous(conv_states[-1])
-        cache[1] = states[-1]
+        # References only. Nothing here is computed for the capture's sake; a
+        # round that accepts everything never looks at it again.
+        captures[id(self)] = {
+            "gdn": self,
+            "conv_input": conv_input,
+            "conv_keep": keep,
+            "q": q, "k": k, "v": v, "a": a, "b": b,
+            "state_in": state_in,
+            "mask": mask,
+        }
+
+        cache[0] = mx.contiguous(conv_input[:, S:, :])
+        cache[1] = state
         cache.advance(S)
 
-        out = self.norm(mx.concatenate(outs, axis=1), z)
-        return self.out_proj(out.reshape(B, S, -1))
+        return self.out_proj(self.norm(out, z).reshape(B, S, -1))
 
     return capture_call
 
 
 @contextmanager
 def capture(model):
-    """Run a forward with every recurrent layer recording its per-position state.
+    """Run a forward with every recurrent layer keeping its recurrence inputs.
 
     Yields the capture dict, keyed by the id of the gated-delta module, or an
     empty dict when the model's layout is not one this can record — in which
@@ -173,6 +164,7 @@ def commit_prefix(model, cache, captures: dict, keep: int, verified: int) -> boo
     recurrent layer, so a caller can still fall back.
     """
     import mlx.core as mx
+    from mlx_lm.models.gated_delta import gated_delta_update
 
     if not captures or keep <= 0 or keep > verified:
         return False
@@ -186,7 +178,7 @@ def commit_prefix(model, cache, captures: dict, keep: int, verified: int) -> boo
     for layer, entry in zip(layers, cache):
         if getattr(layer, "is_linear", False):
             recorded = captures.get(id(getattr(layer, "linear_attn", None)))
-            if recorded is None or len(recorded[1]) < keep:
+            if recorded is None:
                 return False
             plan.append((entry, recorded))
         else:
@@ -199,8 +191,30 @@ def commit_prefix(model, cache, captures: dict, keep: int, verified: int) -> boo
         if recorded is None:
             if trim:
                 entry.trim(trim)
-        else:
-            conv_states, states = recorded
-            entry[0] = mx.contiguous(conv_states[keep - 1])
-            entry[1] = states[keep - 1]
+            continue
+        if not trim:
+            continue  # the window was kept whole; the caches already hold it
+        gdn = recorded["gdn"]
+        conv_keep = recorded["conv_keep"]
+        # The convolution's state after position keep-1 is the window of
+        # `conv_keep` inputs ending there — a slice, not a computation.
+        entry[0] = mx.contiguous(
+            recorded["conv_input"][:, keep : keep + conv_keep, :]
+        )
+        # The recurrence alone, replayed over the accepted prefix. One kernel
+        # call per layer, and only on a round that rejected something.
+        mask = recorded["mask"]
+        _, state = gated_delta_update(
+            recorded["q"][:, :keep],
+            recorded["k"][:, :keep],
+            recorded["v"][:, :keep],
+            recorded["a"][:, :keep],
+            recorded["b"][:, :keep],
+            gdn.A_log,
+            gdn.dt_bias,
+            recorded["state_in"],
+            None if mask is None or isinstance(mask, str) else mask[:, :keep],
+            use_kernel=not gdn.training,
+        )
+        entry[1] = state
     return True
