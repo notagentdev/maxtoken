@@ -118,17 +118,18 @@ class MlxScheduler:
         self.batch_gen = None
         self._batch_uid: dict[int, int] = {}  # our uid -> engine uid
         self._our_uid: dict[int, int] = {}  # engine uid -> our uid
+        # Kept beside the geometry rather than read from self.config: the batcher
+        # is built here, and self.config is not assigned until further down.
+        self._batch_running = max(1, config.max_running_req)
         if self.offload_state is None and self.draft is None:
-            from mlx_lm.generate import BatchGenerator
-
-            self.batch_gen = BatchGenerator(
-                self.model,
-                completion_batch_size=max(1, config.max_running_req),
-                prefill_batch_size=min(4, max(1, config.max_running_req)),
+            self._prefill_batch, self._prefill_step = self._prefill_geometry(
+                self._batch_running
             )
+            self.batch_gen = self._make_batch_generator()
             logger.info(
                 f"continuous batching: up to {max(1, config.max_running_req)} "
-                "concurrent decodes per forward"
+                f"concurrent decodes per forward, prefill {self._prefill_batch}"
+                f"x{self._prefill_step} tokens"
             )
         hf_tokenizer = getattr(self.tokenizer, "_tokenizer", self.tokenizer)
         self.eos_token_ids = frozenset(load_eos_token_ids(config.model_path, hf_tokenizer))
@@ -867,7 +868,16 @@ class MlxScheduler:
                     f"({m}/{h + m}), active mem {gpu_mem / 2**30:.2f} GiB{spec}"
                 )
         if self.batch_gen is not None:
-            self._step_batched(reply, gpu_mem)
+            try:
+                self._step_batched(reply, gpu_mem)
+            except Exception as exc:  # noqa: BLE001 -- isolate: the batch, not the worker
+                # The round-robin path below has isolated per-request failures
+                # since it was written; the batched path had no such guard, so a
+                # single request that ran the GPU out of memory took the worker
+                # down and the supervisor then stopped the whole API server. A
+                # model too large for Metal's working set made that reachable
+                # from any prompt long enough to fill a prefill batch.
+                self._abort_batch(reply, exc)
             self._reply(reply)
             return
         for req in list(self.active.values()):
@@ -1024,6 +1034,93 @@ class MlxScheduler:
             for c in cache:
                 c.trim(excess)
         self.prefix_store.insert(tokens, cache)
+
+    def _prefill_geometry(self, running: int) -> tuple[int, int]:
+        """How wide and how deep a batched prefill forward may be.
+
+        A prefill is the largest single allocation the engine makes: mlx-lm
+        processes ``prefill_batch_size`` prompts at ``prefill_step_size`` tokens
+        each in one forward. Metal reports a working set it is willing to keep
+        resident — 24.96 GiB of the 32 GiB on this machine — and a checkpoint
+        can approach or pass that on its own, at which point the default
+        4x2048 has nothing left to allocate into and the command buffer aborts.
+
+        So the geometry is read off what the weights actually left behind. The
+        ladder is deliberately conservative: the true peak depends on the
+        architecture's activation width, which is not something to guess at, and
+        a batch that failed halves itself in ``_abort_batch`` regardless.
+        """
+        mx = self._mx
+        try:
+            info = mx.device_info()
+            working_set = int(info.get("max_recommended_working_set_size", 0))
+        except Exception:  # noqa: BLE001 -- non-Metal or a future API change
+            working_set = 0
+        weights = int(mx.get_active_memory())
+        headroom = working_set - weights if working_set else 1 << 62
+        gib = headroom / 2**30
+        if headroom < 2 * 2**30:
+            geometry = (1, 512)
+        elif headroom < 6 * 2**30:
+            geometry = (min(2, running), 1024)
+        else:
+            geometry = (min(4, running), 2048)
+        logger.info(
+            f"prefill geometry {geometry[0]}x{geometry[1]} tokens "
+            f"(weights {weights / 2**30:.1f} GiB, working set headroom {gib:.1f} GiB)"
+        )
+        return geometry
+
+    def _make_batch_generator(self):
+        from mlx_lm.generate import BatchGenerator
+
+        return BatchGenerator(
+            self.model,
+            completion_batch_size=self._batch_running,
+            prefill_batch_size=self._prefill_batch,
+            prefill_step_size=self._prefill_step,
+        )
+
+    def _abort_batch(self, reply: List[BaseTokenizerMsg], exc: BaseException) -> None:
+        """Fail everything in flight and rebuild the batcher, then keep serving.
+
+        A batched forward carries every active request, so there is no way to
+        tell which one caused the failure — all of them are answered with an
+        error. The generator itself is discarded rather than reused: a Metal
+        command buffer that aborted leaves its prompt cache half-written, and
+        the next call would fail on state from the request that already died.
+
+        Freeing that state is also what makes the retry viable, which matters
+        most for the case that gets here: a model whose weights alone approach
+        the GPU's working set, where the peak of a prefill batch is what tips
+        it over.
+        """
+        logger.warning(f"batched step failed, dropping {len(self.active)} request(s): {exc!r}")
+        for uid in list(self.active):
+            del self.active[uid]
+            reply.append(ErrorReplyMsg(uid=uid, error=f"generation failed: {exc}"))
+        self._batch_uid.clear()
+        self._our_uid.clear()
+        self.batch_gen = None
+        self._mx.clear_cache()
+        # Whatever the estimate was, this shape has now been shown not to fit.
+        # Halving is what makes the next request succeed rather than repeat the
+        # crash, and it is bounded: one prompt at 256 tokens a step is the
+        # narrowest a batched prefill can be.
+        if self._prefill_batch > 1 or self._prefill_step > 256:
+            self._prefill_batch = max(1, self._prefill_batch // 2)
+            self._prefill_step = max(256, self._prefill_step // 2)
+            logger.warning(
+                f"reducing prefill geometry to {self._prefill_batch}x{self._prefill_step} tokens"
+            )
+        try:
+            self.batch_gen = self._make_batch_generator()
+        except Exception as rebuild_exc:  # noqa: BLE001
+            # Without a batcher the scheduler would busy-loop on every future
+            # request; better to let the supervisor restart a worker that has
+            # no way back.
+            logger.error(f"could not rebuild the batcher: {rebuild_exc!r}")
+            raise
 
     def _finish(
         self,
