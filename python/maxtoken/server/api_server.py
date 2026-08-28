@@ -184,6 +184,13 @@ class FrontendManager:
     # handler) tears these down itself, AFTER setting _SHUTTING_DOWN, so the supervisor observes
     # the shutdown flag before the ensuing deaths. See _terminate_backend_workers.
     backend_processes: List[Any] = field(default_factory=list)
+    # What /admin/reload needs to bring the engine back with the boot configuration: the
+    # launcher run_api_server was given, and the supervisor starter it built around it.
+    # Each (re)start is a generation; callbacks from a superseded generation's supervisor
+    # (the workers a reload just replaced) are ignored. None in tests that never booted one.
+    start_backend: Any = None
+    supervise: Any = None
+    backend_generation: int = 0
     # Event loop the listener runs on, captured when the listener starts (_create_listener_once).
     # Lets a cross-thread caller — the supervisor thread's failure callback — marshal rebuild
     # future resolution back onto the loop (asyncio Futures are not thread-safe). None until the
@@ -598,6 +605,68 @@ def _resolve_num_swa_pages(state: FrontendManager, req: CacheRebuildRequest) -> 
     swa_page_size = page_size if is_dsv4 else 1
     window_tokens = int(round(req.swa_full_tokens_ratio * num_pages * page_size))
     return max(1, -(-window_tokens // swa_page_size))  # ceil-div to the pool's page unit
+
+
+async def reload_backend(state: Any) -> tuple[dict, int]:
+    """Restart the engine workers with the configuration they booted with: same checkpoint,
+    same flags, a fresh process. What it is for: a scheduler that has wedged or leaked, a
+    drafter or cache that should start over, a checkpoint edited on disk. Every cache is
+    dropped and every in-flight request ends with an error reply now, instead of hanging on
+    a worker that is about to go.
+
+    Admission closes ("loading") before the old workers are touched, the generation counter
+    moves so the old supervisor's death report is ignored rather than latching "failed" and
+    stopping the server, and the new generation's supervisor reopens the gate on its ready
+    ack -- the same path the boot takes. Returns (body, http status)."""
+    if state.maintenance_state in ("loading", "rebuilding", "stopping"):
+        return {"status": "busy", "error": f"engine is {state.maintenance_state}"}, 409
+    if getattr(state, "start_backend", None) is None or getattr(state, "supervise", None) is None:
+        return {"status": "unsupported", "error": "this server cannot relaunch its engine"}, 503
+
+    from .supervisor import LoadProgress
+
+    generation = int(state.backend_generation) + 1
+    state.backend_generation = generation
+    state.maintenance_state = "loading"
+    state.fatal_error = None
+    state.ready_at = None
+    state.context_length_override = None
+    state.reasoning_budget_override = None
+    state.last_rebuild = None
+    state.load_progress = LoadProgress()
+    stats = getattr(state, "stats", None)
+    for uid in list(state.ack_map):
+        reply = UserReply(uid=uid, incremental_output="", finished=True, error="model reloading")
+        # The listener never sees this reply (it did not come over ZMQ), so retire the
+        # request in the accounting here -- as an abort, not a completion.
+        if stats is not None:
+            stats.on_abort(uid)
+            stats.observe(reply)
+        state.ack_map[uid].append(reply)
+        event = state.event_map.get(uid)
+        if event is not None:
+            event.set()
+    old_workers = list(state.backend_processes)
+    state.backend_processes = []
+
+    def _restart() -> None:
+        _terminate_backend_workers(old_workers)
+        _reap_backend_workers(old_workers)
+        handle = state.start_backend()
+        state.backend_processes = list(getattr(handle, "processes", None) or [])
+        state.supervise(handle, generation)
+
+    # Reaping joins the old workers (up to a few seconds); keep the loop free for /health.
+    await asyncio.to_thread(_restart)
+    logger.info("Engine reload requested: workers relaunched (generation %d)", generation)
+    return {"status": "ok", "generation": generation}, 200
+
+
+@app.post("/admin/reload")
+async def admin_reload():
+    """Relaunch the engine workers with the boot configuration (see reload_backend)."""
+    body, status = await reload_backend(get_global_state())
+    return JSONResponse(body, status_code=status)
 
 
 @app.post("/admin/cache/rebuild")
@@ -1058,63 +1127,84 @@ def run_api_server(config: ServerArgs, start_backend: Callable[[], "Any"], run_s
 
     from .supervisor import LoadProgress, run_backend_supervisor
 
+    def _supervise(handle: Any, generation: int) -> None:
+        """Watch one generation of backend workers on a daemon thread. A reload replaces the
+        workers and moves the generation on; the superseded supervisor then sees its workers
+        die and must not latch "failed" or stop the server for it, so every callback checks
+        that it still speaks for the current generation."""
+
+        def _current() -> bool:
+            return _GLOBAL_STATE.backend_generation == generation
+
+        def _on_ready() -> None:
+            # A stop requested while weights were loading has already sealed admission.  The
+            # backend may finish its ready handshake before SIGTERM arrives; never reopen that
+            # gate after the daemon has received a final accounting snapshot.
+            if _current() and _GLOBAL_STATE.maintenance_state == "loading":
+                _GLOBAL_STATE.maintenance_state = "serving"
+                _GLOBAL_STATE.ready_at = time.monotonic()
+                logger.info(f"API server is ready to serve on {host}:{port}")
+
+        def _on_failure(message: str) -> None:
+            if not _current():
+                return
+            _GLOBAL_STATE.fatal_error = message
+            _GLOBAL_STATE.maintenance_state = "failed"
+            logger.error("Backend supervisor: %s", message)
+            # No CacheRebuildReply will ever arrive from a dead backend, so wake any caller
+            # blocked in dispatch_rebuild's await now — otherwise it strands until the full
+            # rebuild timeout.
+            _GLOBAL_STATE.fail_pending_rebuilds(message)
+            # Then take the whole serve down (see _exit_after_backend_death). Shell mode is
+            # excluded: a person is sitting at that TUI, the API is theirs alone, and its stop
+            # path is ^C.
+            if not run_shell:
+                _exit_after_backend_death(BACKEND_DEATH_EXIT_GRACE_S)
+
+        def _on_meta(meta: dict) -> None:
+            # Per-unit cache VRAM costs + the free-VRAM seed + per-pool floors + the actual
+            # pool sizes allocated at load, delivered once on the ack path; surfaced by
+            # cache_geometry (unit_bytes + the limits block + the pre-first-chat pool seed).
+            # Unpack the extras aside so unit_bytes keeps its original three-key shape;
+            # unknown keys, if any, are inert.
+            if not _current():
+                return
+            meta = dict(meta or {})
+            _GLOBAL_STATE.free_vram_bytes = int(meta.pop("free_vram_bytes", 0) or 0)
+            _GLOBAL_STATE.cache_floors = meta.pop("floors", None)
+            _GLOBAL_STATE.cache_pools = meta.pop("pools", None)
+            _GLOBAL_STATE.swa_full_tokens_ratio = float(
+                meta.pop("swa_full_tokens_ratio", 0.0) or 0.0
+            )
+            _GLOBAL_STATE.cache_budget_bytes = int(meta.pop("cache_budget_bytes", 0) or 0)
+            _GLOBAL_STATE.unit_bytes = meta
+
+        # Early-bind: supervise the backend on a daemon thread so uvicorn can bind
+        # immediately and /health can report loading progress. Shell mode wants exactly the
+        # same thing -- its client waits on /health and renders that progress -- so both paths
+        # share this supervisor; only who runs uvicorn differs.
+        threading.Thread(
+            target=run_backend_supervisor,
+            args=(handle, _GLOBAL_STATE.load_progress, _on_ready),
+            kwargs={
+                "on_failure": _on_failure,
+                "on_meta": _on_meta,
+                # uvicorn's lifespan shutdown sets this on SIGINT/SIGTERM, so the workers'
+                # expected exit during stop is not reported as a crash.
+                "is_shutting_down": _SHUTTING_DOWN.is_set,
+            },
+            name=f"maxtoken-backend-supervisor-{generation}",
+            daemon=True,
+        ).start()
+
+    _GLOBAL_STATE.start_backend = start_backend
+    _GLOBAL_STATE.supervise = _supervise
     _GLOBAL_STATE.load_progress = LoadProgress()
     handle = start_backend()
     # Hold the worker handles so the orderly-shutdown path can tear them down itself (after
     # setting _SHUTTING_DOWN) rather than relying on OS signal-delivery order.
     _GLOBAL_STATE.backend_processes = list(getattr(handle, "processes", None) or [])
-
-    def _on_ready() -> None:
-        # A stop requested while weights were loading has already sealed admission.  The backend
-        # may finish its ready handshake before SIGTERM arrives; never reopen that gate after the
-        # daemon has received a final accounting snapshot.
-        if _GLOBAL_STATE.maintenance_state == "loading":
-            _GLOBAL_STATE.maintenance_state = "serving"
-            _GLOBAL_STATE.ready_at = time.monotonic()
-            logger.info(f"API server is ready to serve on {host}:{port}")
-
-    def _on_failure(message: str) -> None:
-        _GLOBAL_STATE.fatal_error = message
-        _GLOBAL_STATE.maintenance_state = "failed"
-        logger.error("Backend supervisor: %s", message)
-        # No CacheRebuildReply will ever arrive from a dead backend, so wake any caller blocked
-        # in dispatch_rebuild's await now — otherwise it strands until the full rebuild timeout.
-        _GLOBAL_STATE.fail_pending_rebuilds(message)
-        # Then take the whole serve down (see _exit_after_backend_death). Shell mode is excluded:
-        # a person is sitting at that TUI, the API is theirs alone, and its stop path is ^C.
-        if not run_shell:
-            _exit_after_backend_death(BACKEND_DEATH_EXIT_GRACE_S)
-
-    def _on_meta(meta: dict) -> None:
-        # Per-unit cache VRAM costs + the free-VRAM seed + per-pool floors + the actual pool
-        # sizes allocated at load, delivered once on the ack path; surfaced by cache_geometry
-        # (unit_bytes + the limits block + the pre-first-chat pool seed). Unpack the extras
-        # aside so unit_bytes keeps its original three-key shape; unknown keys, if any, are inert.
-        meta = dict(meta or {})
-        _GLOBAL_STATE.free_vram_bytes = int(meta.pop("free_vram_bytes", 0) or 0)
-        _GLOBAL_STATE.cache_floors = meta.pop("floors", None)
-        _GLOBAL_STATE.cache_pools = meta.pop("pools", None)
-        _GLOBAL_STATE.swa_full_tokens_ratio = float(meta.pop("swa_full_tokens_ratio", 0.0) or 0.0)
-        _GLOBAL_STATE.cache_budget_bytes = int(meta.pop("cache_budget_bytes", 0) or 0)
-        _GLOBAL_STATE.unit_bytes = meta
-
-    # Early-bind: supervise the backend on a daemon thread so uvicorn can bind
-    # immediately and /health can report loading progress. Shell mode wants exactly the same
-    # thing -- its client waits on /health and renders that progress -- so both paths share
-    # this supervisor; only who runs uvicorn differs.
-    threading.Thread(
-        target=run_backend_supervisor,
-        args=(handle, _GLOBAL_STATE.load_progress, _on_ready),
-        kwargs={
-            "on_failure": _on_failure,
-            "on_meta": _on_meta,
-            # uvicorn's lifespan shutdown sets this on SIGINT/SIGTERM, so the workers'
-            # expected exit during stop is not reported as a crash.
-            "is_shutting_down": _SHUTTING_DOWN.is_set,
-        },
-        name="maxtoken-backend-supervisor",
-        daemon=True,
-    ).start()
+    _supervise(handle, _GLOBAL_STATE.backend_generation)
 
     if run_shell:
         _serve_and_run_shell(host, port)

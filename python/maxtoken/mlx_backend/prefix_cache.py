@@ -69,7 +69,11 @@ def _common_prefix_len(a: np.ndarray, b: np.ndarray) -> int:
     return int(np.argmax(neq)) if neq.any() else m
 
 
-@dataclass
+# eq=False: entries are compared by identity. A generated __eq__ would compare
+# the token ARRAYS, and numpy raises on two of different lengths -- which is
+# exactly what list.remove() did when eviction met two snapshots of different
+# prompts, taking the scheduler down with a broadcast error.
+@dataclass(eq=False)
 class _Entry:
     tokens: np.ndarray  # int32, the exact tokens the states cover
     states: List[Tuple[Any, Any]]  # per layer: (state, meta_state)

@@ -59,7 +59,11 @@ ecosystem (torch, triton, flashlib) is installed.
 `mt serve` ships a built-in GUI at **`http://localhost:1919/`** (any platform,
 not just macOS): live throughput/usage/cost cards, model status, streaming chat
 with TTFT / tok/s / `cached_tokens` per response, a request log, and the elastic
-MoE expert-cache slider (slot-cache mode) that applies `/admin/cache/rebuild` live.
+MoE expert-cache slider (slot-cache mode) that applies `/admin/cache/rebuild` live,
+and a **Reload model** button (`POST /admin/reload`) that relaunches the engine
+workers with the same checkpoint and flags — every cache is dropped, running
+requests end with an error reply, and the status pill walks through `loading`
+back to `Running` without restarting the API server.
 It is a single self-contained HTML file served from the same origin as the APIs.
 
 ## Serve

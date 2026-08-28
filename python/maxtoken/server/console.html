@@ -313,6 +313,13 @@
           <div class="scale"><span id="ctxMinLbl">1k</span><span>applies live — clients re-read it from /v1/models</span><span id="ctxMaxLbl">–</span></div>
           <button class="btn ghost" id="ctxApply">Apply</button><span id="ctxMsg"></span>
         </div>
+        <div class="sliderrow" id="reloadRow">
+          <div class="top">
+            <span class="lbl">Engine</span>
+            <span class="hint">Restart the model workers with the same checkpoint and flags — every cache is dropped, running requests are aborted</span>
+          </div>
+          <button class="btn danger" id="reloadBtn">Reload model</button><span id="reloadMsg"></span>
+        </div>
         <div class="sliderrow" id="thinkSlider">
           <div class="top">
             <span class="lbl">Reasoning budget</span>
@@ -392,7 +399,11 @@ async function pollHealth() {
   try {
     health = await (await fetch("/health")).json();
     $("apiDot").style.background = health.maintenance === "serving" ? "var(--good)" : "var(--warning, #fab219)";
-    $("runTxt").textContent = (health.maintenance === "serving" ? "Running" : health.maintenance) + " · " + upStr(health.uptime_s);
+    // While the engine loads, /health carries status "loading" and the phase instead of
+    // a maintenance state — after a reload as much as at boot.
+    const stateTxt = health.status === "loading" ? "loading " + (health.phase || "") : health.status === "error" ? "error" : (health.maintenance === "serving" ? "Running" : health.maintenance);
+    $("runTxt").textContent = stateTxt + " · " + upStr(health.uptime_s);
+    if ($("reloadMsg").textContent === "workers relaunched — loading" && health.maintenance === "serving") $("reloadMsg").textContent = "reloaded";
     $("mName").textContent = health.model || "–";
     $("avatar").textContent = (health.model || "FT").slice(0, 2).toUpperCase();
     $("version").textContent = "v" + (health.version || "?");
@@ -522,6 +533,18 @@ $("thinkApply").onclick = async () => {
     $("syncTxt").textContent = r.status === "ok" ? "Synced" : "Failed";
     pollCache();
   } catch { $("thinkMsg").textContent = "request failed"; }
+};
+
+$("reloadBtn").onclick = async () => {
+  if (!confirm("Reload the model? Every cache is dropped and running requests are aborted.")) return;
+  $("reloadMsg").textContent = "restarting…";
+  $("reloadBtn").disabled = true;
+  try {
+    const r = await (await fetch("/admin/reload", { method: "POST" })).json();
+    $("reloadMsg").textContent = r.status === "ok" ? "workers relaunched — loading" : (r.error || r.status);
+  } catch { $("reloadMsg").textContent = "request failed"; }
+  finally { $("reloadBtn").disabled = false; }
+  pollHealth();
 };
 
 /* Context-window slider: log2 steps from 1k up to the model's trained ceiling. */

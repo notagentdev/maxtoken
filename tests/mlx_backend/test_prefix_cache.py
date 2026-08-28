@@ -164,3 +164,16 @@ def test_same_tokens_supersede():
     store.insert(toks(100), [kv_at(100)])
     store.insert(toks(100), [kv_at(100)])
     assert len(store.entries) == 1
+
+
+def test_eviction_survives_entries_of_different_lengths():
+    """list.remove() compares entries; a generated dataclass __eq__ compared their
+    token arrays and numpy raised on two of different lengths, which crashed the
+    scheduler the first time eviction met snapshots of two different prompts."""
+    store = PrefixStore(max_bytes=1)  # every insert beyond the first must evict
+    for n in (MIN_MATCH_TOKENS, MIN_MATCH_TOKENS + 5, MIN_MATCH_TOKENS + 200):
+        kv = FakeKV()
+        kv.state = (np.zeros((1, n)), np.zeros((1, n)))
+        store.insert(list(range(n)), [kv])
+    assert len(store.entries) == 1
+    assert len(store.entries[0].tokens) == MIN_MATCH_TOKENS + 200
