@@ -21,6 +21,7 @@ worker only renders text and trims at ``matched_stop``.
 from __future__ import annotations
 
 import inspect
+import time as _time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, Iterator, List
 
@@ -448,7 +449,11 @@ class MlxScheduler:
             c.trim(n)
         else:
             state, meta = snap
-            c.state = state
+            # A copy, never the snapshot's own list: ArraysCache keeps the list
+            # it is handed and writes the next step's arrays INTO it, so a
+            # snapshot restored twice would restore the state of the forward
+            # that followed the first restore.
+            c.state = list(state)
             c.meta_state = meta
 
     def _offload_prefill(self, input_ids: List[int], cache, start: int) -> None:
@@ -650,18 +655,28 @@ class MlxScheduler:
             self.model
         )
 
+        trace = getattr(self, "_spec_trace", None)
+        clock = _time.perf_counter if trace is not None else None
+
+        def draft_next(room: int):
+            """Build the next round's draft chain and dispatch it. Called BEFORE
+            the round's tokens are handed out, so the GPU drafts while the
+            scheduler is busy with them and the CPU then builds the window
+            graph on top of a busy GPU."""
+            lz = drafter.draft_lazy(room, spec)
+            if lz.n:
+                mx.async_eval(lz.tokens, *lz.q)
+            return lz
+
+        # Drafts only fill what the window has left after the carried tokens.
+        # When nothing is left the round runs the carry alone: it still commits
+        # a token and, crucially, it absorbs the carry, so `pending` can never
+        # outgrow the window.
+        lazy = draft_next(max_window - len(pending)) if lazy_round else None
+        t_resume = clock() if clock else 0.0
         while True:
-            # Drafts only fill what the window has left after the carried
-            # tokens. When nothing is left the round runs the carry alone: it
-            # still commits a token and, crucially, it absorbs the carry, so
-            # `pending` can never outgrow the window.
             room = max_window - len(pending)
             if lazy_round:
-                lazy = drafter.draft_lazy(room, spec)
-                if lazy.n:
-                    # Dispatch the chain now: the window graph below is built
-                    # while the GPU runs it.
-                    mx.async_eval(lazy.tokens, *lazy.q)
                 drafts_arr, n_drafts, drafts = lazy.tokens, lazy.n, None
             else:
                 drafts = []
@@ -697,6 +712,7 @@ class MlxScheduler:
             # and threw one away.
             if state is not None:
                 state.commit_token()
+            t_built = clock() if clock else 0.0
 
             if lazy_round and spec is not None:
                 # The round's one synchronization: draft tokens, the drafter's
@@ -705,6 +721,7 @@ class MlxScheduler:
                     logits[0, off : off + n_drafts + 1], spec
                 )
                 mx.eval(drafts_arr, p_ids, p_probs, *lazy.q)
+                t_done = clock() if clock else 0.0
                 drafts = drafts_arr.tolist()
                 P = spec_sample.shape_rows(p_ids, p_probs, spec)
                 Q = spec_sample.rows_of(*lazy.q) if n_drafts else []
@@ -715,11 +732,13 @@ class MlxScheduler:
                 accepted, nxt = self._accept_speculative(
                     drafts, P, drafter.q[: len(drafts)]
                 )
+                t_done = clock() if clock else 0.0
                 committed = drafts[:accepted] + [nxt]
             else:
                 lp = logits - mx.logsumexp(logits, axis=-1, keepdims=True)
                 outs = sampler(lp[0]) if sampler else mx.argmax(lp[0], axis=-1)
                 mx.eval(outs, drafts_arr)
+                t_done = clock() if clock else 0.0
                 if drafts is None:
                     drafts = drafts_arr.tolist()
                 outs_l = [int(t) for t in outs.tolist()]
@@ -779,15 +798,34 @@ class MlxScheduler:
                 # (measured: acceptance 0.25 vs 1.10 out of 3).
                 j = off + accepted
                 drafter.set_hidden(hidden[:, j : j + 1, :])
+            t_post = clock() if clock else 0.0
 
             self._spec_steps += 1
             self._spec_tokens += len(committed)
+            # The next chain is dispatched before this round's tokens leave the
+            # generator: the scheduler's per-token work (and, in the server, a
+            # reply round trip per token) then overlaps the drafter's GPU time
+            # instead of adding to the round.
+            if lazy_round:
+                lazy = draft_next(max_window - len(pending))
+            if trace is not None:
+                t_drafted = clock()
+                trace.append({
+                    "away": 0.0,
+                    "build": t_built - t_resume, "wait": t_done - t_built,
+                    "post": t_post - t_done, "draft": t_drafted - t_post,
+                    "tokens": len(committed), "accepted": accepted,
+                })
             for i, tok in enumerate(committed):
                 # Normalize only the row being emitted: the scheduler wants one
                 # logprob row per committed token, which is a subset of the
                 # window's positions.
                 row = logits[:, off + i, :]
                 yield tok, row - mx.logsumexp(row, axis=-1, keepdims=True)
+            if trace is not None:
+                t_now = clock()
+                trace[-1]["away"] = t_now - t_drafted
+                t_resume = t_now
 
     def _offload_generate(
         self, input_ids: List[int], sp: SamplingParams, cache, start: int = 0

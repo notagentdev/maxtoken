@@ -48,31 +48,59 @@ logger = init_logger(__name__)
 NSG = max(1, min(24, int(os.environ.get("MAXTOKEN_VERIFY_QMM_NSG", "8") or 8)))
 MROWS = 4          # rows the kernel is compiled for; 2 and 3 are padded up
 PACK = 8           # 4-bit weights per 32-bit word
+# "half": 16-bit products and per-pack partial sums, float accumulation across
+# packs (the default, measured ~10-15% faster on the 27B's shapes). "float":
+# the original all-float path, kept for A/B and for exactness comparisons.
+MATH = os.environ.get("MAXTOKEN_VERIFY_QMM_MATH", "half").strip().lower() or "half"
+if MATH not in ("half", "float"):
+    MATH = "half"
 
 _KERNELS: dict[tuple, Any] = {}
 _PATCHED: dict[str, Any] = {}
 
 
-def _fma_block(m: int) -> str:
+def _pack_block(m: int, math: str) -> str:
     """Dequantize one packed word per column, then FMA it into every row.
 
     The dequantized value lives in a register across the row loop; that reuse
-    is the entire point of the kernel.
+    is the entire point of the kernel. In ``half`` math the products of a pack
+    accumulate in 16-bit registers and are folded into the float accumulators
+    once per pack: this GPU issues half FMAs about 1.6x faster than float ones
+    (measured: 2.43 vs 1.47 T/s on independent chains), the 8-term partial
+    sums stay far inside half's range (|x| entering a projection peaks near
+    400 on the 27B), and the bf16 result has fewer bits than the half partials.
     """
-    lines = ["for (int ki = 0; ki < 8; ++ki) {"]
+    if math == "float":
+        lines = ["_Pragma(\"unroll\")", "for (int ki = 0; ki < 8; ++ki) {"]
+        for j in range(4):
+            lines.append(f"    float w{j} = float((p{j} >> (ki * 4)) & 0xFu) * s{j} + b{j};")
+        for j in range(4):
+            for r in range(m):
+                lines.append(f"    acc[{j} * {m} + {r}] += float(v{r}[ki]) * w{j};")
+        lines.append("}")
+        return "\n        ".join(lines)
+    n_acc = 4 * m
+    lines = [f"half hacc[{n_acc}];", "_Pragma(\"unroll\")",
+             f"for (int i = 0; i < {n_acc}; ++i) {{ hacc[i] = half(0.0); }}"]
+    for r in range(m):
+        lines.append(f"half h{r}[8];")
+        lines.append("_Pragma(\"unroll\")")
+        lines.append(f"for (int i = 0; i < 8; ++i) {{ h{r}[i] = half(float(v{r}[i])); }}")
+    lines += ["_Pragma(\"unroll\")", "for (int ki = 0; ki < 8; ++ki) {"]
     for j in range(4):
-        lines.append(f"    float w{j} = float((p{j} >> (ki * 4)) & 0xFu) * s{j} + b{j};")
+        lines.append(f"    half w{j} = half((p{j} >> (ki * 4)) & 0xFu) * hs{j} + hb{j};")
     for j in range(4):
         for r in range(m):
-            lines.append(f"    acc[{j} * {m} + {r}] += float(v{r}[ki]) * w{j};")
+            lines.append(f"    hacc[{j} * {m} + {r}] = fma(h{r}[ki], w{j}, hacc[{j} * {m} + {r}]);")
     lines.append("}")
+    lines += ["_Pragma(\"unroll\")", f"for (int i = 0; i < {n_acc}; ++i) {{ acc[i] += float(hacc[i]); }}"]
     return "\n        ".join(lines)
 
 
-def _kernel(m: int, group_size: int, dtype):
+def _kernel(m: int, group_size: int, dtype, nsg: int):
     import mlx.core as mx
 
-    key = (m, group_size, dtype, NSG)
+    key = (m, group_size, dtype, nsg, MATH)
     cached = _KERNELS.get(key)
     if cached is not None:
         return cached
@@ -81,10 +109,22 @@ def _kernel(m: int, group_size: int, dtype):
         f"Vec8 v{r} = xv[({r} * K + k_base) / 8];" for r in range(m)
     )
     n_acc = 4 * m
+    if MATH == "float":
+        sb = "\n            ".join(
+            f"float s{j} = float(scales[(n0 + {j}) * K_by_gs + gi]);\n"
+            f"            float b{j} = float(biases[(n0 + {j}) * K_by_gs + gi]);"
+            for j in range(4)
+        )
+    else:
+        sb = "\n            ".join(
+            f"half hs{j} = half(float(scales[(n0 + {j}) * K_by_gs + gi]));\n"
+            f"            half hb{j} = half(float(biases[(n0 + {j}) * K_by_gs + gi]));"
+            for j in range(4)
+        )
     source = f"""
         using namespace metal;
         constexpr int GS = {group_size};
-        constexpr int NSG = {NSG};
+        constexpr int NSG = {nsg};
 
         uint sg   = simdgroup_index_in_threadgroup;
         uint lane = thread_index_in_simdgroup;
@@ -111,16 +151,8 @@ def _kernel(m: int, group_size: int, dtype):
             uint32_t p2 = w_q[(n0 + 2) * K_by_pack + pack];
             uint32_t p3 = w_q[(n0 + 3) * K_by_pack + pack];
             {xloads}
-            float s0 = float(scales[(n0 + 0) * K_by_gs + gi]);
-            float s1 = float(scales[(n0 + 1) * K_by_gs + gi]);
-            float s2 = float(scales[(n0 + 2) * K_by_gs + gi]);
-            float s3 = float(scales[(n0 + 3) * K_by_gs + gi]);
-            float b0 = float(biases[(n0 + 0) * K_by_gs + gi]);
-            float b1 = float(biases[(n0 + 1) * K_by_gs + gi]);
-            float b2 = float(biases[(n0 + 2) * K_by_gs + gi]);
-            float b3 = float(biases[(n0 + 3) * K_by_gs + gi]);
-            _Pragma("unroll")
-            {_fma_block(m)}
+            {sb}
+            {_pack_block(m, MATH)}
         }}
 
         _Pragma("unroll")
@@ -134,7 +166,7 @@ def _kernel(m: int, group_size: int, dtype):
     """
     tag = {mx.bfloat16: "bf16", mx.float16: "fp16"}.get(dtype, "unk")
     kernel = mx.fast.metal_kernel(
-        name=f"ft_verify_qmm_m{m}_gs{group_size}_nsg{NSG}_{tag}",
+        name=f"ft_verify_qmm_m{m}_gs{group_size}_nsg{nsg}_{MATH}_{tag}",
         input_names=["x", "w_q", "scales", "biases", "K_size", "N_size"],
         output_names=["y"],
         source=source,
@@ -169,13 +201,16 @@ def verify_qmm(x2, w_q, scales, biases, *, group_size: int):
     M = int(x2.shape[0])
     K = int(x2.shape[1])
     N = int(w_q.shape[0])
-    kernel = _kernel(M, group_size, x2.dtype)
-    cols = 4 * NSG
+    # Deep-K shapes (the MLP's down projection) run a few percent faster with
+    # half the simdgroups per threadgroup; everything else prefers NSG.
+    nsg = min(NSG, 4) if K >= 12288 else NSG
+    kernel = _kernel(M, group_size, x2.dtype, nsg)
+    cols = 4 * nsg
     (y,) = kernel(
         inputs=[mx.contiguous(x2), w_q, scales, biases, K, N],
         template=[("T", x2.dtype)],
-        grid=(32 * NSG, N // cols, 1),
-        threadgroup=(32 * NSG, 1, 1),
+        grid=(32 * nsg, N // cols, 1),
+        threadgroup=(32 * nsg, 1, 1),
         output_shapes=[(M, N)],
         output_dtypes=[x2.dtype],
     )
@@ -222,7 +257,8 @@ def install() -> dict[str, int]:
     _PATCHED["original"] = original
     _PATCHED["stats"] = stats
     logger.info(
-        f"verify qmm: small-M kernel installed (M=2..{MROWS}, 4-bit affine, NSG={NSG})"
+        f"verify qmm: small-M kernel installed (M=2..{MROWS}, 4-bit affine, "
+        f"{MATH} math, NSG={NSG})"
     )
     return stats
 
