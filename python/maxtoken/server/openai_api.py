@@ -23,6 +23,7 @@ from .api_models import (
 from .function_call_parser import ToolCallItem
 from .request_logger import log_request
 from .generation import (
+    KEEPALIVE,
     ContentDelta,
     GenDone,
     GenerationError,
@@ -37,7 +38,15 @@ from .generation import (
     render_messages,
     resolve_sampling,
     submit_generation,
+    with_keepalive,
 )
+
+#: Seconds of silence before a stream carries an SSE comment (": keepalive").
+#: A compute-bound prefill on a big dense model runs at ~95 tokens/s here, so a
+#: coding agent's first prompt is a minute or two of nothing; a client that
+#: reads a byte in that time knows the server is alive and the request is not.
+KEEPALIVE_INTERVAL_S = 15.0
+KEEPALIVE_BYTES = b": keepalive\n\n"
 
 #: The wire superset plus "off", DeepSeek's disable synonym that
 #: effort_toggle_kwargs has always honored.
@@ -277,7 +286,9 @@ async def stream_chat_completion_chunks(
     cached_tokens = 0
     tool_calls_sent = 0
     open_tool: dict[str, Any] | None = None
-    events = generate_events(uid, spec, state, source="/v1/chat/completions")
+    events = with_keepalive(
+        generate_events(uid, spec, state, source="/v1/chat/completions"), KEEPALIVE_INTERVAL_S
+    )
     while True:
         try:
             ev = await events.__anext__()
@@ -290,6 +301,9 @@ async def stream_chat_completion_chunks(
                 {"error": {"message": str(exc), "type": "invalid_request_error", "code": exc.code}}
             )
             break
+        if ev is KEEPALIVE:
+            yield KEEPALIVE_BYTES
+            continue
         if isinstance(ev, ReasoningDelta):
             yield _sse(
                 _chat_chunk(
@@ -467,7 +481,10 @@ async def stream_completion_chunks(uid: int, req: CompletionRequest, state: Any)
     completion_tokens = 0
     cached_tokens = 0
     finish_reason = "stop"
-    async for ack in state.wait_for_ack(uid):
+    async for ack in with_keepalive(state.wait_for_ack(uid), KEEPALIVE_INTERVAL_S):
+        if ack is KEEPALIVE:
+            yield KEEPALIVE_BYTES
+            continue
         if getattr(ack, "error", None):
             yield _sse({"error": {"message": ack.error, "type": "invalid_request_error", "code": None}})
             yield b"data: [DONE]\n\n"

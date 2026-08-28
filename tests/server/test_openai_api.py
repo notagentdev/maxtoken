@@ -719,3 +719,32 @@ def test_minimax_http_non_stream_forces_implicit_reasoning_without_request_knob(
     message = response["choices"][0]["message"]
     assert message["reasoning_content"] == "private thought"
     assert message["content"] == "visible answer"
+
+
+def test_silent_stream_carries_sse_keepalives(monkeypatch):
+    """A compute-bound prefill can be a minute of silence; the chat stream must
+    carry an SSE comment now and then so the client knows the server is alive."""
+    import asyncio
+
+    from maxtoken.server import openai_api
+    from maxtoken.server.generation import GenDone
+
+    async def slow_events(uid, spec, state, source=None):
+        await asyncio.sleep(0.12)
+        yield GenDone(finish_reason="stop", prompt_tokens=1, completion_tokens=0)
+
+    monkeypatch.setattr(openai_api, "generate_events", slow_events)
+    monkeypatch.setattr(openai_api, "KEEPALIVE_INTERVAL_S", 0.03)
+
+    async def collect():
+        out = b""
+        async for chunk in openai_api.stream_chat_completion_chunks(
+            7, ChatCompletionRequest(model="m", messages=[{"role": "user", "content": "hi"}]),
+            FakeState([]),
+        ):
+            out += chunk
+        return out
+
+    body = run(collect())
+    assert body.count(b": keepalive\n\n") >= 2
+    assert body.endswith(b"data: [DONE]\n\n")

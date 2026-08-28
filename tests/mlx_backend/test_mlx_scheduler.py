@@ -347,3 +347,27 @@ def test_window_cache_rollback_restores_its_position():
 
     assert c.keys == [1, 2]
     assert (c.offset, c._idx) == (2, 2)
+
+
+def test_a_prefilling_request_yields_the_step_to_the_others():
+    """A generator that is still processing its prompt yields None per chunk;
+    the step sends nothing for it and moves on, so a request that arrived
+    behind a long prompt decodes while that prompt is still being prefilled."""
+    sched = make_scheduler({2: [22, 22, EOS]})
+    # Request 1: three prefill chunks, then tokens.
+    long_gen = iter([None, None, None, (11, None), (EOS, None)])
+    sched._make_generator = lambda ids, sp, _orig=sched._make_generator: (
+        (long_gen, None, 0) if ids[0] == 1 else _orig(ids, sp)
+    )
+    sched._handle(user_msg(1, max_tokens=10))
+    sched._handle(user_msg(2, max_tokens=10))
+    sched._step()  # request 1 chunk 1, request 2 token 1
+    assert [m.uid for m in sched.sent if isinstance(m, DetokenizeMsg)] == [2]
+    assert 1 in sched.active
+    sched._step()  # chunk 2 / token 2
+    sched._step()  # chunk 3 / EOS for request 2
+    assert [m.uid for m in sched.sent if isinstance(m, DetokenizeMsg)] == [2, 2, 2]
+    assert sent_for(sched, 2)[-1].finished
+    while sched.active:
+        sched._step()
+    assert [m.next_token for m in sent_for(sched, 1)] == [11, EOS]

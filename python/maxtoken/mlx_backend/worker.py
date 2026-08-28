@@ -410,9 +410,24 @@ class MlxScheduler:
     def _prefill_into(
         self, cache, input_ids: List[int], start: int, on_hidden=None
     ) -> None:
+        """Process input_ids[start:-1] into ``cache`` in one go (see
+        ``_prefill_chunks`` for the chunking and the snapshots)."""
+        for _ in self._prefill_chunks(cache, input_ids, start, on_hidden=on_hidden):
+            pass
+
+    def _prefill_chunks(
+        self, cache, input_ids: List[int], start: int, on_hidden=None
+    ) -> Iterator[None]:
         """Process input_ids[start:-1] into ``cache`` in chunks, snapshotting at
         BOUNDARY_TOKENS multiples so hybrid models (whose recurrent state cannot
         be trimmed) have exact restore points for future prefix hits.
+
+        Yields once after every chunk. A generator that is prefilling hands
+        control back to the round-robin scheduler between chunks, so a second
+        request's decode -- or its own prefill -- is not held behind a prompt
+        that takes minutes on a compute-bound model (the 27B prefills at
+        ~95 tokens/s on an M1 Max: a 9k-token agent prompt is 100 s, and a
+        request that arrived behind it used to see nothing until it ended).
 
         ``on_hidden(hidden, chunk_start, chunk_end)`` receives the trunk's hidden
         states for each chunk. Asking for them also drops the lm_head from the
@@ -445,6 +460,7 @@ class MlxScheduler:
                 if pos < end and self.prefix_store is not None:
                     self.prefix_store.insert(input_ids[:pos], cache)
                 next_boundary += BOUNDARY_TOKENS
+            yield None
 
     def _make_generator(self, input_ids: List[int], sp: SamplingParams) -> tuple:
         """(token generator, live cache list | None, cached prefix tokens)."""
@@ -677,7 +693,9 @@ class MlxScheduler:
             self._offload_prefill(input_ids, cache, start)
             state.spec_window = max_window
         else:
-            self._prefill_into(cache, input_ids, start, on_hidden=history_sink)
+            # Chunk by chunk, yielding None between chunks: the scheduler moves
+            # on to the other requests and comes back for the next chunk.
+            yield from self._prefill_chunks(cache, input_ids, start, on_hidden=history_sink)
         pending = [int(input_ids[-1])]
         eos = self.eos_token_ids
 
@@ -1009,7 +1027,7 @@ class MlxScheduler:
             return
         for req in list(self.active.values()):
             try:
-                token, _logprobs = next(req.generator)
+                item = next(req.generator)
             except StopIteration:  # defensive: we never set a generator-side limit
                 self._finish(req, reply, next_token=None, finish_reason="length")
                 continue
@@ -1018,6 +1036,10 @@ class MlxScheduler:
                 del self.active[req.uid]
                 reply.append(ErrorReplyMsg(uid=req.uid, error=f"generation failed: {exc}"))
                 continue
+            if item is None:
+                # Still processing its prompt (one chunk per step); no token yet.
+                continue
+            token, _logprobs = item
             next_token = int(token)
             req.output_ids.append(next_token)
 
