@@ -361,13 +361,35 @@ def test_a_prefilling_request_yields_the_step_to_the_others():
     )
     sched._handle(user_msg(1, max_tokens=10))
     sched._handle(user_msg(2, max_tokens=10))
-    sched._step()  # request 1 chunk 1, request 2 token 1
+    sched._step()  # request 1 chunk 1; request 2 gets a token (first step: nobody known prefilling yet)
     assert [m.uid for m in sched.sent if isinstance(m, DetokenizeMsg)] == [2]
-    assert 1 in sched.active
-    sched._step()  # chunk 2 / token 2
-    sched._step()  # chunk 3 / EOS for request 2
+    assert 1 in sched.active and sched.active[1].prefilling
+    sched._step()  # chunk 2; request 2 now gets several rounds per step and finishes
     assert [m.uid for m in sched.sent if isinstance(m, DetokenizeMsg)] == [2, 2, 2]
     assert sent_for(sched, 2)[-1].finished
     while sched.active:
         sched._step()
     assert [m.next_token for m in sent_for(sched, 1)] == [11, EOS]
+
+
+def test_decoding_requests_get_several_rounds_per_prefill_chunk():
+    """One chunk of prefill is seconds, one decode round a tenth of that: while
+    request 1 is on its prompt, request 2 is not held to one token per chunk."""
+    from maxtoken.mlx_backend.worker import DECODE_ROUNDS_WHILE_PREFILLING
+
+    sched = make_scheduler({2: [22] * 40})
+    long_gen = iter([None] * 5 + [(11, None), (EOS, None)])
+    sched._make_generator = lambda ids, sp, _orig=sched._make_generator: (
+        (long_gen, None, 0) if ids[0] == 1 else _orig(ids, sp)
+    )
+    sched._handle(user_msg(1, max_tokens=10))
+    sched._handle(user_msg(2, max_tokens=40))
+    sched._step()  # request 1 reports itself prefilling; request 2: one round
+    sched._step()  # request 2 now gets DECODE_ROUNDS_WHILE_PREFILLING rounds
+    assert len(sent_for(sched, 2)) == 1 + DECODE_ROUNDS_WHILE_PREFILLING
+    # Once nobody is prefilling, back to one round per step (fair between decoders).
+    while sched.active.get(1) is not None and sched.active[1].prefilling:
+        sched._step()
+    before = len(sent_for(sched, 2))
+    sched._step()
+    assert len(sent_for(sched, 2)) - before <= 1 + DECODE_ROUNDS_WHILE_PREFILLING

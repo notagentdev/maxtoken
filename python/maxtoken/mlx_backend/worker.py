@@ -83,6 +83,15 @@ class _MlxRequest:
     # (None when prefix caching is off). See MlxScheduler._remember.
     prompt_ids: List[int] = field(default_factory=list)
     cache: Any = None
+    # True while the generator is still on its prompt (it yielded None last).
+    prefilling: bool = False
+
+
+# Decode rounds a request gets per scheduler step while another request is
+# prefilling. A prefill chunk is seconds (256 tokens, ~3 s on the 27B), a decode
+# round a tenth of one; one token per chunk would leave the decoding request
+# crawling. Eight rounds keep it near full speed and cost the prefill a quarter.
+DECODE_ROUNDS_WHILE_PREFILLING = 8
 
 
 def _filter_kwargs(fn: Any, kwargs: Dict[str, Any]) -> Dict[str, Any]:
@@ -1025,51 +1034,60 @@ class MlxScheduler:
                 self._abort_batch(reply, exc)
             self._reply(reply)
             return
+        # While some request is on its prompt, the decoding ones get several
+        # rounds per step so a chunk of prefill does not cost them seconds of
+        # silence each.
+        prefill_in_progress = any(r.prefilling for r in self.active.values())
         for req in list(self.active.values()):
-            try:
-                item = next(req.generator)
-            except StopIteration:  # defensive: we never set a generator-side limit
-                self._finish(req, reply, next_token=None, finish_reason="length")
-                continue
-            except Exception as exc:  # noqa: BLE001 -- isolate: one request, not the worker
-                logger.warning(f"generation failed for request {req.uid}: {exc!r}")
-                del self.active[req.uid]
-                reply.append(ErrorReplyMsg(uid=req.uid, error=f"generation failed: {exc}"))
-                continue
-            if item is None:
-                # Still processing its prompt (one chunk per step); no token yet.
-                continue
-            token, _logprobs = item
-            next_token = int(token)
-            req.output_ids.append(next_token)
+            rounds = DECODE_ROUNDS_WHILE_PREFILLING if prefill_in_progress and not req.prefilling else 1
+            for _ in range(rounds):
+                try:
+                    item = next(req.generator)
+                except StopIteration:  # defensive: we never set a generator-side limit
+                    self._finish(req, reply, next_token=None, finish_reason="length")
+                    break
+                except Exception as exc:  # noqa: BLE001 -- isolate: one request, not the worker
+                    logger.warning(f"generation failed for request {req.uid}: {exc!r}")
+                    del self.active[req.uid]
+                    reply.append(ErrorReplyMsg(uid=req.uid, error=f"generation failed: {exc}"))
+                    break
+                if item is None:
+                    # Still processing its prompt (one chunk per step); no token yet.
+                    req.prefilling = True
+                    break
+                req.prefilling = False
+                token, _logprobs = item
+                next_token = int(token)
+                req.output_ids.append(next_token)
 
-            sp = req.sampling_params
-            hit_length = (
-                len(req.output_ids) >= sp.max_tokens
-                or req.prompt_len + len(req.output_ids) >= self.max_seq_len
-            )
-            hit_eos = not sp.ignore_eos and next_token in self.eos_token_ids
-            matched_stop = self._match_stop_str(req) if not hit_eos else None
-            finished = hit_length or hit_eos or matched_stop is not None
-            finish_reason = (
-                ("stop" if (hit_eos or matched_stop is not None) else "length")
-                if finished
-                else None
-            )
-            reply.append(
-                DetokenizeMsg(
-                    uid=req.uid,
-                    next_token=next_token,
-                    finished=finished,
-                    finish_reason=finish_reason,
-                    matched_stop=matched_stop,
-                    stop_strs=sp.stop_strs or None,
-                    gpu_mem_bytes=gpu_mem,
+                sp = req.sampling_params
+                hit_length = (
+                    len(req.output_ids) >= sp.max_tokens
+                    or req.prompt_len + len(req.output_ids) >= self.max_seq_len
                 )
-            )
-            if finished:
-                self._remember(req)
-                del self.active[req.uid]
+                hit_eos = not sp.ignore_eos and next_token in self.eos_token_ids
+                matched_stop = self._match_stop_str(req) if not hit_eos else None
+                finished = hit_length or hit_eos or matched_stop is not None
+                finish_reason = (
+                    ("stop" if (hit_eos or matched_stop is not None) else "length")
+                    if finished
+                    else None
+                )
+                reply.append(
+                    DetokenizeMsg(
+                        uid=req.uid,
+                        next_token=next_token,
+                        finished=finished,
+                        finish_reason=finish_reason,
+                        matched_stop=matched_stop,
+                        stop_strs=sp.stop_strs or None,
+                        gpu_mem_bytes=gpu_mem,
+                    )
+                )
+                if finished:
+                    self._remember(req)
+                    del self.active[req.uid]
+                    break
         self._reply(reply)
 
     def _step_batched(self, reply: List[BaseTokenizerMsg], gpu_mem: int) -> None:
