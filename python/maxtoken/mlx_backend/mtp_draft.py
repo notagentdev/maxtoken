@@ -32,6 +32,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+from dataclasses import dataclass
 from typing import Any, List
 
 from maxtoken.utils import init_logger
@@ -186,6 +187,41 @@ class MtpDrafter:
             tok = mx.array([[nxt]])
         return drafts
 
+    def draft_lazy(self, room: int, spec) -> "LazyDraft":
+        """Propose up to ``min(k, room)`` tokens WITHOUT leaving the device.
+
+        The chain is built as one lazy graph: each step's token feeds the next
+        step's embedding as an array, so no draft ever waits for a host
+        round trip. With ``spec`` (a ``spec_sample.SamplerSpec``) every step
+        samples from its shaped distribution on the device and the proposal
+        support is returned with the tokens; without it the chain is greedy.
+        The caller decides when the graph runs — typically right away, with
+        ``mx.async_eval``, while it builds the verify window on the CPU.
+        """
+        mx = self._mx
+        from . import spec_sample
+
+        n = min(self.k, int(room))
+        if self._hidden is None or n <= 0:
+            return LazyDraft(mx.zeros((0,), dtype=mx.int32), (), 0)
+        self._trim_to(self._hist_len)
+        h = self._hidden
+        tok = mx.array([self._pending[-1:]], dtype=mx.int32)
+        tokens, q_ids, q_probs = [], [], []
+        for _ in range(n):
+            logits, h = self._step(h, tok)
+            row = logits[0, -1]
+            if spec is None:
+                nxt = mx.argmax(row).astype(mx.int32)
+            else:
+                nxt, ids, probs = spec_sample.sample_row(row, spec)
+                q_ids.append(ids)
+                q_probs.append(probs)
+            tokens.append(nxt)
+            tok = nxt.reshape(1, 1)
+        q = (mx.stack(q_ids), mx.stack(q_probs)) if spec is not None else ()
+        return LazyDraft(mx.stack(tokens), q, n)
+
     def _step(self, hidden, token):
         """One MTP position: fuse (embedding of the next token, trunk hidden),
         run the block, and score with the trunk's own head."""
@@ -268,6 +304,17 @@ class MtpDrafter:
         ``absorb`` already moved this round's committed tokens into it."""
         self._pending.extend(tail)
         self._hidden = None
+
+
+@dataclass(frozen=True)
+class LazyDraft:
+    """A draft chain still on the device: ``tokens`` (``(n,)`` int32), the
+    proposal supports ``q = (ids, probs)`` (each ``(n, top_k)``; empty for a
+    greedy chain), and ``n``, known without evaluating anything."""
+
+    tokens: Any
+    q: tuple
+    n: int
 
 
 class _MtpHead:

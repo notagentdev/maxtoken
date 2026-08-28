@@ -40,7 +40,7 @@ from maxtoken.message import (
 )
 from maxtoken.utils import ZmqPullQueue, ZmqPushQueue, init_logger, load_eos_token_ids
 
-from . import gdn_capture
+from . import gdn_capture, spec_sample
 
 # Longest verify window a speculative round will build.
 #
@@ -497,7 +497,13 @@ class MlxScheduler:
                 keep[kth] = 1.0
                 probs = probs * keep
             if top_p:
-                order = mx.argsort(probs)[::-1]
+                # Descending order via argsort(-probs), NOT argsort(probs)[::-1]:
+                # scatter-assigning through a reversed (negative-stride) index
+                # view writes only its first element on MLX 0.32, which
+                # silently collapsed every top-p distribution to its argmax —
+                # the "sampled" path was greedy in disguise (see
+                # test_spec_sample.py::test_dense_shape_matches_numpy).
+                order = mx.argsort(-probs)
                 ordered = probs[order]
                 # keep the smallest prefix whose mass reaches top_p
                 cum = mx.cumsum(ordered)
@@ -626,7 +632,16 @@ class MlxScheduler:
         # to p(d), i.e. no better than plain sample-and-match). Greedy requests
         # keep the exact-match rule, which is optimal when p is a point mass.
         shape = self._shaped_dist(sp)
-        can_reject_sample = shape is not None and hasattr(drafter, "q")
+        # A drafter that builds its chain lazily lets the round run with ONE
+        # synchronization: the draft tokens stay on the device and feed the
+        # window directly, the GPU starts drafting while the window's graph is
+        # still being built on the CPU, and the target's distributions come back
+        # as their top-k supports in a single transfer (spec_sample). A sampler
+        # without a bounded support keeps the dense path.
+        spec = spec_sample.sampler_spec(sp)
+        lazy_round = hasattr(drafter, "draft_lazy") and (spec is not None or shape is None)
+        rng = spec_sample.host_rng(mx) if lazy_round and spec is not None else None
+        can_reject_sample = not lazy_round and shape is not None and hasattr(drafter, "q")
         # Recording per-position recurrent state lets a rejected round commit
         # its accepted prefix outright, which is what keeps the carry at a
         # single token and leaves the next window its full draft depth. Models
@@ -641,13 +656,25 @@ class MlxScheduler:
             # still commits a token and, crucially, it absorbs the carry, so
             # `pending` can never outgrow the window.
             room = max_window - len(pending)
-            drafts = []
-            if room > 0:
-                drafts = (
-                    drafter.draft(shape) if can_reject_sample else drafter.draft()
-                ) or []
-                drafts = drafts[:room]
-            window = pending + drafts
+            if lazy_round:
+                lazy = drafter.draft_lazy(room, spec)
+                if lazy.n:
+                    # Dispatch the chain now: the window graph below is built
+                    # while the GPU runs it.
+                    mx.async_eval(lazy.tokens, *lazy.q)
+                drafts_arr, n_drafts, drafts = lazy.tokens, lazy.n, None
+            else:
+                drafts = []
+                if room > 0:
+                    drafts = (
+                        drafter.draft(shape) if can_reject_sample else drafter.draft()
+                    ) or []
+                    drafts = drafts[:room]
+                drafts_arr, n_drafts = mx.array(drafts, dtype=mx.int32), len(drafts)
+            window_len = len(pending) + n_drafts
+            window_arr = mx.array(pending, dtype=mx.int32)
+            if n_drafts:
+                window_arr = mx.concatenate([window_arr, drafts_arr])
             # Draft j is judged by the target's output at window position
             # off + j; with a single carried token off is 0, which is the plain
             # speculative case.
@@ -661,9 +688,7 @@ class MlxScheduler:
             # declines the window for a reason `supported` cannot see.
             snaps = [self._cache_snapshot(c) for c in cache]
             with gdn_capture.capture(self.model if can_commit_prefix else None) as caps:
-                logits, hidden = self._forward(
-                    mx.array(window)[None], cache, wants_hidden
-                )
+                logits, hidden = self._forward(window_arr[None], cache, wants_hidden)
             # Nothing is normalized or sampled here. Each window position carries
             # a vocabulary-wide row (248k floats on this checkpoint), and the two
             # acceptance rules below need different things from them: rejection
@@ -673,7 +698,19 @@ class MlxScheduler:
             if state is not None:
                 state.commit_token()
 
-            if can_reject_sample and drafts and len(drafter.q) >= len(drafts):
+            if lazy_round and spec is not None:
+                # The round's one synchronization: draft tokens, the drafter's
+                # proposal densities and the target's supports, together.
+                p_ids, p_probs = spec_sample.support(
+                    logits[0, off : off + n_drafts + 1], spec
+                )
+                mx.eval(drafts_arr, p_ids, p_probs, *lazy.q)
+                drafts = drafts_arr.tolist()
+                P = spec_sample.shape_rows(p_ids, p_probs, spec)
+                Q = spec_sample.rows_of(*lazy.q) if n_drafts else []
+                accepted, nxt = spec_sample.accept(drafts, P, Q, rng)
+                committed = drafts[:accepted] + [nxt]
+            elif can_reject_sample and drafts and len(drafter.q) >= len(drafts):
                 P = [shape(logits[0, off + i]) for i in range(len(drafts) + 1)]
                 accepted, nxt = self._accept_speculative(
                     drafts, P, drafter.q[: len(drafts)]
@@ -682,7 +719,9 @@ class MlxScheduler:
             else:
                 lp = logits - mx.logsumexp(logits, axis=-1, keepdims=True)
                 outs = sampler(lp[0]) if sampler else mx.argmax(lp[0], axis=-1)
-                mx.eval(outs)
+                mx.eval(outs, drafts_arr)
+                if drafts is None:
+                    drafts = drafts_arr.tolist()
                 outs_l = [int(t) for t in outs.tolist()]
                 accepted = 0
                 while accepted < len(drafts) and drafts[accepted] == outs_l[off + accepted]:
@@ -711,7 +750,7 @@ class MlxScheduler:
                 # any other — nothing recomputed, nothing carried.
                 keep = off + accepted + 1
                 committed_prefix = bool(caps) and gdn_capture.commit_prefix(
-                    self.model, cache, caps, keep, len(window)
+                    self.model, cache, caps, keep, window_len
                 )
                 if committed_prefix:
                     # The caches now hold `pending + drafts[:accepted]`. The only
@@ -724,7 +763,7 @@ class MlxScheduler:
                     # progress, but the next window reabsorbs it at the price of
                     # extra rows rather than an extra forward.
                     for c, snap in zip(cache, snaps, strict=True):
-                        self._cache_rollback(c, snap, len(window))
+                        self._cache_rollback(c, snap, window_len)
                     pending = pending + drafts[:accepted] + committed[-1:]
                 drafter.commit(accepted, committed[-1:])
             else:
