@@ -475,7 +475,11 @@ uses.
   a six-row window costs 157 ms a round — and 5% worse greedy); scaling the
   drafter's sampling temperature (2.88-2.93 tokens a round whatever the
   factor); dispatching the absorbed history before building the next chain
-  (the dispatch costs what it hides). Draft trees are ruled out by the
+  (the dispatch costs what it hides); a fused gate/up kernel that streams the
+  activations once for both projections and applies the SwiGLU product in its
+  epilogue (10% faster on the isolated MLP chain, 1-2 ms per forward in the
+  model — the shared-activation benefit does not survive in the full
+  forward, only the saved launches do). Draft trees are ruled out by the
   architecture: a recurrent layer has one state per branch.
 
 
