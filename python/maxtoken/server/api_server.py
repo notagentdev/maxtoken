@@ -430,10 +430,27 @@ def install_cors(app: FastAPI, origins_csv: str) -> None:
 
 
 app = FastAPI(title="MaxToken API Server", version=__version__, lifespan=lifespan)
-register_openai_routes(app, get_global_state, lambda: _MODEL_SAMPLING)
-register_anthropic_routes(app, get_global_state, lambda: _MODEL_SAMPLING)
-register_responses_routes(app, get_global_state, lambda: _MODEL_SAMPLING)
-register_control_routes(app, get_global_state, lambda: _MODEL_SAMPLING)
+def effective_sampling() -> Dict[str, Any]:
+    """What fills a request's unspecified sampling fields: the checkpoint's
+    recommended sampling, then --max-output-tokens, then whatever the console
+    set at runtime (temperature, max output tokens) on top."""
+    base = dict(_MODEL_SAMPLING)
+    state = _GLOBAL_STATE
+    if state is None:
+        return base
+    configured = getattr(getattr(state, "config", None), "max_output_tokens", None)
+    if configured:
+        base["max_tokens"] = int(configured)
+    for key, value in (getattr(state, "generation_override", None) or {}).items():
+        if value is not None:
+            base[key] = value
+    return base
+
+
+register_openai_routes(app, get_global_state, effective_sampling)
+register_anthropic_routes(app, get_global_state, effective_sampling)
+register_responses_routes(app, get_global_state, effective_sampling)
+register_control_routes(app, get_global_state, effective_sampling)
 register_accounting_routes(app, get_global_state)
 
 # Built-in web console (chat, live stats, elastic cache control) served from the
@@ -527,6 +544,12 @@ class CacheRebuildRequest(BaseModel):
     # Runtime reasoning-token budget (0 = unlimited). Enforced in the frontend's
     # generation path, so unlike the other fields it needs no scheduler round trip.
     max_reasoning_tokens: int | None = None
+    # Generation defaults for requests that leave the field unset -- the
+    # console's "Generation" row. Frontend-side like max_reasoning_tokens.
+    # temperature >= 0 (0 = greedy); max_output_tokens >= 1, 0 = back to the
+    # server default (--max-output-tokens, else 32k).
+    temperature: float | None = None
+    max_output_tokens: int | None = None
     # Only "if_idle" (reject unless the scheduler is idle) is supported today. "drain" mode
     # is deferred (needs the drain-gate machinery); constraining the Literal makes an
     # unsupported value fail fast with a 422 at the API layer instead of a generic 503.
@@ -720,6 +743,16 @@ async def cache_rebuild(req: CacheRebuildRequest):
                 )},
                 status_code=422,
             )
+    if req.temperature is not None and req.temperature < 0:
+        return JSONResponse(
+            {"status": "failed", "error": "temperature must be >= 0"}, status_code=422
+        )
+    if req.max_output_tokens is not None and req.max_output_tokens < 0:
+        return JSONResponse(
+            {"status": "failed", "error": "max_output_tokens must be >= 0 (0 = server default)"},
+            status_code=422,
+        )
+    frontend_knobs = {}
     if req.max_reasoning_tokens is not None:
         if req.max_reasoning_tokens < 0:
             return JSONResponse(
@@ -729,12 +762,20 @@ async def cache_rebuild(req: CacheRebuildRequest):
         # Frontend-side knob: the generation path reads it per request, so it
         # applies to the NEXT request with no engine work at all.
         state.reasoning_budget_override = req.max_reasoning_tokens or None
-        if not any((req.moe_cache_size, req.num_pages, req.num_mamba_slots,
-                    req.num_swa_pages, req.swa_full_tokens_ratio, req.max_seq_len)):
-            return {
-                "status": "ok",
-                "max_reasoning_tokens": req.max_reasoning_tokens,
-            }
+        frontend_knobs["max_reasoning_tokens"] = req.max_reasoning_tokens
+    if req.temperature is not None or req.max_output_tokens is not None:
+        # Same class of knob: read by effective_sampling() on every request.
+        override = dict(getattr(state, "generation_override", None) or {})
+        if req.temperature is not None:
+            override["temperature"] = float(req.temperature)
+            frontend_knobs["temperature"] = float(req.temperature)
+        if req.max_output_tokens is not None:
+            override["max_tokens"] = int(req.max_output_tokens) or None
+            frontend_knobs["max_output_tokens"] = int(req.max_output_tokens)
+        state.generation_override = override
+    if frontend_knobs and not any((req.moe_cache_size, req.num_pages, req.num_mamba_slots,
+                                   req.num_swa_pages, req.swa_full_tokens_ratio, req.max_seq_len)):
+        return {"status": "ok", **frontend_knobs}
     result = await dispatch_rebuild(
         state,
         moe_cache_size=req.moe_cache_size,
@@ -967,6 +1008,21 @@ async def cache_status():
             or getattr(state.config, "max_reasoning_tokens", None)
             or 0
         ),
+        # What a request gets when it leaves these unset (the console's
+        # Generation row edits temperature and max_output_tokens).
+        "generation": _generation_defaults(),
+    }
+
+
+def _generation_defaults() -> Dict[str, Any]:
+    from .generation import DEFAULT_MAX_OUTPUT_TOKENS
+
+    sampling = effective_sampling()
+    return {
+        "temperature": float(sampling.get("temperature", 0.0)),
+        "top_k": int(sampling.get("top_k", -1)),
+        "top_p": float(sampling.get("top_p", 1.0)),
+        "max_output_tokens": int(sampling.get("max_tokens") or DEFAULT_MAX_OUTPUT_TOKENS),
     }
 
 

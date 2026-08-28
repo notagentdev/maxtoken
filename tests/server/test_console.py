@@ -39,3 +39,17 @@ def test_root_redirects_to_console():
     r = client.get("/", follow_redirects=False)
     assert r.status_code in (302, 307)
     assert r.headers["location"] == "/console"
+
+
+def test_generation_defaults_live_in_the_console_tab_not_the_chat():
+    """Temperature and the output cap are server-wide defaults, edited from the
+    Console tab and applied through /admin/cache/rebuild; the chat sends
+    neither, so it gets exactly what an agent or SDK gets."""
+    page = TestClient(app).get("/console").text
+    console, chat = page.split('id="chatView"', 1)
+    assert 'id="genTemp"' in console and 'id="genMax"' in console and 'id="genApply"' in console
+    assert 'id="maxTok"' not in page and 'id="temp"' not in page
+    assert "max_output_tokens" in page
+    # the chat request carries neither field any more
+    assert 'temperature: parseFloat($("temp")' not in page
+    assert 'max_tokens: parseInt($("maxTok")' not in page

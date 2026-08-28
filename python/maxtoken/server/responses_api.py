@@ -150,7 +150,11 @@ async def handle_responses(
     created = int(time.time())
     if req.max_output_tokens is not None and req.max_output_tokens < 1:
         return _error_response(400, "max_output_tokens must be a positive integer")
-    default_max = getattr(state.config, "max_output_tokens", None) or DEFAULT_MAX_OUTPUT_TOKENS
+    default_max = (
+        model_sampling.get("max_tokens")  # the console's runtime default, --max-output-tokens
+        or getattr(state.config, "max_output_tokens", None)
+        or DEFAULT_MAX_OUTPUT_TOKENS
+    )
     try:
         spec = convert_responses_to_genspec(
             req, model_sampling, default_max_tokens=default_max,

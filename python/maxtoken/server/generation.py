@@ -186,9 +186,13 @@ def resolve_sampling(
     # non-positive value is a client error.
     if max_tokens is not None and max_tokens < 1:
         raise ValueError(f"max_tokens must be at least 1, got {max_tokens}")
+    if max_tokens is None:
+        # The server's default: a runtime override from the console, else
+        # --max-output-tokens, else 32k (both arrive through model_sampling).
+        max_tokens = int(model_sampling.get("max_tokens") or DEFAULT_MAX_OUTPUT_TOKENS)
     return SamplingParams(
         ignore_eos=ignore_eos,
-        max_tokens=DEFAULT_MAX_OUTPUT_TOKENS if max_tokens is None else max_tokens,
+        max_tokens=max_tokens,
         temperature=pick(temperature, "temperature", 0.0),
         top_k=pick(top_k, "top_k", -1),
         top_p=pick(top_p, "top_p", 1.0),

@@ -313,6 +313,21 @@
           <div class="scale"><span id="ctxMinLbl">1k</span><span>applies live — clients re-read it from /v1/models</span><span id="ctxMaxLbl">–</span></div>
           <button class="btn ghost" id="ctxApply">Apply</button><span id="ctxMsg"></span>
         </div>
+        <div class="sliderrow" id="genRow">
+          <div class="top">
+            <span class="lbl">Generation</span>
+            <span class="hint">Defaults for every request that leaves them unset — the chat here, agents, SDKs. A request's own values still win.</span>
+            <span class="val"><span id="genTempVal">–</span> · <span id="genMaxVal">–</span> tokens</span>
+          </div>
+          <input type="range" id="genTemp" min="0" max="2" step="0.05">
+          <div class="scale"><span>0 · greedy</span><span>temperature — the checkpoint recommends <span id="genTempRec">–</span></span><span>2</span></div>
+          <div style="display:flex; align-items:center; gap:10px; margin-top:8px; flex-wrap:wrap">
+            <span class="lbl" style="font-size:12px">Max output tokens</span>
+            <input type="number" id="genMax" min="1" step="1024" style="width:110px; background:var(--bg-2, #14161c); color:inherit; border:1px solid var(--border, #2a2d36); border-radius:6px; padding:4px 8px; font:12px var(--mono)">
+            <span class="hint">the cap per answer, thinking included — 32k leaves room for a long reasoning block plus a file</span>
+            <button class="btn ghost" id="genApply">Apply</button><span id="genMsg"></span>
+          </div>
+        </div>
         <div class="sliderrow" id="reloadRow">
           <div class="top">
             <span class="lbl">Engine</span>
@@ -357,8 +372,6 @@
         <button class="btn danger" id="stopBtn" disabled>Stop</button>
       </div>
       <div id="chatOpts">
-        <span>temp <input type="range" id="temp" min="0" max="2" step="0.1" value="0.7"> <span id="tempVal">0.7</span></span>
-        <span>max tokens <input type="number" id="maxTok" value="1024" min="1"></span>
         <span id="chatHint"></span>
       </div>
     </div>
@@ -474,6 +487,7 @@ async function pollCache() {
   try {
     const resp = await (await fetch("/admin/cache/status")).json();
     cacheGeom = resp.geometry || resp;
+    updateGenRow(resp.generation);
     const size = cacheGeom.moe_cache_size || 0;
     const known = (cacheGeom.num_experts || 0) * (cacheGeom.num_moe_layers || 0);
     const total = known > 0 ? known : size * 4;  // ceiling unknown: allow 4x growth
@@ -533,6 +547,43 @@ $("thinkApply").onclick = async () => {
     $("syncTxt").textContent = r.status === "ok" ? "Synced" : "Failed";
     pollCache();
   } catch { $("thinkMsg").textContent = "request failed"; }
+};
+
+/* Generation defaults: temperature + max output tokens, server-wide. */
+let genRecTemp = null;
+function updateGenRow(gen) {
+  if (!gen) return;
+  if (genRecTemp === null) { genRecTemp = gen.temperature; $("genTempRec").textContent = String(gen.temperature); }
+  if (document.activeElement !== $("genTemp")) {
+    $("genTemp").value = gen.temperature;
+    $("genTempVal").textContent = "temp " + Number(gen.temperature).toFixed(2);
+  }
+  if (document.activeElement !== $("genMax")) {
+    $("genMax").value = gen.max_output_tokens;
+    $("genMaxVal").textContent = fmtTok(gen.max_output_tokens);
+  }
+}
+$("genTemp").oninput = () => {
+  $("genTempVal").textContent = "temp " + Number($("genTemp").value).toFixed(2);
+  $("syncTxt").textContent = "Modified";
+};
+$("genMax").oninput = () => {
+  $("genMaxVal").textContent = fmtTok(parseInt($("genMax").value, 10) || 0);
+  $("syncTxt").textContent = "Modified";
+};
+$("genApply").onclick = async () => {
+  const body = { temperature: parseFloat($("genTemp").value), max_output_tokens: parseInt($("genMax").value, 10) || 0 };
+  $("genMsg").textContent = "applying…";
+  try {
+    const r = await (await fetch("/admin/cache/rebuild", {
+      method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body),
+    })).json();
+    $("genMsg").textContent = r.status === "ok"
+      ? "temp " + body.temperature.toFixed(2) + " · " + (body.max_output_tokens ? fmtTok(body.max_output_tokens) : "default") + " tokens"
+      : (r.error || r.status);
+    $("syncTxt").textContent = r.status === "ok" ? "Synced" : "Failed";
+    pollCache();
+  } catch { $("genMsg").textContent = "request failed"; }
 };
 
 $("reloadBtn").onclick = async () => {
@@ -703,8 +754,8 @@ async function send() {
       signal: aborter.signal,
       body: JSON.stringify({
         model: health.model || "model", messages,
-        temperature: parseFloat($("temp").value),
-        max_tokens: parseInt($("maxTok").value, 10) || 1024,
+        // temperature and max_tokens come from the server's generation
+        // defaults (Console tab), exactly as for any other client
         stream: true, stream_options: { include_usage: true },
       }),
     });
@@ -767,7 +818,6 @@ async function send() {
 $("sendBtn").onclick = send;
 $("stopBtn").onclick = () => aborter?.abort();
 $("input").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } });
-$("temp").oninput = () => $("tempVal").textContent = $("temp").value;
 
 if (location.hash === "#chat") showView("chatView");
 if (location.hash === "#logs") showView("logsView");
