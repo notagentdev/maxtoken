@@ -180,3 +180,28 @@ def test_no_drafts_draws_the_bonus_from_the_single_position():
     accepted, tok = spec_sample.accept([], [p], [], np.random.default_rng(4))
     assert accepted == 0
     assert tok == 4
+
+
+def test_device_sampler_draws_from_the_dense_distribution_per_row():
+    """The plain-decode sampler: two rows of logprobs, each drawn many times,
+    against the dense shaped distribution of that row."""
+    sp = _sp(temperature=0.8, top_k=8, top_p=0.9)
+    spec = spec_sample.sampler_spec(sp)
+    shape = _dense(sp)
+    mx.random.seed(21)
+    rows = mx.random.normal((2, 60)) * 2.0
+    logprobs = rows - mx.logsumexp(rows, axis=-1, keepdims=True)
+    sample = spec_sample.device_sampler(spec)
+    counts = [{}, {}]
+    rounds = 2500
+    for _ in range(rounds):
+        toks = sample(logprobs)
+        assert toks.shape == (2,)
+        for r, t in enumerate(toks.tolist()):
+            counts[r][t] = counts[r].get(t, 0) + 1
+    for r in range(2):
+        want_ids, want_p = _dense_row(shape, rows[r])
+        want = dict(zip(want_ids.tolist(), want_p.tolist()))
+        assert set(counts[r]) <= set(want)
+        for t, p in want.items():
+            assert abs(counts[r].get(t, 0) / rounds - p) < 0.035

@@ -86,6 +86,11 @@ class MlxScheduler:
     """Single-process MLX scheduler. Not thread-safe; owns the process's GPU state."""
 
     def __init__(self, config: SchedulerConfig):
+        # Before the Metal device comes up: MLX reads its command-buffer limits
+        # from the environment exactly once (metal_env.py).
+        from .metal_env import apply_dispatch_defaults
+
+        apply_dispatch_defaults()
         import mlx.core as mx  # noqa: F401 -- fail here, before any socket binds
         from mlx_lm import load
 
@@ -112,6 +117,19 @@ class MlxScheduler:
         self._spec_tokens = 0
         if getattr(config, "draft_model", None):
             self._attach_draft(config)
+        # Resident and mapped serving: fuse the gated-delta input projections
+        # and compile the MoE blocks for the decode shape (decode_fusion.py).
+        # After the mapped-expert surgery, since compiled blocks bind the arrays
+        # they were traced with; never with a slot cache, which routes experts
+        # itself. MAXTOKEN_MLX_DECODE_FUSION=0 keeps the stock forward.
+        import os as _os
+
+        if self.offload_state is None and _os.environ.get(
+            "MAXTOKEN_MLX_DECODE_FUSION", "1"
+        ) != "0":
+            from . import decode_fusion
+
+            decode_fusion.install(self.model)
         # Continuous batching (resident and mapped-expert serving): concurrent
         # requests decode in ONE batched forward per step instead of one forward
         # per request per token. The slot-cache offload path keeps its own
@@ -335,6 +353,14 @@ class MlxScheduler:
         # argmax fast path into a per-sequence sampling loop.
         if sp.is_greedy or sp.temperature <= 0.0 or sp.top_k == 1:
             return None
+        # With a bounded top_k the sampling happens over that support alone
+        # (spec_sample.device_sampler): half the cost of mlx-lm's sampler on a
+        # 248k vocabulary, which sorts all of it for top-p. Shapes the
+        # distribution the way the speculative loop does -- temperature, then
+        # top-k, then top-p -- where mlx-lm applies top-p before temperature.
+        spec = spec_sample.sampler_spec(sp)
+        if spec is not None:
+            return spec_sample.device_sampler(spec)
         return make_sampler(
             **_filter_kwargs(
                 make_sampler,

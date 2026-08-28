@@ -121,7 +121,7 @@ prompt, 256 decode tokens:
 | OLMoE-1B-7B-Instruct | resident | 214.7 | 73 ms | 3.7 GiB |
 | Qwen3-30B-A3B-Instruct-2507 | resident | 63.9 | 268 ms | 16.1 GiB |
 | Ornith-1.5-35B-A3B | resident | 66.6 | 205 ms | 18.3 GiB allocated |
-| Ornith-1.5-35B-A3B | **offload, mapped (default)** | **67.8** | **209 ms** | ~18 GiB borrowed² (1.3 GiB owned) |
+| Ornith-1.5-35B-A3B | **offload, mapped (default)** | **82.9**⁵ | **209 ms** | ~18 GiB borrowed² (1.3 GiB owned) |
 | Ornith-1.5-35B-A3B | offload, slot cache 60% | 15.1 | 6.9 s | **11.9 GiB** hard budget |
 | Ornith-1.5-35B-A3B | offload, slot cache 35% | 8.9 | 21 s¹ | **7.7 GiB** hard budget |
 | Qwen3-Coder-Next-80B³ | offload, slot cache 20% | 8.4 | 5.1 s | **10.3 GiB** hard budget |
@@ -174,6 +174,24 @@ own publisher documents ~2.5 tok/s for their (cache-less) SSD streaming of
 the same weights on an M3 Max. Cross-layer read-ahead disables itself on
 this model — DeepSeek-V4 routes by hashing token ids, so its gate cannot be
 scored from the hidden state alone.
+
+⁵ 67.8 before the decode step was taken apart (2026-08-28): a step on this
+model moves ~1.4 GB, which the memory system streams in 5 ms, and took 14.5 —
+it is paid in kernel launches (forty layers of gated-delta and MoE blocks,
+each a chain of small kernels), not bytes. Three things, measured through
+the HTTP server, 256-token answers: MLX's command-buffer limits
+(`MLX_MAX_OPS_PER_BUFFER`, `MLX_MAX_MB_PER_BUFFER` — MLX commits a buffer
+every handful of ops or few tens of MB and the GPU idles at each boundary;
+the worker now defaults them to 400 / 2000 unless the environment sets them,
+`metal_env.py`: 14.5 → 11.9 ms in-process), the decode fusion
+(`decode_fusion.py`: the gated-delta block's four input projections
+concatenated into one 4-bit linear at load, every MoE block `mx.compile`d
+for the decode shape, both decode-only so a prefill stays bit-identical to
+stock; −0.3 ms), and a sampler that works on the top-k support instead of
+sorting the 248k vocabulary for top-p (`spec_sample.device_sampler`, −0.4 ms
+against mlx-lm's). Through the server: 81.5 / 83.2 / 83.6 / 83.1 tok/s on an
+English essay, 82.7 on German. `MAXTOKEN_MLX_DECODE_FUSION=0` keeps the stock
+forward.
 
 ² no free lunch: at full speed the expert weights occupy RAM in the mapped mode
 too (that is why it is fast). The difference is the KIND of memory — the store
@@ -452,6 +470,11 @@ uses.
   | AIME-25 problem 0, thinking | 1.0 / 0.95 / 20 (checkpoint default) | 29.1 / 29.7 / 31.3 | 2.98-3.20 | 31.2 |
   | AIME-25 problem 7, thinking | 0.7 / 0.95 / 40 | 30.4 / 31.7 / 28.6 | 2.93-3.20 | 31.5 |
   | essay prompt (restates itself) | 0.7 / 0.95 / 40 | 27.6 / 36.5 / 27.2 | 2.8-3.7 | 30.5 |
+
+  The command-buffer defaults the worker sets since the Ornith work below
+  (`metal_env.py`) lift these a little further — AIME-25 problem 0, same
+  sampler and seeds: 29.8 / 33.7 / 32.7 tok/s, greedy 32.4 — a verify round
+  is a few hundred launches too.
 
   A round costs ~100 ms: the four-row verify ~80, the three-step draft chain
   ~12 (each step: lm_head 2.3 ms at the bandwidth floor, the head's block 1.1,

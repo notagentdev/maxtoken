@@ -97,6 +97,32 @@ def sample_row(row, spec: SamplerSpec):
     return ids[choice].astype(mx.int32), ids, probs
 
 
+def device_sampler(spec: SamplerSpec):
+    """A ``logprobs (B, V) -> tokens (B,)`` sampler that never leaves the
+    device, for the plain (non-speculative) decode loop.
+
+    mlx-lm's sampler sorts the whole vocabulary for top-p and scatters -inf
+    over it for top-k: 0.86 ms a token on a 248k vocabulary, against a 12 ms
+    step. This one finds the top_k support with one argpartition and does the
+    rest -- sort, top-p, renormalize, draw -- over top_k numbers (0.43 ms,
+    most of it the argpartition). Same shaped distribution as ``sample_row``:
+    temperature, then top-k, then top-p, then renormalize."""
+    import mlx.core as mx
+
+    def sample(logprobs):
+        ids, probs = support(logprobs, spec)
+        if spec.top_p:
+            order = mx.argsort(-probs, axis=-1)
+            probs = mx.take_along_axis(probs, order, axis=-1)
+            ids = mx.take_along_axis(ids, order, axis=-1)
+            keep = (mx.cumsum(probs, axis=-1) - probs) < spec.top_p
+            probs = mx.where(keep, probs, 0.0)
+        choice = mx.random.categorical(mx.log(probs + 1e-30), axis=-1)
+        return mx.take_along_axis(ids, choice[..., None], axis=-1)[..., 0].astype(mx.int32)
+
+    return sample
+
+
 # -- host side -----------------------------------------------------------------
 
 
