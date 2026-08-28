@@ -412,6 +412,72 @@ uses.
   so the headroom is real and measurable. Depth stays at 1: k=2 rejects more
   often, and every rejection lengthens the carried window.
 
+  **From there to thirty.** Four further steps, each measured in the commit
+  that made it: a rejected round now *commits* its accepted prefix by
+  replaying only the gated-delta recurrence over the captured window
+  (`gdn_capture.py`) instead of rolling back and carrying, which made a third
+  draft pay again (k=3, window 4); the head keeps its committed history and
+  builds it from the prompt's own prefill; the verify round was rebuilt around
+  ONE synchronization (`spec_sample.py`: the target's and the drafter's
+  distributions are handled as their top-k supports — one argpartition, one
+  gather, one full-vocabulary logsumexp, the rest host arithmetic over a few
+  dozen numbers; the draft chain stays on the device, is dispatched with
+  `mx.async_eval` before the round's tokens are even handed to the scheduler,
+  and feeds the next window as an array); and the verify kernel accumulates in
+  half precision (this GPU issues half FMAs 1.6x faster than float; the
+  kernel is ALU-bound, not bandwidth-bound — ablating its dequantization
+  arithmetic alone is worth 24%, its activation loads 11%, its weight loads
+  15%).
+
+  Along the way the "sampled" figures above turned out to be greedy in
+  disguise: `_shaped_dist` scatter-assigned through `argsort(probs)[::-1]`,
+  and on MLX 0.32 a scatter through a negative-stride index view writes only
+  its first element, so every top-p distribution had collapsed to its argmax.
+  Read every earlier "sampled" number for this loop as greedy. Real sampling
+  accepts *more* than greedy on this head — rejection sampling survives with
+  probability `1 - TV(p, q)`, which exceeds the argmax-match rate whenever the
+  head is calibrated — and each seed now writes a different text, so a round's
+  cost (ms) and its yield (tokens per round) have to be read separately.
+
+  Where it stands (Qwen3.8-27B-MTPLX-4bit, `--draft-model mtp`, k=3, prefill
+  excluded, three seeds, 256 tokens):
+
+  | text | sampler | tok/s (seeds 1-3) | tok/round | greedy |
+  |---|---|---|---|---|
+  | AIME-25 problem 0, thinking | 0.7 / 0.95 / 40 | 29.1 / 32.6 / 31.7 | 2.94-3.29 | 31.2 |
+  | AIME-25 problem 0, thinking | 1.0 / 0.95 / 20 (checkpoint default) | 29.1 / 29.7 / 31.3 | 2.98-3.20 | 31.2 |
+  | AIME-25 problem 7, thinking | 0.7 / 0.95 / 40 | 30.4 / 31.7 / 28.6 | 2.93-3.20 | 31.5 |
+  | essay prompt (restates itself) | 0.7 / 0.95 / 40 | 27.6 / 36.5 / 27.2 | 2.8-3.7 | 30.5 |
+
+  A round costs ~100 ms: the four-row verify ~80, the three-step draft chain
+  ~12 (each step: lm_head 2.3 ms at the bandwidth floor, the head's block 1.1,
+  the top-k selection 0.5), and ~4 ms of host time the GPU waits out (the
+  acceptance test and the encoding of the next chain). Plain decode is 55 ms
+  a token, so the verify's three extra rows cost ~25 ms — the kernel sits near
+  175-190 GB/s at four rows where a single stock row streams at 260, and every
+  micro-variant tried on it (extract_bits, shift-free dequantization with
+  pre-scaled activations, two-pack unrolls, 6- and 8-column tiles, 2-16
+  simdgroups per threadgroup, packed half2 products, a mantissa-trick
+  dequantization, activations staged through threadgroup memory, uint2/uint4
+  weight loads) measured within noise or worse. Its numerics against stock:
+  mean total variation 0.025 per position, argmax disagreements only on exact
+  ties.
+
+  Measured and rejected, so they need not be measured again: a 2-bit or 3-bit
+  copy of the lm_head for drafting (stock and custom M=1 kernels all land at
+  ~2.5 ms — at M=1 this shape is issue-bound, not byte-bound; the low-bit
+  head's candidate recall was perfect, which is the pity of it); a low-rank
+  screening head (the lm_head's spectrum is flat — rank 1024 holds 37% of its
+  energy — and the top-5 recall inside a 512-candidate screen was 76%);
+  FR-Spec-style static hot vocabularies (95% coverage on English, 97% on code,
+  67% on German at 32k tokens; German is what this machine is used in); an
+  adaptive draft depth between 2 and 5 (neutral on hard and easy text alike —
+  a six-row window costs 157 ms a round — and 5% worse greedy); scaling the
+  drafter's sampling temperature (2.88-2.93 tokens a round whatever the
+  factor); dispatching the absorbed history before building the next chain
+  (the dispatch costs what it hides). Draft trees are ruled out by the
+  architecture: a recurrent layer has one state per branch.
+
 
   The two-model pattern is structural in a different way. A drafter has to be
   roughly an order of magnitude cheaper than the target's *active* path, share
