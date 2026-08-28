@@ -121,7 +121,7 @@ prompt, 256 decode tokens:
 | OLMoE-1B-7B-Instruct | resident | 214.7 | 73 ms | 3.7 GiB |
 | Qwen3-30B-A3B-Instruct-2507 | resident | 63.9 | 268 ms | 16.1 GiB |
 | Ornith-1.5-35B-A3B | resident | 66.6 | 205 ms | 18.3 GiB allocated |
-| Ornith-1.5-35B-A3B | **offload, mapped (default)** | **67.8**⁵ | **209 ms** | ~18 GiB borrowed² (1.3 GiB owned) |
+| Ornith-1.5-35B-A3B | **offload, mapped (default)** | **78**⁵ | **209 ms** | ~18 GiB borrowed² (1.3 GiB owned) |
 | Ornith-1.5-35B-A3B | offload, slot cache 60% | 15.1 | 6.9 s | **11.9 GiB** hard budget |
 | Ornith-1.5-35B-A3B | offload, slot cache 35% | 8.9 | 21 s¹ | **7.7 GiB** hard budget |
 | Qwen3-Coder-Next-80B³ | offload, slot cache 20% | 8.4 | 5.1 s | **10.3 GiB** hard budget |
@@ -175,33 +175,40 @@ the same weights on an M3 Max. Cross-layer read-ahead disables itself on
 this model — DeepSeek-V4 routes by hashing token ids, so its gate cannot be
 scored from the hidden state alone.
 
-⁵ Re-measured 2026-08-28 with the shipped defaults: 64.6 / 66.8 / 67.1 —
-the same as before the decode step was taken apart, because the one lever
-that moved it is not shipped. A step on this model moves ~1.4 GB, which the
-memory system streams in 5 ms, and takes 14.5 — it is paid in kernel launches
-(forty layers of gated-delta and MoE blocks, each a chain of small kernels),
-not bytes. Three things were measured through the HTTP server, 256-token
-answers: MLX's command-buffer limits
-(`MLX_MAX_OPS_PER_BUFFER`, `MLX_MAX_MB_PER_BUFFER` — MLX commits a buffer
-every handful of ops or few tens of MB and the GPU idles at each boundary;
-400 / 2000 measured 14.5 → 11.9 ms in-process — **but the worker no longer
-sets them**: with those defaults an agent's long prompts took the machine
-down in a GPU-driver kernel panic with 28.7 GB wired, see `metal_env.py`;
-export them yourself only with real memory headroom), the decode fusion
-(`decode_fusion.py`: the gated-delta block's four input projections
-concatenated into one 4-bit linear at load, every MoE block `mx.compile`d
-for the decode shape, both decode-only so a prefill stays bit-identical to
-stock; −0.3 ms), and a sampler that works on the top-k support instead of
-sorting the 248k vocabulary for top-p (`spec_sample.device_sampler`, −0.4 ms
-against mlx-lm's). Through the server with all three: 81.5 / 83.2 / 83.6 / 83.1 tok/s
-on an English essay, 82.7 on German. Without the buffer limits (the shipped
-default) the fusion and the sampler measure nothing on their own — the
-boundaries between MLX's small command buffers dominate the step — so the
-82.9 stands only for a machine with the memory headroom to export the two
-limits. Note also that the mapped store is less elastic than the paragraph
-above suggests once Metal has touched it: serving this model showed 21 GB
-wired with 0.1 GB free on the 32 GB machine even at MLX's default limits.
-`MAXTOKEN_MLX_DECODE_FUSION=0` keeps the stock forward.
+⁵ 67.8 until 2026-08-28. A step on this model moves ~1.4 GB, which the memory
+system streams in 5 ms, and took 14.5 — it is paid in kernel launches (forty
+layers of gated-delta and MoE blocks, each a chain of small kernels), not
+bytes. What ships now, measured through the HTTP server on 256-token answers
+(77.6 / 78.2 / 78.7 tok/s; 81–82 in-process, the difference being the
+sampler and the per-token reply):
+
+- **Wider Metal command buffers.** MLX commits a buffer every handful of ops
+  or few tens of MB and the GPU idles at each boundary; the worker sets
+  `MLX_MAX_OPS_PER_BUFFER=400` and `MLX_MAX_MB_PER_BUFFER=1024` unless the
+  environment already has them (`metal_env.py`): 14.5 → 12.2 ms in-process.
+- **A paced prefill** (`prefill_pacing.py`, `MAXTOKEN_MLX_PREFILL_PACE`,
+  default 4): everything an uncompleted command buffer references stays
+  wired, a 2 048-token chunk allocates gigabytes, and the encoder runs far
+  ahead of the GPU — so a prefill evaluates its hidden state every four
+  layers. Peak wired memory on an 8 192-token prompt: 21.8 GB at MLX's
+  defaults, **> 26 GB with the wide buffers unpaced**, 23.0 GB paced. The
+  first attempt shipped the wide buffers without this and a prefix store of
+  15% of RAM, and an agent's long prompts ended in a kernel panic in the GPU
+  driver (`IOGPUGroupMemory::remove_memory_object()`, 28.7 GB wired).
+- **A prefix store budgeted from headroom**: a quarter of what is left after
+  the model and a 6 GB system reserve, never more than the old 15% of RAM
+  (1.9 GiB here instead of 4.8).
+- The decode fusion (`decode_fusion.py`: the gated-delta block's four input
+  projections concatenated into one 4-bit linear, every MoE block
+  `mx.compile`d for the decode shape, both decode-only so a prefill stays
+  bit-identical to stock) and a sampler over the top-k support instead of a
+  full-vocabulary sort (`spec_sample.device_sampler`) — worth ~0.7 ms a
+  token on top of the buffers, nothing without them.
+
+Under the same watchdog the server took a 17k-token prompt (TTFT 44 s, peak
+24.0 GB wired) and a 34k-token one (peak 25.3 GB) without incident on the
+32 GB machine. `benchmarks/bench_mlx_decode.py` is the in-process probe with
+that watchdog; use it before changing any of the above.
 
 ² no free lunch: at full speed the expert weights occupy RAM in the mapped mode
 too (that is why it is fast). The difference is the KIND of memory — the store

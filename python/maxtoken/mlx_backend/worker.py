@@ -52,6 +52,19 @@ from . import gdn_capture, spec_sample
 # right answer.
 MAX_WINDOW = 4
 
+# Memory the prefix store may hold, from what is actually left once the model
+# is resident. It used to be 15% of RAM regardless of the model: on a 32 GB
+# machine that is 4.8 GB of snapshots on top of an 18 GB model, and it was one
+# of the three things that added up to the 28.7 GB of wired memory the kernel
+# died on. Now: a quarter of the headroom after the model and a reserve for
+# the rest of the system, never more than the old 15%, never less than 256 MB.
+SYSTEM_RESERVE_BYTES = 6 << 30
+
+
+def prefix_store_budget(memory_size: int, model_bytes: int) -> int:
+    headroom = max(0, memory_size - model_bytes - SYSTEM_RESERVE_BYTES)
+    return int(max(256 << 20, min(0.15 * memory_size, 0.25 * headroom)))
+
 if TYPE_CHECKING:
     from maxtoken.core import SamplingParams
     from maxtoken.scheduler import SchedulerConfig
@@ -86,14 +99,13 @@ class MlxScheduler:
     """Single-process MLX scheduler. Not thread-safe; owns the process's GPU state."""
 
     def __init__(self, config: SchedulerConfig):
-        # The Metal command-buffer limits stay MLX's own unless the environment
-        # sets them -- see metal_env.py for what happened when the worker chose
-        # wide buffers itself. Logged so a benchmark states what it ran under.
-        from .metal_env import dispatch_limits
+        # Before the Metal device comes up: the command-buffer limits MLX reads
+        # once from the environment (metal_env.py -- and the panic that taught
+        # us they only work together with a paced prefill and a prefix store
+        # budgeted from real headroom).
+        from .metal_env import apply_dispatch_defaults
 
-        limits = {k: v for k, v in dispatch_limits().items() if v is not None}
-        if limits:
-            logger.info(f"Metal command-buffer limits from the environment: {limits}")
+        logger.info(f"Metal command-buffer limits: {apply_dispatch_defaults()}")
         import mlx.core as mx  # noqa: F401 -- fail here, before any socket binds
         from mlx_lm import load
 
@@ -133,6 +145,13 @@ class MlxScheduler:
             from . import decode_fusion
 
             decode_fusion.install(self.model)
+        if self.offload_state is None:
+            # Wide command buffers are only safe with a prefill whose in-flight
+            # set is bounded (prefill_pacing.py; the slot cache paces itself,
+            # layer by layer, on its streamed prefill).
+            from . import prefill_pacing
+
+            prefill_pacing.install(self.model)
         # Continuous batching (resident and mapped-expert serving): concurrent
         # requests decode in ONE batched forward per step instead of one forward
         # per request per token. The slot-cache offload path keeps its own
@@ -167,9 +186,11 @@ class MlxScheduler:
             budget = int(_os.environ.get("MAXTOKEN_MLX_PREFIX_CACHE_MB", "0")) * 2**20
             if budget <= 0:
                 try:
-                    budget = int(0.15 * mx.metal.device_info()["memory_size"])
+                    budget = prefix_store_budget(
+                        int(mx.device_info()["memory_size"]), int(mx.get_active_memory())
+                    )
                 except Exception:  # noqa: BLE001 -- conservative fallback
-                    budget = 2 << 30
+                    budget = 1 << 30
             self.prefix_store = PrefixStore(budget)
             logger.info(
                 f"prefix cache: on ({budget / 2**30:.1f} GiB budget; "

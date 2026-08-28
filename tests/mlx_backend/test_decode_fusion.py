@@ -134,14 +134,50 @@ def test_uninstall_restores_the_classes(model):
     assert not decode_fusion._COMPILED
 
 
-def test_the_worker_does_not_choose_command_buffer_limits(monkeypatch):
-    """After the GPU-driver panic of 2026-08-28 (28.7 GB wired under wide
-    buffers), the limits are the user's: nothing is exported by us, and what
-    the environment says is reported back verbatim."""
+def test_dispatch_defaults_do_not_override_the_user(monkeypatch):
     from maxtoken.mlx_backend import metal_env
 
     monkeypatch.delenv("MLX_MAX_OPS_PER_BUFFER", raising=False)
     monkeypatch.setenv("MLX_MAX_MB_PER_BUFFER", "77")
-    got = metal_env.dispatch_limits()
-    assert got == {"MLX_MAX_OPS_PER_BUFFER": None, "MLX_MAX_MB_PER_BUFFER": "77"}
-    assert "MLX_MAX_OPS_PER_BUFFER" not in __import__("os").environ
+    got = metal_env.apply_dispatch_defaults()
+    assert got["MLX_MAX_OPS_PER_BUFFER"] == metal_env.DEFAULTS["MLX_MAX_OPS_PER_BUFFER"]
+    assert got["MLX_MAX_MB_PER_BUFFER"] == "77"
+
+
+def test_prefix_store_budget_comes_from_headroom():
+    from maxtoken.mlx_backend.worker import prefix_store_budget
+
+    gib = 1 << 30
+    # 32 GB machine, 18 GB model: a quarter of (32 - 18 - 6) = 2 GB, not 4.8.
+    assert prefix_store_budget(32 * gib, 18 * gib) == 2 * gib
+    # A small model still gets no more than the old 15% of RAM.
+    assert prefix_store_budget(32 * gib, 4 * gib) == int(0.15 * 32 * gib)
+    # A model that fills the machine keeps the floor.
+    assert prefix_store_budget(32 * gib, 30 * gib) == 256 << 20
+
+
+def test_paced_prefill_matches_the_stock_forward(model):
+    """A prefill evaluated every two layers must produce the same logits and
+    the same caches as the unpaced forward; a single-position forward takes
+    the original path untouched."""
+    from maxtoken.mlx_backend import prefill_pacing
+
+    ids = mx.array([[1, 7, 3, 9, 12, 5, 8, 2]])
+    cache_a, cache_b = make_prompt_cache(model), make_prompt_cache(model)
+    stock = model(ids, cache=cache_a)
+    mx.eval(stock)
+    assert prefill_pacing.install(model, pace=2) == 2
+    try:
+        paced = model(ids, cache=cache_b)
+        mx.eval(paced)
+        assert mx.array_equal(stock, paced)
+        for a, b in zip(cache_a, cache_b):
+            for x, y in zip(a.state, b.state):
+                if x is not None:
+                    assert mx.array_equal(x, y)
+        y = mx.array([[4]])
+        s1, s2 = model(y, cache=cache_a), model(y, cache=cache_b)
+        mx.eval(s1, s2)
+        assert mx.array_equal(s1, s2)
+    finally:
+        prefill_pacing.uninstall()
