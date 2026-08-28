@@ -205,6 +205,13 @@ def render_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def _render_message(message: dict[str, Any]) -> dict[str, Any]:
     m = dict(message)
+    # OpenAI renamed the system role "developer" for its newer models, and the
+    # SDKs and agents built on them send it to every server. Chat templates
+    # know only "system"; a Qwen template raises "Unexpected message role" on
+    # anything else, which reached the agent as a 400. LM Studio and Ollama
+    # make the same substitution.
+    if m.get("role") == "developer":
+        m["role"] = "system"
     content = m.get("content")
     if isinstance(content, list):
         m["content"] = _flatten_text_parts(content)
