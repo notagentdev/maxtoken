@@ -44,6 +44,7 @@ from .args import ServerArgs
 from .anthropic_api import register_anthropic_routes
 from .accounting import AdmissionClosedError, register_accounting_routes
 from .control_api import register_control_routes
+from .lmstudio_api import register_lmstudio_routes
 from .openai_api import register_openai_routes
 from . import request_ring
 from .access_log_filter import install_polling_access_log_filter
@@ -451,6 +452,7 @@ register_openai_routes(app, get_global_state, effective_sampling)
 register_anthropic_routes(app, get_global_state, effective_sampling)
 register_responses_routes(app, get_global_state, effective_sampling)
 register_control_routes(app, get_global_state, effective_sampling)
+register_lmstudio_routes(app, get_global_state, effective_sampling)
 register_accounting_routes(app, get_global_state)
 
 # Built-in web console (chat, live stats, elastic cache control) served from the
