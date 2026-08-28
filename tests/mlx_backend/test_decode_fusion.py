@@ -134,11 +134,14 @@ def test_uninstall_restores_the_classes(model):
     assert not decode_fusion._COMPILED
 
 
-def test_dispatch_defaults_do_not_override_the_user(monkeypatch):
+def test_the_worker_does_not_choose_command_buffer_limits(monkeypatch):
+    """After the GPU-driver panic of 2026-08-28 (28.7 GB wired under wide
+    buffers), the limits are the user's: nothing is exported by us, and what
+    the environment says is reported back verbatim."""
     from maxtoken.mlx_backend import metal_env
 
     monkeypatch.delenv("MLX_MAX_OPS_PER_BUFFER", raising=False)
     monkeypatch.setenv("MLX_MAX_MB_PER_BUFFER", "77")
-    got = metal_env.apply_dispatch_defaults()
-    assert got["MLX_MAX_OPS_PER_BUFFER"] == metal_env.DEFAULTS["MLX_MAX_OPS_PER_BUFFER"]
-    assert got["MLX_MAX_MB_PER_BUFFER"] == "77"
+    got = metal_env.dispatch_limits()
+    assert got == {"MLX_MAX_OPS_PER_BUFFER": None, "MLX_MAX_MB_PER_BUFFER": "77"}
+    assert "MLX_MAX_OPS_PER_BUFFER" not in __import__("os").environ

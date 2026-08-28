@@ -182,16 +182,19 @@ each a chain of small kernels), not bytes. Three things, measured through
 the HTTP server, 256-token answers: MLX's command-buffer limits
 (`MLX_MAX_OPS_PER_BUFFER`, `MLX_MAX_MB_PER_BUFFER` — MLX commits a buffer
 every handful of ops or few tens of MB and the GPU idles at each boundary;
-the worker now defaults them to 400 / 2000 unless the environment sets them,
-`metal_env.py`: 14.5 → 11.9 ms in-process), the decode fusion
+400 / 2000 measured 14.5 → 11.9 ms in-process — **but the worker no longer
+sets them**: with those defaults an agent's long prompts took the machine
+down in a GPU-driver kernel panic with 28.7 GB wired, see `metal_env.py`;
+export them yourself only with real memory headroom), the decode fusion
 (`decode_fusion.py`: the gated-delta block's four input projections
 concatenated into one 4-bit linear at load, every MoE block `mx.compile`d
 for the decode shape, both decode-only so a prefill stays bit-identical to
 stock; −0.3 ms), and a sampler that works on the top-k support instead of
 sorting the 248k vocabulary for top-p (`spec_sample.device_sampler`, −0.4 ms
-against mlx-lm's). Through the server: 81.5 / 83.2 / 83.6 / 83.1 tok/s on an
-English essay, 82.7 on German. `MAXTOKEN_MLX_DECODE_FUSION=0` keeps the stock
-forward.
+against mlx-lm's). Through the server with all three: 81.5 / 83.2 / 83.6 / 83.1 tok/s
+on an English essay, 82.7 on German; without the buffer limits (the shipped
+default) the fusion and the sampler are what remain. `MAXTOKEN_MLX_DECODE_FUSION=0`
+keeps the stock forward.
 
 ² no free lunch: at full speed the expert weights occupy RAM in the mapped mode
 too (that is why it is fast). The difference is the KIND of memory — the store
@@ -471,10 +474,11 @@ uses.
   | AIME-25 problem 7, thinking | 0.7 / 0.95 / 40 | 30.4 / 31.7 / 28.6 | 2.93-3.20 | 31.5 |
   | essay prompt (restates itself) | 0.7 / 0.95 / 40 | 27.6 / 36.5 / 27.2 | 2.8-3.7 | 30.5 |
 
-  The command-buffer defaults the worker sets since the Ornith work below
-  (`metal_env.py`) lift these a little further — AIME-25 problem 0, same
-  sampler and seeds: 29.8 / 33.7 / 32.7 tok/s, greedy 32.4 — a verify round
-  is a few hundred launches too.
+  Wider Metal command buffers (`MLX_MAX_OPS_PER_BUFFER=400
+  MLX_MAX_MB_PER_BUFFER=2000`, exported by hand — see `metal_env.py` for why
+  the worker does not do it) lift these a little further — AIME-25 problem 0,
+  same sampler and seeds: 29.8 / 33.7 / 32.7 tok/s, greedy 32.4 — a verify
+  round is a few hundred launches too.
 
   A round costs ~100 ms: the four-row verify ~80, the three-step draft chain
   ~12 (each step: lm_head 2.3 ms at the bandwidth floor, the head's block 1.1,

@@ -86,11 +86,14 @@ class MlxScheduler:
     """Single-process MLX scheduler. Not thread-safe; owns the process's GPU state."""
 
     def __init__(self, config: SchedulerConfig):
-        # Before the Metal device comes up: MLX reads its command-buffer limits
-        # from the environment exactly once (metal_env.py).
-        from .metal_env import apply_dispatch_defaults
+        # The Metal command-buffer limits stay MLX's own unless the environment
+        # sets them -- see metal_env.py for what happened when the worker chose
+        # wide buffers itself. Logged so a benchmark states what it ran under.
+        from .metal_env import dispatch_limits
 
-        apply_dispatch_defaults()
+        limits = {k: v for k, v in dispatch_limits().items() if v is not None}
+        if limits:
+            logger.info(f"Metal command-buffer limits from the environment: {limits}")
         import mlx.core as mx  # noqa: F401 -- fail here, before any socket binds
         from mlx_lm import load
 
