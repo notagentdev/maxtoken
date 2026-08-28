@@ -121,7 +121,7 @@ prompt, 256 decode tokens:
 | OLMoE-1B-7B-Instruct | resident | 214.7 | 73 ms | 3.7 GiB |
 | Qwen3-30B-A3B-Instruct-2507 | resident | 63.9 | 268 ms | 16.1 GiB |
 | Ornith-1.5-35B-A3B | resident | 66.6 | 205 ms | 18.3 GiB allocated |
-| Ornith-1.5-35B-A3B | **offload, mapped (default)** | **82.9**⁵ | **209 ms** | ~18 GiB borrowed² (1.3 GiB owned) |
+| Ornith-1.5-35B-A3B | **offload, mapped (default)** | **67.8**⁵ | **209 ms** | ~18 GiB borrowed² (1.3 GiB owned) |
 | Ornith-1.5-35B-A3B | offload, slot cache 60% | 15.1 | 6.9 s | **11.9 GiB** hard budget |
 | Ornith-1.5-35B-A3B | offload, slot cache 35% | 8.9 | 21 s¹ | **7.7 GiB** hard budget |
 | Qwen3-Coder-Next-80B³ | offload, slot cache 20% | 8.4 | 5.1 s | **10.3 GiB** hard budget |
@@ -175,11 +175,13 @@ the same weights on an M3 Max. Cross-layer read-ahead disables itself on
 this model — DeepSeek-V4 routes by hashing token ids, so its gate cannot be
 scored from the hidden state alone.
 
-⁵ 67.8 before the decode step was taken apart (2026-08-28): a step on this
-model moves ~1.4 GB, which the memory system streams in 5 ms, and took 14.5 —
-it is paid in kernel launches (forty layers of gated-delta and MoE blocks,
-each a chain of small kernels), not bytes. Three things, measured through
-the HTTP server, 256-token answers: MLX's command-buffer limits
+⁵ Re-measured 2026-08-28 with the shipped defaults: 64.6 / 66.8 / 67.1 —
+the same as before the decode step was taken apart, because the one lever
+that moved it is not shipped. A step on this model moves ~1.4 GB, which the
+memory system streams in 5 ms, and takes 14.5 — it is paid in kernel launches
+(forty layers of gated-delta and MoE blocks, each a chain of small kernels),
+not bytes. Three things were measured through the HTTP server, 256-token
+answers: MLX's command-buffer limits
 (`MLX_MAX_OPS_PER_BUFFER`, `MLX_MAX_MB_PER_BUFFER` — MLX commits a buffer
 every handful of ops or few tens of MB and the GPU idles at each boundary;
 400 / 2000 measured 14.5 → 11.9 ms in-process — **but the worker no longer
@@ -192,9 +194,14 @@ for the decode shape, both decode-only so a prefill stays bit-identical to
 stock; −0.3 ms), and a sampler that works on the top-k support instead of
 sorting the 248k vocabulary for top-p (`spec_sample.device_sampler`, −0.4 ms
 against mlx-lm's). Through the server with all three: 81.5 / 83.2 / 83.6 / 83.1 tok/s
-on an English essay, 82.7 on German; without the buffer limits (the shipped
-default) the fusion and the sampler are what remain. `MAXTOKEN_MLX_DECODE_FUSION=0`
-keeps the stock forward.
+on an English essay, 82.7 on German. Without the buffer limits (the shipped
+default) the fusion and the sampler measure nothing on their own — the
+boundaries between MLX's small command buffers dominate the step — so the
+82.9 stands only for a machine with the memory headroom to export the two
+limits. Note also that the mapped store is less elastic than the paragraph
+above suggests once Metal has touched it: serving this model showed 21 GB
+wired with 0.1 GB free on the 32 GB machine even at MLX's default limits.
+`MAXTOKEN_MLX_DECODE_FUSION=0` keeps the stock forward.
 
 ² no free lunch: at full speed the expert weights occupy RAM in the mapped mode
 too (that is why it is fast). The difference is the KIND of memory — the store
