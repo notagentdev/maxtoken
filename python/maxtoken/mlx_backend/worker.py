@@ -209,6 +209,19 @@ class MlxScheduler:
                 f"prefix cache: on ({budget / 2**30:.1f} GiB budget; "
                 "--cache-type naive disables)"
             )
+        # The store's second tier: boundary snapshots of long prompts on the
+        # SSD, so a prompt that repeats across restarts (an agent's system
+        # prompt) is prefilled once (prefix_disk.py).
+        self.prefix_disk = None
+        if self.prefix_store is not None and self.offload_state is None:
+            from . import prefix_disk
+
+            try:
+                self.prefix_disk = prefix_disk.open_for(
+                    config, self.model, self._model_dir(config)
+                )
+            except Exception as exc:  # noqa: BLE001 -- the tier is optional
+                logger.warning(f"prefix disk: off ({type(exc).__name__}: {exc})")
 
         self._recv = ZmqPullQueue(
             config.zmq_backend_addr, create=True, decoder=BaseBackendMsg.decoder
@@ -411,14 +424,41 @@ class MlxScheduler:
         )
 
     def _lookup_prefix(self, input_ids: List[int]) -> tuple:
-        """(restored cache | None, cached_tokens) from the prefix store."""
+        """(restored cache | None, cached_tokens) from the prefix store: the
+        RAM tier's match, or the disk tier's when that reaches deeper."""
         if self.prefix_store is None:
             return None, 0
         hit = self.prefix_store.lookup(input_ids)
+        n_ram = hit[1] if hit is not None else 0
+        disk = getattr(self, "prefix_disk", None)
+        found = disk.lookup(input_ids) if disk is not None else None
+        if found is not None and found[0] * disk.block > n_ram:
+            from mlx_lm.models.cache import make_prompt_cache
+
+            cache = disk.restore(lambda: make_prompt_cache(self.model), input_ids, found[0])
+            if cache is not None:
+                n = found[0] * disk.block
+                # RAM now holds it too: the next hit needs no disk read.
+                self.prefix_store.insert(input_ids[:n], cache)
+                return cache, n
         if hit is None:
             return None, 0
         entry, n = hit
-        return self.prefix_store.restore(self.model, entry, n), n
+        cache = self.prefix_store.restore(self.model, entry, n)
+        if disk is not None and n % disk.block == 0:
+            # A position someone resumed at is one worth keeping on disk.
+            disk.observe(input_ids[:n], cache, prompt_len=len(input_ids), restore_point=True)
+        return cache, n
+
+    def _snapshot(self, tokens: List[int], cache, prompt_len: int, *, ram: bool = True) -> None:
+        """A cache positioned exactly at ``len(tokens)`` of a prompt of
+        ``prompt_len``: remember it in RAM and, where the disk tier wants a
+        snapshot there, on the SSD."""
+        if ram and self.prefix_store is not None:
+            self.prefix_store.insert(tokens, cache)
+        disk = getattr(self, "prefix_disk", None)
+        if disk is not None:
+            disk.observe(tokens, cache, prompt_len=prompt_len)
 
     def _prefill_into(
         self, cache, input_ids: List[int], start: int, on_hidden=None
@@ -454,6 +494,11 @@ class MlxScheduler:
         pos = start
         end = len(input_ids) - 1
         next_boundary = (pos // BOUNDARY_TOKENS + 1) * BOUNDARY_TOKENS
+        # Positions the disk tier wants a snapshot at (the prompt's last full
+        # block, the point where it diverges from what is stored): a chunk
+        # ends there too, at the cost of one extra launch each.
+        disk = getattr(self, "prefix_disk", None)
+        cuts = disk.cut_points(input_ids, start) if disk is not None else []
         while pos < end:
             # Chunk width is a trade: a wide chunk amortizes the per-chunk work
             # (dequantized matrices, launches) and prefills ~7% faster; a
@@ -471,6 +516,10 @@ class MlxScheduler:
                 to_boundary = next_boundary - pos
                 n = to_boundary if n < to_boundary else n - (pos + n) % BOUNDARY_TOKENS
                 n = max(n, to_boundary)
+            for cut in cuts:
+                if pos < cut < pos + n:
+                    n = cut - pos
+                    break
             chunk = mx.array(input_ids[pos:pos + n])[None]
             if on_hidden is None:
                 mx.eval(self.model(chunk, cache=cache))
@@ -480,8 +529,9 @@ class MlxScheduler:
                 on_hidden(hidden, pos, pos + n)
             pos += n
             if pos % BOUNDARY_TOKENS == 0:
-                if pos < end and self.prefix_store is not None:
-                    self.prefix_store.insert(input_ids[:pos], cache)
+                # RAM keeps mid-prompt states only (the end of the request is
+                # donated whole); the disk tier may want this one either way.
+                self._snapshot(input_ids[:pos], cache, len(input_ids), ram=pos < end)
                 next_boundary = pos + BOUNDARY_TOKENS
             yield None
 
@@ -568,7 +618,7 @@ class MlxScheduler:
                 # the following chunk clamped to zero tokens and the model was
                 # handed an empty array — every prompt past BOUNDARY_TOKENS.
                 if pos < end and self.prefix_store is not None:
-                    self.prefix_store.insert(input_ids[:pos], cache)
+                    self._snapshot(input_ids[:pos], cache, len(input_ids))
                 next_boundary += BOUNDARY_TOKENS
 
     def _shaped_dist(self, sp: SamplingParams):
@@ -1139,7 +1189,7 @@ class MlxScheduler:
                     n = cached_prefix + done
                     extracted = self.batch_gen.extract_cache([pr.uid]).get(pr.uid)
                     if extracted is not None:
-                        self.prefix_store.insert(req.prompt_ids[:n], extracted[0])
+                        self._snapshot(req.prompt_ids[:n], extracted[0], len(req.prompt_ids))
 
         for r in gen_resps:
             uid = self._our_uid.get(r.uid)
@@ -1197,6 +1247,9 @@ class MlxScheduler:
         cache covers the prompt plus all but the last emitted token (the last
         one was sampled but never fed back through the model)."""
         cache = cache if cache is not None else req.cache
+        disk = getattr(self, "prefix_disk", None)
+        if disk is not None:
+            disk.done(req.prompt_ids)
         if self.prefix_store is None or cache is None:
             return
         tokens = req.prompt_ids + req.output_ids[:-1]
@@ -1518,6 +1571,9 @@ class MlxScheduler:
 
     def shutdown(self) -> None:
         self.active.clear()
+        disk = getattr(self, "prefix_disk", None)
+        if disk is not None:
+            disk.close()  # drains queued snapshots, persists the manifest
         self._recv.stop()
         self._send.stop()
 

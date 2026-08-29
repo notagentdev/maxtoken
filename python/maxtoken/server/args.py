@@ -44,6 +44,10 @@ class ServerArgs(SchedulerConfig):
     # prompt_tokens_details.cached_tokens, Anthropic cache_read_input_tokens, Responses
     # input_tokens_details.cached_tokens). Mirrors sglang's --enable-cache-report.
     enable_cache_report: bool = False
+    # The MLX prefix cache's disk tier (mlx_backend/prefix_disk.py): boundary snapshots of
+    # long prompts, kept across restarts and reloads. Budget in GiB, LRU-evicted; 0 = off.
+    prefix_cache_dir: str = "~/.maxtoken/prefix-cache"
+    prefix_cache_disk_gb: float = 20.0
     # Comma-separated CORS allow-list for browser/webview clients (e.g. the desktop
     # app). Empty string disables CORS headers entirely; "*" allows any origin.
     cors_origins: str = "tauri://localhost,http://tauri.localhost,http://localhost:1420"
@@ -399,6 +403,20 @@ def parse_args(
         "as a GDN-aware radix (cross-request GDN-state prefix reuse); pass 'naive' to opt out.",
     )
 
+    parser.add_argument(
+        "--prefix-cache-dir",
+        type=str,
+        default=ServerArgs.prefix_cache_dir,
+        help="MLX backend: directory of the prefix cache's disk tier, where boundary snapshots "
+        "of long prompts survive restarts and reloads (default ~/.maxtoken/prefix-cache).",
+    )
+    parser.add_argument(
+        "--prefix-cache-disk-gb",
+        type=float,
+        default=ServerArgs.prefix_cache_disk_gb,
+        help="MLX backend: disk budget of the prefix cache's disk tier in GiB, LRU-evicted "
+        "(default 20); 0 disables the tier.",
+    )
     parser.add_argument(
         "--enable-cache-report",
         action="store_true",

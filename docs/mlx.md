@@ -284,6 +284,28 @@ uses.
   per request with `--enable-cache-report` (usage `cached_tokens`). Measured
   on Ornith-1.5-35B with a 2.4k-token system prompt: first request 19.5 s,
   follow-ups **1.0 s** (`cached_tokens=2304`).
+- **Prefix cache on the SSD** (`mlx_backend/prefix_disk.py`; on by default,
+  `--prefix-cache-disk-gb 0` disables, `--prefix-cache-dir` relocates from
+  `~/.maxtoken/prefix-cache`): the RAM store dies with the process, and the
+  prompt that repeats across runs — an agent's fixed system prompt, ~9k tokens
+  and ~75 s of compute-bound prefill on the 27B — was paid again after every
+  restart and every reload. The disk tier keeps boundary snapshots of prompts
+  ≥ 512 tokens: per 256-token block the attention KV (16 MB on the 27B),
+  addressed by a hash chained from the previous block's so prompts sharing a
+  system prompt share its blocks; and, where a resume is likely, the
+  recurrent state (151 MB on the 27B — a snapshot, not a slice, so not at
+  every block: every 4th, the prompt's last full block, any block a request
+  resumed at, and the block where a prompt diverged from a stored one). The
+  speculative path's prefill ends a chunk at those positions so the snapshots
+  exist. Files are safetensors written by a background thread from pageable
+  host copies (the scheduler never waits on the disk); a manifest carries LRU
+  stamps, eviction is oldest-first and drops a chain's tail before its head;
+  a store is keyed by model name + a digest of config and weight files, and
+  locked to one process. Measured on the 27B with a 3.5k-token prompt: cold
+  42 s; after an engine reload the restore reads 355 MB in **70–110 ms** and
+  the request completes in ~5 s (the remaining 166 tokens plus first-use
+  kernel work), answer token-identical to the cold one (greedy). The console
+  shows the tier's fill and hits; `/admin/cache/status` carries `prefix_disk`.
 - **Speculative decoding** (`--draft-model`, slot-cache offload serving): a
   small same-vocabulary model (e.g. `mlx-community/Qwen3-0.6B-4bit` for Qwen3
   targets) drafts `--draft-tokens` (default 3) per step; the target verifies

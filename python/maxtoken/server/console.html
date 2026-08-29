@@ -222,6 +222,10 @@
         <div class="bar-row"><span>KV pages</span><span id="pfxTxt">–</span></div>
         <div class="bar"><i id="pfxBar" style="width:0%"></i></div>
       </div>
+      <div id="diskRow" hidden>
+        <div class="bar-row"><span>Prefix cache · SSD</span><span id="diskTxt">–</span></div>
+        <div class="bar"><i id="diskBar" style="width:0%"></i></div>
+      </div>
       <div class="ver" id="version"></div>
     </div>
   </nav>
@@ -515,7 +519,18 @@ async function pollCache() {
     markPreset();
     updateCtxSlider(resp.context);
     updateThinkSlider(resp.reasoning_budget);
+    updateDiskRow(resp.prefix_disk);
   } catch { /* endpoint optional */ }
+}
+
+/* The prefix cache's disk tier: what is stored against its budget, and how often it served. */
+function updateDiskRow(d) {
+  $("diskRow").hidden = !d || !!d.disabled;
+  if (!d || d.disabled) return;
+  const used = (d.bytes || 0) / 2**30, budget = (d.budget_bytes || 0) / 2**30;
+  $("diskTxt").textContent = fmt(used, 1) + " / " + fmt(budget, 0) + " GiB · " +
+    (d.blocks || 0) + " blocks · " + (d.hits || 0) + " hits";
+  $("diskBar").style.width = (budget > 0 ? Math.min(100, used / budget * 100) : 0) + "%";
 }
 
 /* Reasoning-budget slider: 0 (off) then log2 steps 256..32k. */

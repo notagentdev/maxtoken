@@ -1013,7 +1013,21 @@ async def cache_status():
         # What a request gets when it leaves these unset (the console's
         # Generation row edits temperature and max_output_tokens).
         "generation": _generation_defaults(),
+        # The MLX prefix cache's disk tier, as its worker last reported it
+        # (None when the backend has no such tier).
+        "prefix_disk": _prefix_disk_status(state),
     }
+
+
+def _prefix_disk_status(state) -> Dict[str, Any] | None:
+    try:
+        from maxtoken.mlx_backend.prefix_disk import read_stats
+
+        return read_stats(
+            getattr(state.config, "prefix_cache_dir", None), str(state.config.model_path)
+        )
+    except Exception:  # noqa: BLE001 -- status is a nicety, never a 500
+        return None
 
 
 def _generation_defaults() -> Dict[str, Any]:
