@@ -158,9 +158,13 @@ class MlxScheduler:
             # Wide command buffers are only safe with a prefill whose in-flight
             # set is bounded (prefill_pacing.py; the slot cache paces itself,
             # layer by layer, on its streamed prefill).
-            from . import prefill_pacing
+            from . import prefill_gemm, prefill_pacing
 
             prefill_pacing.install(self.model)
+            # Prefill is compute-bound: the hidden-size projections run faster
+            # as fp16 GEMMs than through the 4-bit kernel (prefill_gemm.py).
+            if _os.environ.get("MAXTOKEN_MLX_PREFILL_GEMM", "1") != "0":
+                prefill_gemm.install()
         # Continuous batching (resident and mapped-expert serving): concurrent
         # requests decode in ONE batched forward per step instead of one forward
         # per request per token. The slot-cache offload path keeps its own
@@ -451,7 +455,22 @@ class MlxScheduler:
         end = len(input_ids) - 1
         next_boundary = (pos // BOUNDARY_TOKENS + 1) * BOUNDARY_TOKENS
         while pos < end:
-            n = min(2048, end - pos, next_boundary - pos)
+            # Chunk width is a trade: a wide chunk amortizes the per-chunk work
+            # (dequantized matrices, launches) and prefills ~7% faster; a
+            # narrow one hands control back sooner, which matters only when
+            # someone else is decoding. Chunks end on BOUNDARY_TOKENS multiples
+            # either way, so every chunk end is a restore point.
+            width = 2048 if len(getattr(self, "active", None) or ()) <= 1 else 512
+            n = min(width, end - pos)
+            if pos + n < end:
+                # Not the last chunk: end it on a boundary so the snapshot
+                # taken there is a restore point (a restored hybrid cache has
+                # to land exactly on one). A first chunk that starts off the
+                # grid (a partial prefix hit on a trimmable cache) reaches
+                # the next boundary and is on the grid from then on.
+                to_boundary = next_boundary - pos
+                n = to_boundary if n < to_boundary else n - (pos + n) % BOUNDARY_TOKENS
+                n = max(n, to_boundary)
             chunk = mx.array(input_ids[pos:pos + n])[None]
             if on_hidden is None:
                 mx.eval(self.model(chunk, cache=cache))
@@ -460,15 +479,10 @@ class MlxScheduler:
                 mx.eval(hidden)
                 on_hidden(hidden, pos, pos + n)
             pos += n
-            if pos == next_boundary:
-                # The boundary advances whether or not anything is stored at it.
-                # Tying the advance to the prefix store left next_boundary
-                # pinned as soon as the store was off (--cache-type naive), so
-                # the following chunk clamped to zero tokens and the model was
-                # handed an empty array — every prompt past BOUNDARY_TOKENS.
+            if pos % BOUNDARY_TOKENS == 0:
                 if pos < end and self.prefix_store is not None:
                     self.prefix_store.insert(input_ids[:pos], cache)
-                next_boundary += BOUNDARY_TOKENS
+                next_boundary = pos + BOUNDARY_TOKENS
             yield None
 
     def _make_generator(self, input_ids: List[int], sp: SamplingParams) -> tuple:

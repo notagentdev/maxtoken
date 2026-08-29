@@ -508,6 +508,21 @@ uses.
   mean total variation 0.025 per position, argmax disagreements only on exact
   ties.
 
+  **Prefill** on the 27B is compute-bound, not bandwidth-bound: ~95 tokens/s
+  through MLX's 4-bit matmul (5.6 TFLOPS of the M1 Max's ~10), which makes a
+  coding agent's 9k-token first prompt a hundred seconds before its first
+  token. The hidden-size projections (gate/up, q/k/v/o, the gated-delta's
+  in/out) now dequantize to fp16 once per chunk and run a plain fp16 GEMM
+  (9.0 TFLOPS on the same shapes, `prefill_gemm.py`,
+  `MAXTOKEN_MLX_PREFILL_GEMM=0` disables); the down projection stays
+  quantized (no gain at K=17408). A lone prefill takes 2048-token chunks
+  that still end on the prefix store's 256-token boundaries; with another
+  request active it narrows to 512 so that request keeps decoding (eight
+  rounds per chunk). Through the server: 125 tokens/s — 4.5k tokens in 36 s
+  (was 53), 9.2k in 76 s (was ~100) — at 21.5 GB peak wired. The rest of a
+  session is cheap: the prefix store keeps every turn's prefix, so only the
+  new tokens are prefilled afterwards.
+
   Measured and rejected, so they need not be measured again: a 2-bit or 3-bit
   copy of the lm_head for drafting (stock and custom M=1 kernels all land at
   ~2.5 ms — at M=1 this shape is issue-bound, not byte-bound; the low-bit

@@ -72,3 +72,35 @@ def test_hidden_spans_tile_the_prompt():
     assert spans[-1][1] == len(ids) - 1
     for (_, previous_end), (start, _) in zip(spans, spans[1:]):
         assert start == previous_end
+
+
+def test_a_lone_prefill_uses_wide_chunks_that_end_on_boundaries():
+    """Alone, the prefill takes 2048-token chunks (7% faster on the 27B, and
+    the fp16 GEMM amortizes its dequantized matrices); with another request
+    active it narrows to 512 so the other one gets its turns. Either way a
+    chunk that is not the last ends on a BOUNDARY_TOKENS multiple -- the
+    prefix store's restore points."""
+    model = _RecordingModel()
+    s = _sched(model)
+    s.active = {}
+    ids = list(range(5000))
+    s._prefill_into(None, ids, 0)
+    assert model.widths == [2048, 2048, 903]
+    ends = [sum(model.widths[: i + 1]) for i in range(len(model.widths) - 1)]
+    assert all(e % BOUNDARY_TOKENS == 0 for e in ends)
+
+    busy = _RecordingModel()
+    s = _sched(busy)
+    s.active = {1: object(), 2: object()}
+    s._prefill_into(None, ids, 0)
+    assert busy.widths[0] == 512 and sum(busy.widths) == 4999
+    ends = [sum(busy.widths[: i + 1]) for i in range(len(busy.widths) - 1)]
+    assert all(e % BOUNDARY_TOKENS == 0 for e in ends)
+
+    # A prefix hit that starts off the grid reaches the next boundary first.
+    off = _RecordingModel()
+    s = _sched(off)
+    s.active = {}
+    s._prefill_into(None, ids, 300)
+    assert (300 + off.widths[0]) % BOUNDARY_TOKENS == 0
+    assert 300 + sum(off.widths) == 4999
