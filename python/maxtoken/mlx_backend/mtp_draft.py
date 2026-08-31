@@ -65,6 +65,37 @@ def find_mtp_weights(model_dir: str) -> str | None:
     return hits[0] if hits else None
 
 
+def sidecar_path(ref: str) -> str | None:
+    """Resolve ``--draft-model <path>`` to an MTP sidecar, or None.
+
+    Some checkpoints ship WITHOUT their MTP head while a sibling artifact of
+    the same base model carries it (ornith-ai's 4-bit MLX conversion has no
+    ``mtp.*`` tensors; the MTPLX artifact extracts them from the shared base
+    unchanged). Pointing ``--draft-model`` at that file or directory drafts
+    with the native head instead of a second model. A file qualifies by its
+    tensor names — every name in the ``mtp.`` namespace — so an arbitrary
+    two-model draft checkpoint never takes this path by accident.
+    """
+    import json
+    import struct
+
+    path = os.path.expanduser(str(ref))
+    if os.path.isdir(path):
+        return find_mtp_weights(path)
+    if not (os.path.isfile(path) and path.endswith(".safetensors")):
+        return None
+    try:
+        with open(path, "rb") as f:
+            n = struct.unpack("<Q", f.read(8))[0]
+            header = json.loads(f.read(min(n, 1 << 24)))
+    except (OSError, ValueError):
+        return None
+    names = [k for k in header if k != "__metadata__"]
+    if names and all(k.startswith("mtp.") for k in names):
+        return path
+    return None
+
+
 class MtpDrafter:
     """Drafts with the trunk's own MTP head. Interface-compatible with
     ``DraftModel`` so the scheduler's verify loop is unchanged, with one
@@ -88,12 +119,17 @@ class MtpDrafter:
     # -- construction ---------------------------------------------------------
 
     @classmethod
-    def load(cls, model, model_dir: str, k: int) -> "MtpDrafter":
+    def load(
+        cls, model, model_dir: str, k: int, weights_path: str | None = None
+    ) -> "MtpDrafter":
         import mlx.core as mx
         import mlx.nn as nn
         from mlx.utils import tree_unflatten
 
-        weights_path = find_mtp_weights(model_dir)
+        # model_dir stays the TRUNK's directory either way — the head's
+        # quantization scheme is read from the trunk's config; only the
+        # weights may come from a sibling artifact (see sidecar_path).
+        weights_path = weights_path or find_mtp_weights(model_dir)
         if weights_path is None:
             raise ValueError(
                 f"{model_dir} ships no MTP head (looked for mtp.safetensors / "
@@ -105,11 +141,23 @@ class MtpDrafter:
         layer_cls, text_args = _decoder_layer_class(model)
 
         head = _MtpHead(layer_cls, text_args)
+        raw = mx.load(weights_path)
+        renamed = {
+            k2[len("mtp.") :] if k2.startswith("mtp.") else k2: v
+            for k2, v in raw.items()
+        }
+        # A MoE trunk's head is a MoE block; its sidecar may ship the experts
+        # one by one (transformers layout) while mlx-lm's SwitchGLU owns one
+        # stacked array per projection.
+        renamed = _stack_numbered_experts(renamed)
         cfg = json.load(open(os.path.join(model_dir, "config.json")))
         quant = cfg.get("quantization")
-        if quant:
+        prequantized = any(k.endswith(".scales") for k in renamed)
+        if quant and prequantized:
             # The head ships quantized in the trunk's own scheme; build the
-            # quantized modules BEFORE loading so the shapes line up.
+            # quantized modules BEFORE loading so the shapes line up. A bf16
+            # sidecar beside a quantized trunk (Ornith-1.5-35B) skips this and
+            # runs in bf16 — the precision its acceptance was validated at.
             nn.quantize(
                 head,
                 group_size=int(quant.get("group_size", 64)),
@@ -120,12 +168,30 @@ class MtpDrafter:
                 # type, not by name — pre_fc_norm_embedding is an RMSNorm.
                 class_predicate=lambda _path, m: isinstance(m, nn.Linear),
             )
-        raw = mx.load(weights_path)
-        renamed = {
-            k2[len("mtp.") :] if k2.startswith("mtp.") else k2: v
-            for k2, v in raw.items()
-        }
         head.update(tree_unflatten(list(renamed.items())))
+        if quant and not prequantized and os.environ.get(
+            "MAXTOKEN_MLX_MTP_HEAD_QUANT", ""
+        ) == "1":
+            # Opt-in only: quantizing the bf16 head into the trunk's scheme
+            # saves ~1.2 GB but MEASURED SLOWER end to end on Ornith-1.5-35B
+            # (acceptance 2.37 -> 2.27 tok/verify at k=2, 82 -> 76 tok/s;
+            # the head's own GPU cost was already negligible). The drafter's
+            # quality is worth more than its bytes. Routers keep 8 bits like
+            # the trunk's quant_predicate.
+            def _predicate(path, m):
+                if not hasattr(m, "to_quantized"):
+                    return False
+                if path.endswith("mlp.gate") or path.endswith("shared_expert_gate"):
+                    return {"group_size": 64, "bits": 8}
+                return True
+
+            nn.quantize(
+                head,
+                group_size=int(quant.get("group_size", 64)),
+                bits=int(quant.get("bits", 4)),
+                mode=str(quant.get("mode", "affine")),
+                class_predicate=_predicate,
+            )
         mx.eval(head.parameters())
         logger.info(
             f"MTP drafter: {len(renamed)} tensors from {os.path.basename(weights_path)}, "
@@ -337,6 +403,43 @@ def _full_attention_layer(layer_cls, args):
     that layer, never the trunk's linear/GDN variant."""
     interval = getattr(args, "full_attention_interval", 0) or 1
     return layer_cls(args, interval - 1)
+
+
+def _stack_numbered_experts(weights: dict) -> dict:
+    """Fold per-expert tensors into mlx-lm's stacked switch_mlp layout.
+
+    A MoE MTP sidecar stores its block the way the source checkpoint does —
+    ``layers.0.mlp.experts.<i>.gate_proj.weight`` — while mlx-lm's SwitchGLU
+    owns ONE stacked array per projection,
+    ``layers.0.mlp.switch_mlp.gate_proj.weight``. Ordinary keys pass through
+    untouched, and a group only folds when every expert index is present;
+    an incomplete group keeps its original names so ``update`` fails loudly
+    on the mismatch instead of silently serving a truncated expert table.
+    """
+    import re
+
+    import mlx.core as mx
+
+    pattern = re.compile(r"^(.*)\.experts\.(\d+)\.(\w+)\.(weight|scales|biases)$")
+    grouped: dict = {}
+    out: dict = {}
+    for key, value in weights.items():
+        m = pattern.match(key)
+        if m is None:
+            out[key] = value
+            continue
+        prefix, idx, leaf, kind = m.group(1), int(m.group(2)), m.group(3), m.group(4)
+        grouped.setdefault((prefix, leaf, kind), {})[idx] = value
+    for (prefix, leaf, kind), experts in sorted(grouped.items()):
+        n = max(experts) + 1
+        if set(experts) != set(range(n)):
+            for i, v in experts.items():
+                out[f"{prefix}.experts.{i}.{leaf}.{kind}"] = v
+            continue
+        out[f"{prefix}.switch_mlp.{leaf}.{kind}"] = mx.stack(
+            [experts[i] for i in range(n)]
+        )
+    return out
 
 
 def _text_model(model):
