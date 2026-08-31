@@ -139,6 +139,12 @@ class MlxScheduler:
         self.draft = None
         self._spec_steps = 0
         self._spec_tokens = 0
+        import os as _os
+
+        if _os.environ.get("MAXTOKEN_MLX_SPEC_TRACE", "") == "1":
+            # The speculative generator appends one phase-timing dict per
+            # round (build/wait/post/draft/away); the periodic log drains it.
+            self._spec_trace = []
         if getattr(config, "draft_model", None):
             self._attach_draft(config)
         # Resident and mapped serving: fuse the gated-delta input projections
@@ -306,12 +312,20 @@ class MlxScheduler:
 
         k = max(1, int(getattr(config, "draft_tokens", 3) or 3))
         k = self._clamp_draft_k(k)
-        if str(config.draft_model).strip().lower() == "mtp":
+        from .mtp_draft import sidecar_path
+
+        draft_ref = str(config.draft_model).strip()
+        side = None if draft_ref.lower() == "mtp" else sidecar_path(draft_ref)
+        if draft_ref.lower() == "mtp" or side:
             # The checkpoint's own MTP head: one layer, sharing the trunk's
             # tokenizer and lm_head. See mtp_draft.py for why that shape wins.
+            # A path to a sibling artifact's mtp.* sidecar counts as "own":
+            # the head is the base model's, only stored next to another trunk.
             from .mtp_draft import MtpDrafter
 
-            self.draft = MtpDrafter.load(self.model, self._model_dir(config), k)
+            self.draft = MtpDrafter.load(
+                self.model, self._model_dir(config), k, weights_path=side
+            )
         else:
             from .draft import _vocab_size
 
@@ -1085,6 +1099,38 @@ class MlxScheduler:
                     f"expert cache: {slots} slots, lifetime miss rate {rate:.1%} "
                     f"({m}/{h + m}), active mem {gpu_mem / 2**30:.2f} GiB{spec}"
                 )
+        elif getattr(self, "draft", None) is not None:
+            # Resident/mapped speculative serving had no periodic line at all,
+            # which left the acceptance rate — the number that decides whether
+            # the drafter pays — invisible outside the offload path. getattr:
+            # scheduler tests build the object without the drafter attributes.
+            self._decode_steps += 1
+            if (
+                self._decode_steps % self.config.decode_log_interval == 0
+                and self._spec_steps
+            ):
+                trace = getattr(self, "_spec_trace", None)
+                phases = ""
+                # Drain all but the LAST entry: the generator still writes the
+                # newest round's "away" phase into trace[-1] after it yields,
+                # so emptying the list here crashed every request mid-stream
+                # (IndexError on the resume).
+                if trace and len(trace) > 1:
+                    done = trace[:-1]
+                    means = {
+                        k: sum(t[k] for t in done) * 1e3 / len(done)
+                        for k in ("build", "wait", "post", "draft", "away")
+                    }
+                    phases = ", round(ms) " + " ".join(
+                        f"{k}={v:.1f}" for k, v in means.items()
+                    )
+                    del trace[: len(trace) - 1]
+                logger.info(
+                    f"speculative accept "
+                    f"{self._spec_tokens / self._spec_steps:.2f} tok/verify "
+                    f"({self._spec_tokens}/{self._spec_steps}), "
+                    f"active mem {gpu_mem / 2**30:.2f} GiB{phases}"
+                )
         if self.batch_gen is not None:
             try:
                 self._step_batched(reply, gpu_mem)
@@ -1382,6 +1428,27 @@ class MlxScheduler:
     # ------------------------------------------------------------------ msg handling
 
     def _handle_user_msg(self, msg: UserMsg) -> List[BaseTokenizerMsg]:
+        import time as _t
+
+        # Idle reheat for the mapped expert store: memory pressure while the
+        # server sits idle evicts its file-backed pages, and the next request
+        # then demand-faults them in RANDOM order (measured 20-30 s to first
+        # useful decode). A request arriving after a pause kicks the store's
+        # sequential madvise sweep instead, which streams the file back at
+        # SSD-read speed alongside the prefill. Warm requests skip it (the
+        # sweep is near-free when resident, but not free enough per message);
+        # the first request after startup always triggers, replacing the
+        # cold-start crawl. Keeps residency OS-managed - no pinning.
+        now = _t.monotonic()
+        if now - getattr(self, "_last_admit_ts", 0.0) > 30.0:
+            # getattr chain: scheduler tests build the object without a model.
+            store = getattr(
+                getattr(self, "model", None), "_maxtoken_mapped_store", None
+            )
+            if store is not None:
+                store.start_prefetch()
+        self._last_admit_ts = now
+
         input_ids = msg.input_ids.tolist()
         if len(input_ids) >= self.max_seq_len:
             return [
