@@ -336,6 +336,13 @@ class MtpDrafter:
         self._trim_to(self._hist_len)
         self._append(hidden, token_ids)
         self._hist_len += len(token_ids)
+        # Evaluate the head's cache NOW, chunk by chunk. _append only builds
+        # the graph; left lazy, every prefill chunk's head forward — and the
+        # trunk hidden states it references — accumulates unevaluated until
+        # the first draft materializes them all at once. On long prompts that
+        # in-flight pile wedged the machine (free memory 0, GPU event never
+        # signalling). One eval per chunk bounds it to a chunk's worth.
+        self._mx.eval(*self.cache[0].state)
 
     def absorb(self, committed: List[int], hidden_rows) -> None:
         """Write this round's committed tokens into the head's own KV history.

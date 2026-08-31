@@ -118,6 +118,20 @@ class MlxScheduler:
         import mlx.core as mx  # noqa: F401 -- fail here, before any socket binds
         from mlx_lm import load
 
+        # Bound MLX's buffer cache. Unbounded (the default), every long
+        # prefill's transients stay in the process as cached dark memory --
+        # measured on the 27B: request one prefilled 6.9k tokens at 118
+        # tok/s, request two at 75, request three wedged the machine (the
+        # pool plus the weights had pushed a 32 GiB box into a swap storm).
+        # At the limit MLX returns freed buffers to the OS; a chunk's worth
+        # still recycles. 0 disables the bound.
+        import os as _os_cache
+
+        cache_gb = float(_os_cache.environ.get("MAXTOKEN_MLX_CACHE_LIMIT_GB", "4"))
+        if cache_gb > 0:
+            mx.set_cache_limit(int(cache_gb * (1 << 30)))
+            logger.info(f"MLX buffer cache capped at {cache_gb:g} GiB")
+
         self._mx = mx
         _preimport_architectures()
         # mlx-lm resolves both local paths and hub ids (through the HF cache),
@@ -305,6 +319,41 @@ class MlxScheduler:
             f"({st.cache_bytes() / 2**30:.2f} GiB), dense-resident "
             f"{dense_bytes / 2**30:.2f} GiB"
         )
+
+    def _warm_checkpoint(self) -> None:
+        """Read the checkpoint shards sequentially, in the background.
+
+        The optiq fast load serves weights as the checkpoint's own file-backed
+        arrays; after eviction they come back fastest as one sequential read
+        (SSD streaming) instead of the forward's random demand faults. Warm
+        pages make this a cheap page-cache walk. One sweep at a time."""
+        if getattr(self, "_ckpt_warming", False):
+            return
+        import glob as _glob
+        import os as _os
+        import threading as _threading
+
+        try:
+            model_dir = self._model_dir(self.config)
+        except Exception:  # noqa: BLE001 -- warming is best-effort
+            return
+        shards = sorted(_glob.glob(_os.path.join(model_dir, "*.safetensors")))
+        if not shards:
+            return
+        self._ckpt_warming = True
+
+        def sweep():
+            try:
+                for path in shards:
+                    with open(path, "rb", buffering=0) as f:
+                        while f.read(64 << 20):
+                            pass
+            except Exception:  # noqa: BLE001 -- advisory only
+                pass
+            finally:
+                self._ckpt_warming = False
+
+        _threading.Thread(target=sweep, name="ckpt-reheat", daemon=True).start()
 
     def _attach_draft(self, config: SchedulerConfig) -> None:
         """Load the draft model for speculative decoding (--draft-model)."""
@@ -1447,6 +1496,14 @@ class MlxScheduler:
             )
             if store is not None:
                 store.start_prefetch()
+            elif getattr(self, "model", None) is not None:
+                # No mapped store, but the weights may still be file-backed:
+                # the optiq fast load installs the CHECKPOINT's lazy arrays
+                # directly, so the same eviction physics apply — a dense 27B
+                # whose pages were pushed out crawled a long prefill at
+                # demand-fault speed (300+ s, machine at the edge). Reading
+                # the shards sequentially restores them at SSD speed.
+                self._warm_checkpoint()
         self._last_admit_ts = now
 
         input_ids = msg.input_ids.tolist()
