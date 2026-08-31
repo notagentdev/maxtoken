@@ -1489,7 +1489,17 @@ class MlxScheduler:
         # the first request after startup always triggers, replacing the
         # cold-start crawl. Keeps residency OS-managed - no pinning.
         now = _t.monotonic()
-        if now - getattr(self, "_last_admit_ts", 0.0) > 30.0:
+        # 240 s idle, and at most one sweep per 10 minutes: a user READING an
+        # answer pauses 30-120 s, and firing the 17 GiB sweep on every such
+        # pause made each agent turn fight its own reheat (measured: warm
+        # follow-up turns at 23 s instead of ~5). The sweep is for real
+        # idle - minutes away, memory pressure done its eviction - not for
+        # think-pauses.
+        if (
+            now - getattr(self, "_last_admit_ts", 0.0) > 240.0
+            and now - getattr(self, "_last_reheat_ts", 0.0) > 600.0
+        ):
+            self._last_reheat_ts = now
             # getattr chain: scheduler tests build the object without a model.
             store = getattr(
                 getattr(self, "model", None), "_maxtoken_mapped_store", None
