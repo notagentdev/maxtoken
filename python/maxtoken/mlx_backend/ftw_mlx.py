@@ -61,26 +61,89 @@ def _source_stamp(index: SafetensorsIndex) -> Dict[str, int]:
     return {"size": total, "mtime": mtime}
 
 
-def _switch_glu_tensor_names(index: SafetensorsIndex, glu_paths: List[str]):
-    """Yield (store_name, [source entries making up the stacked tensor]).
+def _pack_enabled() -> bool:
+    """Whether the store lays gate and up out interleaved per expert
+    (``gate_up_proj``), so the two projections run as ONE gather (moe_pack.py).
+    On by default; MAXTOKEN_MLX_FTW_PACK=0 keeps the classic per-proj layout."""
+    return os.environ.get("MAXTOKEN_MLX_FTW_PACK", "1") != "0"
 
-    Stacked sources contribute one entry; per-expert sources contribute E entries
-    that the repack concatenates (which IS the stacked layout, row-major)."""
+
+def _expert_slice(src, e: int, E: int, stacked: bool) -> Tuple[str, int, int]:
+    """Byte range of expert ``e`` inside one source tensor."""
+    if stacked:
+        per = (src.end - src.start) // E
+        return (src.shard, src.start + e * per, src.start + (e + 1) * per)
+    s = src[e]
+    return (s.shard, s.start, s.end)
+
+
+def _switch_glu_tensor_names(index: SafetensorsIndex, glu_paths: List[str]):
+    """Yield (store_name, byte_slices, shape, dtype) for every store tensor.
+
+    Byte slices are (shard, start, end) ranges written in order. Stacked
+    sources contribute one slice, per-expert sources one per expert (their
+    concatenation IS the stacked layout, row-major). With packing enabled,
+    each GLU's gate and up tensors are interleaved PER EXPERT into a single
+    ``gate_up_proj`` tensor — affine groups run along the input axis, so the
+    concatenation along output features is exact by construction."""
+
+    def sources(path: str, proj: str, part: str):
+        stacked = f"{path}.{proj}.{part}"
+        if stacked in index:
+            e = index[stacked]
+            return e, int(e.shape[0]), True
+        alt = path.rsplit(".", 1)[0] + ".experts"
+        per = []
+        i = 0
+        while f"{alt}.{i}.{proj}.{part}" in index:
+            per.append(index[f"{alt}.{i}.{proj}.{part}"])
+            i += 1
+        if per:
+            return per, len(per), False
+        return None, 0, False
+
     for path in glu_paths:
-        for proj in _PROJS:
+        pack = _pack_enabled()
+        if pack:
             for part in _PARTS:
-                stacked = f"{path}.{proj}.{part}"
-                if stacked in index:
-                    yield stacked, [index[stacked]], None
+                g, Eg, _ = sources(path, "gate_proj", part)
+                u, Eu, _ = sources(path, "up_proj", part)
+                if g is None or u is None or Eg != Eu or Eg == 0:
+                    pack = False
+                    break
+        if pack:
+            for part in _PARTS:
+                g, E, g_stacked = sources(path, "gate_proj", part)
+                u, _, u_stacked = sources(path, "up_proj", part)
+                slices: List[Tuple[str, int, int]] = []
+                for e in range(E):
+                    slices.append(_expert_slice(g, e, E, g_stacked))
+                    slices.append(_expert_slice(u, e, E, u_stacked))
+                first = g if g_stacked else g[0]
+                if g_stacked:
+                    shape = [E, 2 * int(first.shape[1]), *first.shape[2:]]
+                else:
+                    shape = [E, 2 * int(first.shape[0]), *first.shape[1:]]
+                yield f"{path}.gate_up_proj.{part}", slices, shape, first.dtype
+        for proj in (("down_proj",) if pack else _PROJS):
+            for part in _PARTS:
+                src, E, stacked = sources(path, proj, part)
+                if src is None:
                     continue
-                alt = path.rsplit(".", 1)[0] + ".experts"
-                per = []
-                e = 0
-                while f"{alt}.{e}.{proj}.{part}" in index:
-                    per.append(index[f"{alt}.{e}.{proj}.{part}"])
-                    e += 1
-                if per:
-                    yield stacked, per, len(per)
+                if stacked:
+                    yield (
+                        f"{path}.{proj}.{part}",
+                        [(src.shard, src.start, src.end)],
+                        list(src.shape),
+                        src.dtype,
+                    )
+                else:
+                    yield (
+                        f"{path}.{proj}.{part}",
+                        [(s.shard, s.start, s.end) for s in src],
+                        [E, *src[0].shape],
+                        src[0].dtype,
+                    )
 
 
 def repack_experts(model_dir: str, glu_paths: List[str]) -> str:
@@ -93,11 +156,11 @@ def repack_experts(model_dir: str, glu_paths: List[str]) -> str:
     out_dir = _cache_dir(model_dir)
     manifest_path = os.path.join(out_dir, "manifest.json")
     store_path = os.path.join(out_dir, "experts.ftwm")
-    stamp = _source_stamp(index)
+    stamp = {**_source_stamp(index), "packed": _pack_enabled()}
     if os.path.exists(manifest_path) and os.path.exists(store_path):
         try:
             manifest = json.load(open(manifest_path))
-            if manifest.get("version") == 1 and manifest.get("source") == stamp:
+            if manifest.get("version") == 2 and manifest.get("source") == stamp:
                 return out_dir
         except Exception:  # noqa: BLE001 -- corrupt cache: rebuild below
             pass
@@ -106,31 +169,35 @@ def repack_experts(model_dir: str, glu_paths: List[str]) -> str:
     tensors: Dict[str, Any] = {}
     tmp = store_path + ".tmp"
     total = 0
-    with open(tmp, "wb") as out:
-        pos = 0
-        for name, entries, num_experts in _switch_glu_tensor_names(index, glu_paths):
-            pad = (-pos) % _PAGE
-            out.write(b"\0" * pad)
-            pos += pad
-            first = entries[0]
-            if num_experts is None:
-                shape = list(first.shape)
-            else:
-                shape = [num_experts, *first.shape]
-            tensors[name] = {"offset": pos, "shape": shape, "dtype": first.dtype}
-            for e in entries:
-                with open(e.shard, "rb") as src:
-                    src.seek(e.start)
-                    remaining = e.end - e.start
+    handles: Dict[str, Any] = {}
+    try:
+        with open(tmp, "wb") as out:
+            pos = 0
+            for name, slices, shape, dtype in _switch_glu_tensor_names(
+                index, glu_paths
+            ):
+                pad = (-pos) % _PAGE
+                out.write(b"\0" * pad)
+                pos += pad
+                tensors[name] = {"offset": pos, "shape": shape, "dtype": dtype}
+                for shard, start, end in slices:
+                    src = handles.get(shard)
+                    if src is None:
+                        src = handles[shard] = open(shard, "rb")
+                    src.seek(start)
+                    remaining = end - start
                     while remaining:
                         chunk = src.read(min(remaining, 64 << 20))
                         out.write(chunk)
                         remaining -= len(chunk)
                         pos += len(chunk)
-            total += 1
+                total += 1
+    finally:
+        for fh in handles.values():
+            fh.close()
     os.replace(tmp, store_path)
     with open(manifest_path, "w") as f:
-        json.dump({"version": 1, "source": stamp, "tensors": tensors}, f)
+        json.dump({"version": 2, "source": stamp, "tensors": tensors}, f)
     logger.info(
         f"FTW-MLX expert store: repacked {total} tensors "
         f"({os.path.getsize(store_path) / 2**30:.2f} GiB) into {out_dir}"
@@ -244,13 +311,26 @@ class MappedExpertStore:
             return False
 
     def glu_params(self, glu_path: str) -> Dict[str, Dict[str, Any]]:
-        """{proj: {part: array}} for one switch-GLU."""
+        """{proj: {part: array}} for one switch-GLU; ``gate_up_proj`` when the
+        store holds the packed interleaved layout."""
         out: Dict[str, Dict[str, Any]] = {}
-        for proj in _PROJS:
-            out[proj] = {
-                part: self.tensors[f"{glu_path}.{proj}.{part}"] for part in _PARTS
+        for proj in (*_PROJS, "gate_up_proj"):
+            parts = {
+                part: self.tensors[f"{glu_path}.{proj}.{part}"]
+                for part in _PARTS
+                if f"{glu_path}.{proj}.{part}" in self.tensors
             }
+            if parts:
+                out[proj] = parts
         return out
+
+
+def _resolve_module(model, path: str):
+    """Walk a dotted parameter path (list indices included) to its module."""
+    obj = model
+    for name in path.split("."):
+        obj = obj[int(name)] if name.isdigit() else getattr(obj, name)
+    return obj
 
 
 def attach_mapped_experts(model, model_dir: str) -> int:
@@ -277,13 +357,51 @@ def attach_mapped_experts(model, model_dir: str) -> int:
 
     store_dir = repack_experts(model_dir, glu_paths)
     store = MappedExpertStore(store_dir)
+    packed_count = 0
     for path, mod in zip(glu_paths, glu_mods, strict=True):
         params = store.glu_params(path)
+        packed = params.get("gate_up_proj")
+        if packed is not None:
+            # Replace the whole SwitchGLU with the packed form BEFORE the
+            # model evaluates its parameters: the dropped gate/up modules
+            # still hold their lazy checkpoint arrays, and keeping them
+            # reachable would materialize ~10 GB the mapped store exists to
+            # avoid.
+            from .moe_pack import classes
+
+            PackedQuantizedProjection, PackedSwitchGLU, _ = classes()
+            down = mod.down_proj
+            dp = params["down_proj"]
+            down.weight = dp["weight"]
+            down.scales = dp["scales"]
+            down.biases = dp["biases"]
+            proj = PackedQuantizedProjection(
+                packed["weight"],
+                packed["scales"],
+                packed.get("biases"),
+                group_size=int(getattr(mod.gate_proj, "group_size", 64)),
+                bits=int(getattr(mod.gate_proj, "bits", 4)),
+                mode=str(getattr(mod.gate_proj, "mode", "affine")),
+            )
+            split_at = int(packed["weight"].shape[1]) // 2
+            parent_path, attr = path.rsplit(".", 1)
+            setattr(
+                _resolve_module(model, parent_path),
+                attr,
+                PackedSwitchGLU(proj, down, mod.activation, split_at),
+            )
+            packed_count += 1
+            continue
         for proj, parts in params.items():
             lin = getattr(mod, proj)
             lin.weight = parts["weight"]
             lin.scales = parts["scales"]
             lin.biases = parts["biases"]
+    if packed_count:
+        logger.info(
+            f"MoE pack: {packed_count} switch-GLUs serve gate+up as one gather "
+            "(interleaved mapped store)"
+        )
     # The store must outlive the model; hang it off the model object.
     model._maxtoken_mapped_store = store
     logger.info(

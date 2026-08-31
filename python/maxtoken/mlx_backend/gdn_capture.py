@@ -69,6 +69,74 @@ def supported(model) -> bool:
     return all(all(hasattr(m, name) for name in _REQUIRED) for m in modules)
 
 
+def _fused_projection(gdn):
+    """decode_fusion's concatenated input projection for this module, if any.
+
+    The capture forward replaces the class ``__call__`` for the round, which
+    would silently bypass the fused projection decode_fusion installed —
+    three extra launches per recurrent layer on every verify window."""
+    try:
+        from .decode_fusion import _PATCHED as _DF_PATCHED
+    except Exception:  # noqa: BLE001 -- capture works without decode_fusion
+        return None
+    return (_DF_PATCHED.get("gdn_fused") or {}).get(id(gdn))
+
+
+_CORES: dict[int, Any] = {}  # id(gdn) -> (compiled pre-recurrence, compiled post)
+
+
+def _cores_for(gdn, fused):
+    """Two compiled segments around the recurrence kernel.
+
+    The eager capture chain is ~25 launches per recurrent layer, and a verify
+    window pays it thirty times per round — on a launch-bound model that is
+    most of the verify's GPU time. The recurrence itself stays eager: it is a
+    single custom-kernel call, and wrapping it in ``mx.compile`` measured
+    SLOWER on this hardware (see docs/mlx.md); everything around it fuses
+    well. Compiled per module (weights are trace constants, exactly like
+    decode_fusion's MoE blocks) and per shape (mx.compile retraces on a new
+    window width; the widths are bounded by the loop's MAX_WINDOW)."""
+    pair = _CORES.get(id(gdn))
+    if pair is not None:
+        return pair
+    import mlx.core as mx
+    import mlx.nn as nn
+
+    def pre(inputs, conv_state):
+        B, S = inputs.shape[0], inputs.shape[1]
+        if fused is None:
+            qkv = gdn.in_proj_qkv(inputs)
+            z = gdn.in_proj_z(inputs)
+            b = gdn.in_proj_b(inputs)
+            a = gdn.in_proj_a(inputs)
+        else:
+            proj, splits = fused
+            qkv, z, b, a = mx.split(proj(inputs), splits, axis=-1)
+        z = z.reshape(B, S, gdn.num_v_heads, gdn.head_v_dim)
+        conv_input = mx.concatenate([conv_state, qkv], axis=1)
+        conv_out = nn.silu(gdn.conv1d(conv_input))
+        q, k, v = [
+            t.reshape(B, S, h, d)
+            for t, h, d in zip(
+                mx.split(conv_out, [gdn.key_dim, 2 * gdn.key_dim], -1),
+                [gdn.num_k_heads, gdn.num_k_heads, gdn.num_v_heads],
+                [gdn.head_k_dim, gdn.head_k_dim, gdn.head_v_dim],
+            )
+        ]
+        inv_scale = gdn.head_k_dim**-0.5
+        q = (inv_scale**2) * mx.fast.rms_norm(q, None, 1e-6)
+        k = inv_scale * mx.fast.rms_norm(k, None, 1e-6)
+        return q, k, v, z, a, b, conv_input
+
+    def post(out, z):
+        B, S = out.shape[0], out.shape[1]
+        return gdn.out_proj(gdn.norm(out, z).reshape(B, S, -1))
+
+    pair = (mx.compile(pre), mx.compile(post))
+    _CORES[id(gdn)] = pair
+    return pair
+
+
 def _make_capture_call(original, captures: dict):
     import mlx.core as mx
     import mlx.nn as nn
@@ -79,32 +147,43 @@ def _make_capture_call(original, captures: dict):
             return original(self, inputs, mask, cache)
         B, S, _ = inputs.shape
 
-        qkv = self.in_proj_qkv(inputs)
-        z = self.in_proj_z(inputs).reshape(B, S, self.num_v_heads, self.head_v_dim)
-        b = self.in_proj_b(inputs)
-        a = self.in_proj_a(inputs)
-
         keep = self.conv_kernel_size - 1
         if cache[0] is not None:
             conv_state = cache[0]
         else:
             conv_state = mx.zeros((B, keep, self.conv_dim), dtype=inputs.dtype)
-        if mask is not None:
-            qkv = mx.where(mask[..., None], qkv, 0)
-        conv_input = mx.concatenate([conv_state, qkv], axis=1)
-        conv_out = nn.silu(self.conv1d(conv_input))
 
-        q, k, v = [
-            t.reshape(B, S, h, d)
-            for t, h, d in zip(
-                mx.split(conv_out, [self.key_dim, 2 * self.key_dim], -1),
-                [self.num_k_heads, self.num_k_heads, self.num_v_heads],
-                [self.head_k_dim, self.head_k_dim, self.head_v_dim],
-            )
-        ]
-        inv_scale = k.shape[-1] ** -0.5
-        q = (inv_scale**2) * mx.fast.rms_norm(q, None, 1e-6)
-        k = inv_scale * mx.fast.rms_norm(k, None, 1e-6)
+        fused = _fused_projection(self)
+        compiled = mask is None and getattr(cache, "lengths", None) is None
+        if compiled:
+            pre, post = _cores_for(self, fused)
+            q, k, v, z, a, b, conv_input = pre(inputs, conv_state)
+        else:
+            if fused is None:
+                qkv = self.in_proj_qkv(inputs)
+                z = self.in_proj_z(inputs)
+                b = self.in_proj_b(inputs)
+                a = self.in_proj_a(inputs)
+            else:
+                proj, splits = fused
+                qkv, z, b, a = mx.split(proj(inputs), splits, axis=-1)
+            z = z.reshape(B, S, self.num_v_heads, self.head_v_dim)
+            if mask is not None:
+                qkv = mx.where(mask[..., None], qkv, 0)
+            conv_input = mx.concatenate([conv_state, qkv], axis=1)
+            conv_out = nn.silu(self.conv1d(conv_input))
+
+            q, k, v = [
+                t.reshape(B, S, h, d)
+                for t, h, d in zip(
+                    mx.split(conv_out, [self.key_dim, 2 * self.key_dim], -1),
+                    [self.num_k_heads, self.num_k_heads, self.num_v_heads],
+                    [self.head_k_dim, self.head_k_dim, self.head_v_dim],
+                )
+            ]
+            inv_scale = k.shape[-1] ** -0.5
+            q = (inv_scale**2) * mx.fast.rms_norm(q, None, 1e-6)
+            k = inv_scale * mx.fast.rms_norm(k, None, 1e-6)
 
         state_in = cache[1]
         out, state = gated_delta_update(
@@ -127,6 +206,8 @@ def _make_capture_call(original, captures: dict):
         cache[1] = state
         cache.advance(S)
 
+        if compiled:
+            return post(out, z)
         return self.out_proj(self.norm(out, z).reshape(B, S, -1))
 
     return capture_call

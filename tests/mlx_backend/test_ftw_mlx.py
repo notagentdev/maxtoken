@@ -31,9 +31,11 @@ _fake_glu_tensors = _helpers._fake_glu_tensors
 write_safetensors = _helpers.write_safetensors
 
 
+@pytest.mark.parametrize("packed", [True, False], ids=["packed", "classic"])
 @pytest.mark.parametrize("stacked", [True, False], ids=["stacked", "per-expert"])
-def test_repack_and_mapped_views_roundtrip(tmp_path, monkeypatch, stacked):
+def test_repack_and_mapped_views_roundtrip(tmp_path, monkeypatch, stacked, packed):
     monkeypatch.setenv("MAXTOKEN_MLX_FTW_DIR", str(tmp_path / "ftw-cache"))
+    monkeypatch.setenv("MAXTOKEN_MLX_FTW_PACK", "1" if packed else "0")
     model_dir = tmp_path / "model"
     model_dir.mkdir()
     rng = np.random.default_rng(1)
@@ -47,15 +49,33 @@ def test_repack_and_mapped_views_roundtrip(tmp_path, monkeypatch, stacked):
 
     store = MappedExpertStore(out_dir)
     params = store.glu_params("model.mlp.switch_mlp")
-    got = np.array(params["gate_proj"]["weight"])
-    if stacked:
-        want = tensors["model.mlp.switch_mlp.gate_proj.weight"]
-    else:
-        want = np.stack(
-            [tensors[f"model.mlp.experts.{e}.gate_proj.weight"] for e in range(5)]
+
+    def stacked_source(proj, part):
+        if stacked:
+            return tensors[f"model.mlp.switch_mlp.{proj}.{part}"]
+        return np.stack(
+            [tensors[f"model.mlp.experts.{e}.{proj}.{part}"] for e in range(5)]
         )
-    assert got.shape == want.shape
-    assert got.tolist() == want.tolist()
+
+    if packed:
+        # gate and up interleaved PER EXPERT into one tensor; the classic
+        # per-proj entries for gate/up must be gone.
+        assert "gate_proj" not in params and "up_proj" not in params
+        got = np.array(params["gate_up_proj"]["weight"])
+        g = stacked_source("gate_proj", "weight")
+        u = stacked_source("up_proj", "weight")
+        want = np.stack(
+            [np.concatenate([g[e], u[e]], axis=0) for e in range(5)]
+        )
+        assert got.shape == want.shape
+        assert got.tolist() == want.tolist()
+    else:
+        got = np.array(params["gate_proj"]["weight"])
+        want = stacked_source("gate_proj", "weight")
+        assert got.shape == want.shape
+        assert got.tolist() == want.tolist()
+    down = np.array(params["down_proj"]["weight"])
+    assert down.tolist() == stacked_source("down_proj", "weight").tolist()
 
     # idempotent: a second call must reuse the manifest, not rewrite the store
     mtime = os.path.getmtime(os.path.join(out_dir, "experts.ftwm"))

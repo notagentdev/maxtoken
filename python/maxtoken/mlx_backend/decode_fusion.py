@@ -45,6 +45,14 @@ _COMPILED: Dict[int, Any] = {}  # id(moe block) -> compiled decode forward
 # collect a trace per width).
 MAX_COMPILED_BATCH = 8
 
+# Verify windows of the speculative loop are a few rows wide at B=1. The same
+# compiled forward serves them: mx.compile traces once per shape, and the
+# widths are bounded by the loop's MAX_WINDOW, so the trace count stays small.
+# Without this the whole 40-layer MoE chain of a verify runs eager, and on a
+# launch-bound model the verify pays in dispatch latency what speculation
+# saved in steps.
+MAX_COMPILED_WIDTH = 6
+
 
 def _text_model(model):
     return getattr(model, "language_model", model)
@@ -210,6 +218,8 @@ def _moe_classes():
 def _compile_moe_blocks(model) -> int:
     import mlx.core as mx
 
+    from . import whole_moe
+
     classes = tuple(_moe_classes())
     if not classes:
         return 0
@@ -228,12 +238,21 @@ def _compile_moe_blocks(model) -> int:
         originals[cls] = original
 
         def patched(self, x, _orig=original):
+            # Whole-MoE verify rows first: the entire block in four fused
+            # launches (whole_moe.py), bound only for the shapes and storage
+            # its install proved. Everything else keeps the compiled or
+            # stock path.
+            wm = whole_moe.route(self, x)
+            if wm is not None:
+                return wm(x)
             fn = _COMPILED.get(id(self))
             if (
                 fn is not None
                 and x.ndim == 3
-                and x.shape[1] == 1
-                and x.shape[0] <= MAX_COMPILED_BATCH
+                and (
+                    (x.shape[1] == 1 and x.shape[0] <= MAX_COMPILED_BATCH)
+                    or (x.shape[0] == 1 and x.shape[1] <= MAX_COMPILED_WIDTH)
+                )
             ):
                 return fn(x)
             return _orig(self, x)
@@ -245,6 +264,61 @@ def _compile_moe_blocks(model) -> int:
     return len(blocks)
 
 
+# -- MoE expert-sort threshold -------------------------------------------------
+
+
+def _tune_switch_sort() -> int:
+    """Lower SwitchGLU's token-sort threshold (MAXTOKEN_MLX_MOE_SORT_MIN).
+
+    Stock mlx-lm sorts tokens by expert only from 64 (token, expert) pairs
+    upward; below that the unsorted gather_qmm serves each pair on its own,
+    re-reading an expert's weights once per pair. A speculative verify window
+    is 4 tokens x top-8 = 32 pairs, so its expert reads never dedupe and the
+    verify's cost grows linearly with its rows (measured ~5.3 ms per extra
+    row on Ornith-1.5-35B). Sorting groups the pairs by expert so shared
+    experts stream once. Off unless the env var is set — the stock threshold
+    is the tested default for everything else."""
+    import os
+
+    raw = os.environ.get("MAXTOKEN_MLX_MOE_SORT_MIN", "").strip()
+    if not raw:
+        return 0
+    try:
+        threshold = max(1, int(raw))
+    except ValueError:
+        return 0
+    import mlx.core as mx
+    from mlx_lm.models import switch_layers as sl
+
+    if "switch_sort_original" not in _PATCHED:
+        _PATCHED["switch_sort_original"] = sl.SwitchGLU.__call__
+
+        def sorted_call(self, x, indices):
+            x = mx.expand_dims(x, (-2, -3))
+            do_sort = indices.size >= threshold
+            idx = indices
+            inv_order = None
+            if do_sort:
+                x, idx, inv_order = sl._gather_sort(x, indices)
+            if self.training:
+                idx = mx.stop_gradient(idx)
+            x_up = self.up_proj(x, idx, sorted_indices=do_sort)
+            x_gate = self.gate_proj(x, idx, sorted_indices=do_sort)
+            x = self.down_proj(
+                self.activation(x_up, x_gate), idx, sorted_indices=do_sort
+            )
+            if do_sort:
+                x = sl._scatter_unsort(x, inv_order, indices.shape)
+            return x.squeeze(-2)
+
+        sl.SwitchGLU.__call__ = sorted_call
+        logger.info(
+            "MoE expert sort: threshold lowered to %d (token, expert) pairs",
+            threshold,
+        )
+    return threshold
+
+
 # -- entry points --------------------------------------------------------------
 
 
@@ -252,9 +326,18 @@ def install(model) -> Dict[str, int]:
     """Fuse and compile what the model offers. Call AFTER any weight surgery
     (mapped experts), since the compiled blocks bind the parameter arrays they
     were traced with. Returns the counts of what was installed."""
+    # Before the MoE blocks are compiled: a compiled trace bakes the branch
+    # SwitchGLU takes at its width, so the threshold must be in force first —
+    # and the packed shared experts must already sit on the blocks.
+    _tune_switch_sort()
+    from . import moe_pack, whole_moe
+
+    shared_packed = moe_pack.pack_shared_experts(model)
     report = {
         "gdn_fused": _fuse_gdn_projections(model),
         "moe_compiled": _compile_moe_blocks(model),
+        "shared_packed": shared_packed,
+        "whole_moe": whole_moe.install(model),
     }
     if any(report.values()):
         logger.info(
@@ -270,6 +353,11 @@ def uninstall() -> None:
     original = _PATCHED.pop("gdn_original", None)
     if cls is not None and original is not None:
         cls.__call__ = original
+    switch_original = _PATCHED.pop("switch_sort_original", None)
+    if switch_original is not None:
+        from mlx_lm.models import switch_layers as sl
+
+        sl.SwitchGLU.__call__ = switch_original
     for moe_cls, original in (_PATCHED.pop("moe_originals", None) or {}).items():
         moe_cls.__call__ = original
     _PATCHED.clear()

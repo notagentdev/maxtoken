@@ -77,7 +77,11 @@ def model():
 
 def test_install_reports_the_fused_and_compiled_blocks(model):
     report = decode_fusion.install(model)
-    assert report == {"gdn_fused": 2, "moe_compiled": 3}
+    assert report["gdn_fused"] == 2
+    assert report["moe_compiled"] == 3
+    # How many shared experts pack depends on the fake model's quantization;
+    # the count just has to be reported.
+    assert report["shared_packed"] >= 0
 
 
 def test_decode_agrees_and_prefill_is_untouched(model):
