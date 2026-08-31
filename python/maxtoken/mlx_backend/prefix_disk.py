@@ -381,6 +381,8 @@ class DiskPrefixStore:
         """Wait for queued writes (tests and shutdown)."""
         if self.disabled:
             return
+        # The newest boundary's snapshot may still be dispatched, not queued.
+        self._flush_snapshot()
         done = threading.Event()
         self._queue.put(("sync", done))
         done.wait(timeout)
@@ -601,7 +603,15 @@ class DiskPrefixStore:
         kv_layers = [(l, c) for l, (c, kind) in enumerate(zip(cache, self.layout)) if kind == "kv"]
         rec_layers = [(l, c) for l, (c, kind) in enumerate(zip(cache, self.layout)) if kind == "rec"]
 
-        # Materialize everything this call will copy in one evaluation.
+        # Everything this call will copy, dispatched asynchronously. The old
+        # synchronous eval stalled the SCHEDULER at every 256-token boundary
+        # for the GPU flush plus the host copies -- measured ~30% of served
+        # prefill throughput on the 27B (79-86 vs 113-118 tok/s without the
+        # tier). Now the previous boundary's snapshot is harvested here (its
+        # arrays have long finished on the GPU, so eval + copy are cheap) and
+        # this boundary's is dispatched with async_eval; at most one snapshot
+        # is in flight, bounding the extra memory to one boundary's views.
+        self._flush_snapshot()
         views: List[Any] = []
         kv_states = {}
         for l, c in kv_layers:
@@ -622,45 +632,64 @@ class DiskPrefixStore:
             for l, (k, v) in kv_states.items():
                 lo, hi = (j - 1) * self.block, j * self.block
                 views += [k[..., lo:hi, :], v[..., lo:hi, :]]
-        if views:
-            mx.eval(*views)
 
-        jobs: List[tuple] = []
-        for j in missing:
-            tensors: Dict[str, Tuple[str, np.ndarray]] = {}
-            for l, (k, v) in kv_states.items():
-                lo, hi = (j - 1) * self.block, j * self.block
-                tensors[f"k{l}"] = _to_host(k[..., lo:hi, :])
-                tensors[f"v{l}"] = _to_host(v[..., lo:hi, :])
-            jobs.append(("kv", hashes[j - 1], j, tensors))
-        rec_tensors: Optional[Dict[str, Tuple[str, np.ndarray]]] = None
-        if need_rec:
-            rec_tensors = {}
-            for l, st in rec_states.items():
-                for slot, a in enumerate(st):
-                    if a is not None:
-                        rec_tensors[f"r{l}.{slot}"] = _to_host(a)
-            if rec_wanted:
-                jobs.append(("rec", h, i, rec_tensors))
-            else:
-                self._window_put(h, i, rec_tensors)
-
-        with self._lock:
-            self._touch([x for x in hashes if x in self.blocks])
-            for job in jobs:
-                kind, bh, idx, tensors = job
-                nbytes = sum(arr.nbytes for _, arr in tensors.values())
-                if not self._make_room(nbytes, hashes):
-                    self.skipped_writes += 1
-                    continue
-                b = self.blocks.setdefault(bh, _Block(index=idx))
-                b.used = self._clock()
-                if kind == "kv":
-                    b.kv_pending = True
+        def finish():
+            jobs: List[tuple] = []
+            for j in missing:
+                tensors: Dict[str, Tuple[str, np.ndarray]] = {}
+                for l, (k, v) in kv_states.items():
+                    lo, hi = (j - 1) * self.block, j * self.block
+                    tensors[f"k{l}"] = _to_host(k[..., lo:hi, :])
+                    tensors[f"v{l}"] = _to_host(v[..., lo:hi, :])
+                jobs.append(("kv", hashes[j - 1], j, tensors))
+            rec_tensors: Optional[Dict[str, Tuple[str, np.ndarray]]] = None
+            if need_rec:
+                rec_tensors = {}
+                for l, st in rec_states.items():
+                    for slot, a in enumerate(st):
+                        if a is not None:
+                            rec_tensors[f"r{l}.{slot}"] = _to_host(a)
+                if rec_wanted:
+                    jobs.append(("rec", h, i, rec_tensors))
                 else:
-                    b.rec_pending = True
-                self._pending_bytes += nbytes
-                self._queue.put(job)
+                    self._window_put(h, i, rec_tensors)
+
+            with self._lock:
+                self._touch([x for x in hashes if x in self.blocks])
+                for job in jobs:
+                    kind, bh, idx, tensors = job
+                    nbytes = sum(arr.nbytes for _, arr in tensors.values())
+                    if not self._make_room(nbytes, hashes):
+                        self.skipped_writes += 1
+                        continue
+                    b = self.blocks.setdefault(bh, _Block(index=idx))
+                    b.used = self._clock()
+                    if kind == "kv":
+                        b.kv_pending = True
+                    else:
+                        b.rec_pending = True
+                    self._pending_bytes += nbytes
+                    self._queue.put(job)
+
+        if views:
+            mx.async_eval(*views)
+        self._snapshot_pending = (views, finish)
+
+    def _flush_snapshot(self) -> None:
+        """Harvest the previously dispatched snapshot, if any."""
+        pending = getattr(self, "_snapshot_pending", None)
+        if pending is None:
+            return
+        self._snapshot_pending = None
+        views, finish = pending
+        import mlx.core as mx
+
+        try:
+            if views:
+                mx.eval(*views)
+            finish()
+        except Exception as exc:  # noqa: BLE001 -- never take the scheduler down
+            self._disable(f"snapshot flush failed: {type(exc).__name__}: {exc}")
 
     def _window_put(self, h: str, i: int, tensors) -> None:
         if h in self._window:
@@ -675,7 +704,11 @@ class DiskPrefixStore:
         """The prompt's prefill is over: persist the deepest windowed
         recurrent snapshot on its chain (the batched path's last full block
         is a segment end the policy could not anticipate), forget the rest."""
-        if self.disabled or not self._window:
+        if self.disabled:
+            return
+        # The prompt's last boundary snapshot may still be in flight.
+        self._flush_snapshot()
+        if not self._window:
             return
         n_full = restore_blocks(len(prompt_tokens), self.block)
         hashes = self.chain(prompt_tokens, n_full)
