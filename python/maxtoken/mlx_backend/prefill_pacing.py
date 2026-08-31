@@ -40,6 +40,13 @@ logger = init_logger(__name__)
 
 _PATCHED: Dict[str, Any] = {}
 
+# Forwards narrower than this run unpaced. Pacing bounds the gigabytes a
+# 256-2048-token chunk keeps in flight; a speculative verify window (a few
+# rows) allocates megabytes, and pacing IT inserted ten synchronous evals
+# into every verify round — measured 67 ms of a 53 ms round on
+# Ornith-1.5-35B+MTP, the whole gap between 44 tok/s and the model's pace.
+MIN_PACED_TOKENS = 32
+
 
 def pace_from_env() -> int:
     """Layers between evaluations; 0 disables pacing."""
@@ -63,7 +70,12 @@ def _make_paced_call(original, pace: int):
     from mlx_lm.models.base import create_attention_mask, create_ssm_mask
 
     def paced_call(self, inputs, cache=None, input_embeddings=None):
-        if inputs.ndim < 2 or int(inputs.shape[1]) <= 1 or cache is None or input_embeddings is not None:
+        if (
+            inputs.ndim < 2
+            or int(inputs.shape[1]) < MIN_PACED_TOKENS
+            or cache is None
+            or input_embeddings is not None
+        ):
             return original(self, inputs, cache=cache, input_embeddings=input_embeddings)
         h = self.embed_tokens(inputs)
         fa_mask = create_attention_mask(h, cache[self.fa_idx])
