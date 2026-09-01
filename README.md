@@ -25,7 +25,18 @@ Measured on a 32 GB M1 Max (all through the real HTTP serving path):
 | DeepSeek-V4-Flash 2-bit (86 GiB checkpoint) | **13 GiB** hard budget | ~3.3 tok/s |
 | Qwen3-Coder-Next-**80B** (42 GiB checkpoint) | **10 GiB** hard budget | 7.4–10 tok/s |
 | Qwen3-Coder-Next-**80B** | **3.4 GiB** hard budget | ~5 tok/s |
-| Ornith-1.5-**35B**-A3B (18 GiB checkpoint) | 1.3 GiB owned + page cache | ~67 tok/s |
+| Ornith-1.5-**35B**-A3B (18 GiB checkpoint) | 1.3 GiB owned + page cache | 75–77 tok/s |
+| Ornith-1.5-35B-A3B + its **native MTP head** as drafter | + 1.7 GiB head | **89–94 tok/s** |
+| Qwen3.8-**27B** dense hybrid + native MTP head | 14 GiB resident | ~30 tok/s, prefill 94–96 tok/s |
+
+The speculative rows use the checkpoint's own multi-token-prediction head as
+the drafter (`--draft-model mtp`, or a path to a sibling artifact's
+`mtp.safetensors`) with distribution-exact rejection sampling — and, on the
+A3B, whole-MoE Metal kernels that run router, top-8, packed gate/up, SwiGLU,
+fused down and the shared expert in four launches per layer for the 2–3-row
+verify windows. Acceptance is text-dependent: ~2.4 tokens per verify on
+English/code, less on free-form German chat — the server logs it, and
+`--enable-cache-report` exposes per-request cache hits to any client.
 
 The 80B range is the spread between a cold server (7.4 tok/s measured over
 HTTP right after start) and a warm one (~10 tok/s once the slot cache has
@@ -54,8 +65,10 @@ Code and Codex point at it directly), with a built-in single-file **web console*
 ## Hardware reality (read before expecting datacenter numbers)
 
 Do not expect a CUDA serving engine's GPU throughput from a Mac — the ceiling is
-the hardware, not the software, and there is not much optimization headroom
-left above what MaxToken already does:
+the hardware, not the software, and the remaining software headroom is thin
+(what there was — deep MoE decode is kernel-launch-bound, not bandwidth-bound,
+which is what the command-buffer tuning, the fused/compiled blocks and the
+whole-MoE verify kernels harvest — is largely spent):
 
 - **Bandwidth is the wall.** Apple unified memory moves ~100–400 GB/s
   (Air → Max) where a desktop GPU's VRAM moves 1–2 TB/s, and the offload
@@ -91,6 +104,11 @@ mt serve --model ornith-ai/Ornith-1.5-35B-A3B-MLX-4bit --moe-backend offload
 # a model that does NOT fit: hard memory budget via the expert slot cache
 mt serve --model mlx-community/Qwen3-Coder-Next-4bit \
     --moe-backend offload --moe-cache-rate 0.2
+
+# speculative decoding from the checkpoint's own MTP head (also accepts a
+# path to a sibling artifact's mtp sidecar for conversions that ship without it)
+mt serve --model ornith-ai/Ornith-1.5-35B-A3B-MLX-4bit --moe-backend offload \
+    --draft-model /path/to/mtp/weights.safetensors --draft-tokens 2
 ```
 
 Then open `http://localhost:1919/` for the console, or point any OpenAI/Anthropic
@@ -109,11 +127,15 @@ pulls no CUDA ecosystem: no torch, no triton, no flashlib.
 ## Relationship to MaxToken
 
 MaxToken began as the upstream MaxToken engine and diverged into its own
-project: the MLX backend, the FTW-MLX zero-copy mapped store, the MLX expert
-slot cache with speculate-and-verify decode, the hybrid-capable prefix cache,
-continuous batching on MLX, banked short-chunk prefill with cross-layer
-read-ahead, miss-pressure slot rebalancing, draft-model speculative decoding,
-and the web console were developed here. The distribution is `maxtoken`; the
+project: the MLX backend, the FTW-MLX zero-copy mapped store (v2 writes gate
+and up interleaved per expert, so both run as one gather from a mapped view),
+the MLX expert slot cache with speculate-and-verify decode, the hybrid-capable
+prefix cache with an SSD tier that survives restarts (an agent's 9k-token
+system prompt restores in ~0.5 s instead of re-prefilling), continuous
+batching on MLX, banked short-chunk prefill with cross-layer read-ahead,
+miss-pressure slot rebalancing, native-MTP and draft-model speculative
+decoding with whole-MoE verify kernels, idle re-warming of evicted
+file-backed weights, and the web console were developed here. The distribution is `maxtoken`; the
 import package deliberately stays `maxtoken` so upstream diffs remain readable.
 
 If you use the underlying engine for research, cite the MaxToken
@@ -137,7 +159,10 @@ and reused design and code from [SGLang](https://github.com/sgl-project/sglang),
 [LightLLM](https://github.com/ModelTC/lightllm) and [llama.cpp](https://github.com/ggml-org/llama.cpp).
 The MLX backend additionally learned from [mlx-lm](https://github.com/ml-explore/mlx-lm),
 llama.cpp's Metal mmap path, and the measured ablations of
-[Vates](https://github.com/AMOS144/Vates).
+[Vates](https://github.com/AMOS144/Vates). The small-row verify kernel takes
+its structure from [MTPLX](https://github.com/youssofal/MTPLX)'s verify
+kernels, and the A3B whole-MoE stages are vendored from MTPLX (Apache-2.0)
+verbatim; the packed gate/up projection follows its recipe as well.
 
 ## License
 
