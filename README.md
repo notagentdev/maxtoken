@@ -159,10 +159,10 @@ and reused design and code from [SGLang](https://github.com/sgl-project/sglang),
 [LightLLM](https://github.com/ModelTC/lightllm) and [llama.cpp](https://github.com/ggml-org/llama.cpp).
 The MLX backend additionally learned from [mlx-lm](https://github.com/ml-explore/mlx-lm),
 llama.cpp's Metal mmap path, and the measured ablations of
-[Vates](https://github.com/AMOS144/Vates). The small-row verify kernel takes
-its structure from [MTPLX](https://github.com/youssofal/MTPLX)'s verify
-kernels, and the A3B whole-MoE stages are vendored from MTPLX (Apache-2.0)
-verbatim; the packed gate/up projection follows its recipe as well.
+[Vates](https://github.com/AMOS144/Vates). The speculative verify path —
+the small-row kernel, the whole-MoE stages and the packed gate/up
+projection — is inspired by [MTPLX](https://github.com/youssofal/MTPLX)
+(Apache-2.0).
 
 ## License
 
