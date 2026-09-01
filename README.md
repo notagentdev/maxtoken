@@ -4,7 +4,7 @@
 
 **Serve MoE models bigger than your memory — on the Mac you already own.**
 
-An independent fork of [FlashML's MaxToken](https://github.com/FlashML-org/MaxToken)
+An independent fork of [FlashML's FreeToken](https://github.com/FlashML-org/FreeToken)
 that turns the edge-native MoE serving engine into an Apple-silicon-first runtime:
 maximum tokens out of minimum memory.
 
@@ -124,9 +124,9 @@ a torch dependency on every install. What remains — server, tokenizer workers,
 scheduler, shell, MLX backend — is ~22k lines that all run here. Installing
 pulls no CUDA ecosystem: no torch, no triton, no flashlib.
 
-## Relationship to MaxToken
+## Relationship to FreeToken
 
-MaxToken began as the upstream MaxToken engine and diverged into its own
+MaxToken began as the upstream FreeToken engine and diverged into its own
 project: the MLX backend, the FTW-MLX zero-copy mapped store (v2 writes gate
 and up interleaved per expert, so both run as one gather from a mapped view),
 the MLX expert slot cache with speculate-and-verify decode, the hybrid-capable
@@ -135,15 +135,16 @@ system prompt restores in ~0.5 s instead of re-prefilling), continuous
 batching on MLX, banked short-chunk prefill with cross-layer read-ahead,
 miss-pressure slot rebalancing, native-MTP and draft-model speculative
 decoding with whole-MoE verify kernels, idle re-warming of evicted
-file-backed weights, and the web console were developed here. The distribution is `maxtoken`; the
-import package deliberately stays `maxtoken` so upstream diffs remain readable.
+file-backed weights, and the web console were developed here. Distribution and
+import package are `maxtoken`; the module layout follows upstream FreeToken's
+so diffs against it remain readable.
 
-If you use the underlying engine for research, cite the MaxToken
+If you use the underlying engine for research, cite the FreeToken
 [paper](https://arxiv.org/abs/2608.16157):
 
 ```bibtex
-@article{yang2026maxtoken,
-  title={MaxToken: Efficient Edge-Native MoE Serving with Bandwidth-Adaptive Execution},
+@article{yang2026freetoken,
+  title={FreeToken: Efficient Edge-Native MoE Serving with Bandwidth-Adaptive Execution},
   author={Yang, Shuo and Fan, Xiaoze and Pan, Melissa and Xi, Haocheng and Wang, Zhe and Sun, Shanlin and Keutzer, Kurt and Han, Song and Zaharia, Matei and Xu, Chenfeng and Stoica, Ion},
   journal={arXiv preprint arXiv:2608.16157},
   year={2026}
@@ -152,7 +153,7 @@ If you use the underlying engine for research, cite the MaxToken
 
 ## Acknowledgment
 
-Upstream MaxToken was deeply inspired by [mini-sglang](https://github.com/sgl-project/mini-sglang)
+Upstream FreeToken was deeply inspired by [mini-sglang](https://github.com/sgl-project/mini-sglang)
 and reused design and code from [SGLang](https://github.com/sgl-project/sglang),
 [vLLM](https://github.com/vllm-project/vllm), [FlashInfer](https://github.com/flashinfer-ai/flashinfer),
 [flash-linear-attention](https://github.com/fla-org/flash-linear-attention),
