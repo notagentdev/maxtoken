@@ -54,6 +54,25 @@ PACK = 8           # 4-bit weights per 32-bit word
 MATH = os.environ.get("MAXTOKEN_VERIFY_QMM_MATH", "half").strip().lower() or "half"
 if MATH not in ("half", "float"):
     MATH = "half"
+# Split-K for the deep-K, narrow-N shapes (the MLP's down projection:
+# K=17408, N=5120). There a threadgroup owns 4*NSG columns and scans the
+# whole K, so only N/(4*NSG) threadgroups exist to hide memory latency —
+# 160 at NSG=8, far under what 32 GPU cores want in flight. Splitting K
+# into segments multiplies the threadgroups; each writes fp32 partials and
+# one mx.sum folds them.
+#
+# MEASURED (2026-09-02, M1 Max) and left OFF by default: isolated, splits=4
+# lifts the down shape 121 -> 154 GB/s (+27%, bit-identical); through the
+# full served 27B verify it LOSES ~1 tok/s (33.2 -> 32.0). Inside the real
+# forward the wide command buffers already overlap the down matmul with its
+# neighbor layers' kernels, so the occupancy gap split-K fixes is hidden
+# there, and only the partial-buffer + reduction overhead remains. Kept for
+# A/Bs: MAXTOKEN_VERIFY_QMM_SPLITK=<n>.
+try:
+    SPLITK = max(0, int(os.environ.get("MAXTOKEN_VERIFY_QMM_SPLITK", "0") or 0))
+except ValueError:
+    SPLITK = 0
+SPLITK_MIN_K = 12288
 
 _KERNELS: dict[tuple, Any] = {}
 _PATCHED: dict[str, Any] = {}
@@ -175,6 +194,94 @@ def _kernel(m: int, group_size: int, dtype, nsg: int):
     return kernel
 
 
+def _kernel_splitk(m: int, group_size: int, dtype, nsg: int, splits: int):
+    """The same tile geometry, but each threadgroup owns one K-SEGMENT.
+
+    Partials are written in fp32 to ``y[(z, row, col)]`` and summed by the
+    caller — numerically at least as tight as the single-pass float
+    accumulator, since segment sums stay fp32 end to end."""
+    import mlx.core as mx
+
+    key = ("sk", m, group_size, dtype, nsg, splits, MATH)
+    cached = _KERNELS.get(key)
+    if cached is not None:
+        return cached
+
+    xloads = "\n        ".join(
+        f"Vec8 v{r} = xv[({r} * K + k_base) / 8];" for r in range(m)
+    )
+    n_acc = 4 * m
+    if MATH == "float":
+        sb = "\n            ".join(
+            f"float s{j} = float(scales[(n0 + {j}) * K_by_gs + gi]);\n"
+            f"            float b{j} = float(biases[(n0 + {j}) * K_by_gs + gi]);"
+            for j in range(4)
+        )
+    else:
+        sb = "\n            ".join(
+            f"half hs{j} = half(float(scales[(n0 + {j}) * K_by_gs + gi]));\n"
+            f"            half hb{j} = half(float(biases[(n0 + {j}) * K_by_gs + gi]));"
+            for j in range(4)
+        )
+    source = f"""
+        using namespace metal;
+        constexpr int GS = {group_size};
+        constexpr int NSG = {nsg};
+        constexpr int SPLITS = {splits};
+
+        uint sg   = simdgroup_index_in_threadgroup;
+        uint lane = thread_index_in_simdgroup;
+
+        int K = int(K_size);
+        int N = int(N_size);
+        int K_by_pack = K / 8;
+        int K_by_gs   = K / GS;
+        int n0 = (int(threadgroup_position_in_grid.y) * NSG + int(sg)) * 4;
+        if (n0 + 3 >= N) {{ return; }}
+        int z = int(threadgroup_position_in_grid.z);
+        int words_per_split = (K_by_pack + SPLITS - 1) / SPLITS;
+        int w0 = z * words_per_split;
+        int w1 = min(w0 + words_per_split, K_by_pack);
+
+        float acc[{n_acc}];
+        _Pragma("unroll")
+        for (int i = 0; i < {n_acc}; ++i) {{ acc[i] = 0.0f; }}
+
+        using Vec8 = vec<T, 8>;
+        const device Vec8 *xv = (const device Vec8*)x;
+
+        for (int pack = w0 + int(lane); pack < w1; pack += 32) {{
+            int k_base = pack * 8;
+            int gi = k_base / GS;
+            uint32_t p0 = w_q[(n0 + 0) * K_by_pack + pack];
+            uint32_t p1 = w_q[(n0 + 1) * K_by_pack + pack];
+            uint32_t p2 = w_q[(n0 + 2) * K_by_pack + pack];
+            uint32_t p3 = w_q[(n0 + 3) * K_by_pack + pack];
+            {xloads}
+            {sb}
+            {_pack_block(m, MATH)}
+        }}
+
+        _Pragma("unroll")
+        for (int i = 0; i < {n_acc}; ++i) {{ acc[i] = simd_sum(acc[i]); }}
+
+        if (lane < {n_acc}) {{
+            int j   = int(lane) / {m};
+            int row = int(lane) - j * {m};
+            y[(z * {m} + row) * N + n0 + j] = acc[int(lane)];
+        }}
+    """
+    tag = {mx.bfloat16: "bf16", mx.float16: "fp16"}.get(dtype, "unk")
+    kernel = mx.fast.metal_kernel(
+        name=f"ft_verify_qmm_sk{splits}_m{m}_gs{group_size}_nsg{nsg}_{MATH}_{tag}",
+        input_names=["x", "w_q", "scales", "biases", "K_size", "N_size"],
+        output_names=["y"],
+        source=source,
+    )
+    _KERNELS[key] = kernel
+    return kernel
+
+
 def eligible(m: int, K: int, N: int, bits: int, group_size: int, dtype) -> bool:
     """Whether this shape may take the kernel.
 
@@ -204,6 +311,18 @@ def verify_qmm(x2, w_q, scales, biases, *, group_size: int):
     # Deep-K shapes (the MLP's down projection) run a few percent faster with
     # half the simdgroups per threadgroup; everything else prefers NSG.
     nsg = min(NSG, 4) if K >= 12288 else NSG
+    if SPLITK > 1 and K >= SPLITK_MIN_K:
+        kernel = _kernel_splitk(M, group_size, x2.dtype, nsg, SPLITK)
+        cols = 4 * nsg
+        (parts,) = kernel(
+            inputs=[mx.contiguous(x2), w_q, scales, biases, K, N],
+            template=[("T", x2.dtype)],
+            grid=(32 * nsg, N // cols, SPLITK),
+            threadgroup=(32 * nsg, 1, 1),
+            output_shapes=[(SPLITK, M, N)],
+            output_dtypes=[mx.float32],
+        )
+        return parts.sum(axis=0).astype(x2.dtype)
     kernel = _kernel(M, group_size, x2.dtype, nsg)
     cols = 4 * nsg
     (y,) = kernel(
