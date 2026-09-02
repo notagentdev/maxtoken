@@ -1773,10 +1773,31 @@ def _raise_qos() -> None:
     the thread that creates them, so raising the main thread FIRST fixes every
     MLX thread spawned afterwards."""
     import ctypes
+    import os as _os
+    import subprocess as _sp
     import sys as _sys
 
     if _sys.platform != "darwin":
         return
+    # FIRST the process-level task policy: a parent that launches its children
+    # in the background band (task wrappers, service managers) clamps the
+    # whole TASK, and neither thread-QoS promotion nor an in-process
+    # setpriority() escapes it -- but `taskpolicy -B` on ourselves does, and
+    # runs unprivileged. It must happen HERE, before MLX spawns its worker
+    # threads: threads keep the QoS band they were created under (boosting
+    # the task afterwards lifted batched decode but left single-stream
+    # throttled). Measured on an M1 Max, same command, only the launcher
+    # differing: 74 -> 85 tok/s single stream, 52 -> 111 aggregated at two
+    # concurrent -- the entire "server slower than in-process at B>=2"
+    # mystery was this inherited throttle.
+    try:
+        _sp.run(
+            ["/usr/sbin/taskpolicy", "-B", "-p", str(_os.getpid())],
+            capture_output=True,
+            timeout=5,
+        )
+    except Exception:  # noqa: BLE001 -- a nicety; never block startup on it
+        pass
     try:
         libsystem = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
         QOS_CLASS_USER_INTERACTIVE = 0x21

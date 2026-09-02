@@ -267,14 +267,25 @@ class MappedExpertStore:
             self._prefetching = True
 
         def sweep():
+            import time as _time
+
             try:
                 m = self._advise_handle()
                 size = len(m)
-                chunk = 256 << 20
+                # Small chunks with an explicit yield: ``mmap.madvise`` does
+                # NOT release the GIL, so a background sweep in 256 MB chunks
+                # strangled the scheduler thread in 96 ms bites — measured as
+                # 1.4 s prompt rounds and 0.7 s gaps during a concurrent
+                # bench (the "B>=2 server tax" in large part). 32 MB keeps
+                # each GIL hold near 10 ms and the sleep lets the scheduler
+                # run between chunks; the sweep still finishes a 17 GiB
+                # store in a few seconds.
+                chunk = 32 << 20
                 for off in range(0, size, chunk):
                     m.madvise(
                         mmap_mod.MADV_WILLNEED, off, min(chunk, size - off)
                     )
+                    _time.sleep(0.002)
             except Exception as exc:  # noqa: BLE001 -- advisory only
                 logger.warning(f"expert-store prefetch sweep failed: {exc!r}")
             finally:
