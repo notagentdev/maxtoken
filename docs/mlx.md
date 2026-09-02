@@ -244,19 +244,28 @@ uses.
   requests decode in one batched forward per step, with new prompts joining
   mid-flight (mlx-lm's `BatchGenerator`; per-request sampling params, stop
   sequences, aborts and prefix-cache donation all work per row). Measured on
-  Ornith-1.5-35B (mapped): aggregate decode 62 → 94 → 116 tok/s at batch
-  1 → 2 → 4 (engine-level); through the full HTTP server 58 → 47 → 74 →
-  99 tok/s at 1 → 2 → 4 → 8 concurrent streams — the server path currently
-  adds per-round overhead at batch ≥ 2 (~40 ms vs 24 ms per round in-process).
-  An extensive investigation ruled out: spawn QoS (workers now self-promote to
-  USER_INTERACTIVE anyway), ZMQ polling and reply IPC, the prefix store, disk
-  I/O (0 MB/s during slow runs), GPU idle downclocking, CPU core contention
-  with the frontend/detokenizer, and buffer-pool churn from mlx-lm's
-  per-admission `mx.clear_cache` (worth ~10-15%, together with staggered
-  admissions). Profiling places the remaining delta inside the mx evals
-  themselves when the worker runs as part of the full server; the dominant
-  factor is still open. Diagnosis knobs: `MAXTOKEN_MLX_TRACE=1` (per-round
-  timings), `MAXTOKEN_MLX_PROFILE=<path>` (cProfile of the scheduler loop).
+  Ornith-1.5-35B (mapped): 13 / 20 / 34.5 ms per round at batch 1 / 2 / 4
+  in-process — and, **since 2026-09-02, the same through the server**: the
+  long-open "server adds ~20 ms per round at batch ≥ 2" mystery was the
+  LAUNCHER. A parent that starts the server in macOS's background band
+  (background task wrappers, service managers) clamps the whole task; Metal's
+  encode threads inherit the clamp, and it cannot be dropped from inside the
+  process (`taskpolicy -B` on yourself is a no-op under it — an external
+  boost lifts batched decode immediately, but threads spawned under the
+  clamp keep their band). Same binary, same flags, only the launcher
+  differing, aggregated tok/s at batch 1 / 2 / 4: **74 / 52 / 78 clamped vs
+  85 / 111 / 91 from a plain shell.** So: START `mt serve` FROM AN UNCLAMPED
+  CONTEXT (a normal terminal; for launchd, an Interactive process type). The
+  worker still self-promotes what it can (`_raise_qos`: task role first, then
+  thread QoS). Two real co-taxes were found and fixed in the same hunt:
+  torch/libomp's busy-wait pool (capped at package import — transformers
+  pulls torch into every process, and its idle spin cost ~1 ms per round)
+  and the mapped store's madvise sweep holding the GIL 96 ms per 256 MB
+  chunk (now 32 MB chunks with a yield). Remaining, real and bounded: the
+  prefix tier's writer thread costs ~10-15% aggregate at 2-4 streams (GIL
+  over large snapshot serializations). Diagnosis knobs: `MAXTOKEN_MLX_TRACE=1`
+  (per-round timings), `MAXTOKEN_MLX_PROFILE=<path>` (cProfile of the
+  scheduler loop).
   Greedy requests keep the batched argmax fast path even when sampling
   defaults fill in top-p/top-k. The slot-cache offload path remains
   round-robin (its speculate/verify loop is per-request).
@@ -515,6 +524,14 @@ uses.
   the worker does not do it) lift these a little further — AIME-25 problem 0,
   same sampler and seeds: 29.8 / 33.7 / 32.7 tok/s, greedy 32.4 — a verify
   round is a few hundred launches too.
+
+  2026-09-02, re-measured through the server from an UNCLAMPED launcher (see
+  the continuous-batching section: every served figure before this date was
+  taken under an inherited background-QoS clamp and understates the engine):
+  **31.8 / 35.1 / 32.2 tok/s** on the same bench, and prefill 95–99 tok/s on
+  fresh 6.9k-token prompts. On Ornith-1.5-35B the same day, back to back:
+  76.3 tok/s plain vs **90.7–93.9 with the native MTP head at k=2** — the
+  +20% the speculative path is worth on acceptance-friendly text.
 
   A round costs ~100 ms: the four-row verify ~80, the three-step draft chain
   ~12 (each step: lm_head 2.3 ms at the bandwidth floor, the head's block 1.1,

@@ -27,7 +27,7 @@ Measured on a 32 GB M1 Max (all through the real HTTP serving path):
 | Qwen3-Coder-Next-**80B** | **3.4 GiB** hard budget | ~5 tok/s |
 | Ornith-1.5-**35B**-A3B (18 GiB checkpoint) | 1.3 GiB owned + page cache | 75–77 tok/s |
 | Ornith-1.5-35B-A3B + its **native MTP head** as drafter | + 1.7 GiB head | **89–94 tok/s** |
-| Qwen3.8-**27B** dense hybrid + native MTP head | 14 GiB resident | ~30 tok/s, prefill 94–96 tok/s |
+| Qwen3.8-**27B** dense hybrid + native MTP head | 14 GiB resident | 32–35 tok/s, prefill 95–99 tok/s |
 
 The speculative rows use the checkpoint's own multi-token-prediction head as
 the drafter (`--draft-model mtp`, or a path to a sibling artifact's
@@ -112,7 +112,10 @@ mt serve --model ornith-ai/Ornith-1.5-35B-A3B-MLX-4bit --moe-backend offload \
 ```
 
 Then open `http://localhost:1919/` for the console, or point any OpenAI/Anthropic
-client at it. The cache budget resizes live (`/admin/cache/rebuild` or the console
+client at it. **Start the server from a regular shell**, not from a
+background-band launcher: macOS clamps a background task's Metal threads and
+the clamp is inherited and inescapable from inside — measured, it halves
+batched decode (details in [docs/mlx.md](docs/mlx.md)). The cache budget resizes live (`/admin/cache/rebuild` or the console
 slider), and between requests the scheduler rebalances slots across layers by
 observed miss pressure. See **[docs/mlx.md](docs/mlx.md)** for the full macOS
 guide: serving modes, benchmarks, speculative decoding (`--draft-model`), and
