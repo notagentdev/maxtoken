@@ -286,7 +286,22 @@ def test_rebalance_caps_at_num_experts(tmp_path):
     state.rebalance(floor=2)
     state.glus[0].cache.misses += 100
     state.rebalance(floor=2)
-    assert all(g.cache.num_slots <= 8 for g in state.glus)
+    slots = [g.cache.num_slots for g in state.glus]
+    assert all(s <= 8 for s in slots)
+    # The hot layer's proportional share (12) exceeds its 8 experts; the
+    # clamped overflow must land on the other layer, not vanish: 14 = 8 + 6.
+    assert slots == [8, 6]
+
+
+def test_rebalance_all_capped_leaves_budget_unused(tmp_path):
+    # 2 layers x 10 slots for 8 experts: every layer can hold all its experts,
+    # so a cap on both is the honest outcome and must terminate.
+    state, _ = _build_state(tmp_path, num_layers=2, num_experts=8, slots=10)
+    state.rebalance(floor=2)
+    state.glus[0].cache.misses += 5
+    state.glus[1].cache.misses += 5
+    state.rebalance(floor=2)
+    assert [g.cache.num_slots for g in state.glus] == [8, 8]
 
 
 def test_read_ahead_prefetches_next_layer(tmp_path):

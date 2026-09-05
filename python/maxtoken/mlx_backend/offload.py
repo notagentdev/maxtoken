@@ -900,10 +900,32 @@ class OffloadState:
         )[: total - sum(targets)]:
             targets[i] += 1
         num_experts = self.glus[0].store.num_experts
-        # Nobody needs more slots than experts; return the overflow evenly.
-        for i, t in enumerate(targets):
-            if t > num_experts:
-                targets[i] = num_experts
+        # Nobody needs more slots than experts. Clamp, and hand the clamped
+        # overflow to the layers still under the cap in proportion to their
+        # pressure, until nothing overflows — clamping alone silently shrank
+        # the cache (one hot layer at a large budget could drop a third of it).
+        capped: set = set()
+        while True:
+            overflow = 0
+            for i, t in enumerate(targets):
+                if t > num_experts:
+                    overflow += t - num_experts
+                    targets[i] = num_experts
+                    capped.add(i)
+            open_ = [i for i in range(len(targets)) if i not in capped]
+            if overflow == 0 or not open_:
+                break  # all capped: every layer holds all its experts
+            weight = sum(deltas[i] for i in open_)
+            if weight > 0:
+                shares = [(deltas[i] * overflow) // weight for i in open_]
+            else:
+                shares = [overflow // len(open_)] * len(open_)
+            for i, s in zip(open_, shares, strict=True):
+                targets[i] += s
+            for i in sorted(open_, key=lambda j: deltas[j], reverse=True)[
+                : overflow - sum(shares)
+            ]:
+                targets[i] += 1
         changed = False
         # Shrink first so the budget never transiently exceeds the total.
         order = sorted(
@@ -918,7 +940,7 @@ class OffloadState:
             lo, hi = min(targets), max(targets)
             logger.info(
                 f"expert cache rebalanced by miss pressure: {lo}..{hi} slots/layer "
-                f"({total} total, window {total_misses} misses)"
+                f"({sum(targets)} of {total} total, window {total_misses} misses)"
             )
         return changed
 

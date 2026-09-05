@@ -136,9 +136,15 @@ fit, which is the case the slot cache exists for (Qwen3-Next: 48 layers ×
 512 experts × top-10; 40.5 GiB of experts over a 1.3 GiB dense core). Decode
 scales with the budget: 5.3 / 6.4 / 8.4 / 8.6 tok/s engine-level at 5 / 10 /
 20 / 30% cache (3.4 / 5.5 / 10.3 / 13.5 GiB active) — diminishing returns
-past 20%; through the HTTP server 7.6 tok/s at 20%. Long prefill chunks
-stream every expert layer (a full 40 GiB pass — a multi-second TTFT floor
-regardless of prompt length; the SSD covers 42 GiB in ~12 s), but chunks of
+past 20%; through the HTTP server 7.6 tok/s at 20%. Every prefill chunk
+past the bank streams every expert layer — a full 40 GiB pass (~8 s with a
+partly warm page cache, ~12 s cold from the SSD) — so a prompt costs one
+pass per chunk. The chunk is 2048 tokens (`MAXTOKEN_MLX_OFFLOAD_PREFILL_CHUNK`);
+for a while it was silently clamped to the 256-token snapshot boundary,
+which made a 1710-token prompt seven passes: TTFT 55.9 s, against 21.0 s
+with one (same server, same prompt, back to back). Snapshots now land at
+chunk ends plus the last boundary before the prompt's end, so the next
+turn's restore point stays fine-grained. Chunks of
 ≤ 32 tokens (`MAXTOKEN_MLX_BANK_TOKENS`) — the short rest-prompt after a
 prefix-cache restore — are served from a transient bank of only the routed
 non-resident experts: a chat follow-up's TTFT drops from ~7 s to ~2 s and
@@ -158,7 +164,10 @@ extra python/graph breaks cost), so decode deliberately stays clean.
 Between requests the scheduler also rebalances the slot budget by observed
 per-layer miss pressure (`MAXTOKEN_MLX_REBALANCE=0` disables) — layers
 differ widely in routing diversity, and an even split starves the diverse
-ones.
+ones. A layer's share is capped at its expert count and the clamped
+overflow is handed on to the layers still under the cap (it used to be
+dropped: one hot layer at a large budget silently shrank the cache, and the
+log printed the pre-clamp total).
 
 ⁴ **304 B parameters, an 86 GiB checkpoint — 2.7x this machine's RAM.** The
 mixed 2-bit quant is `mlx-community/DeepSeek-V4-Flash-0731-OptiQ-2bit`

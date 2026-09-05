@@ -23,7 +23,7 @@ from __future__ import annotations
 import inspect
 import time as _time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, Iterator, List
+from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Tuple
 
 from maxtoken.message import (
     AbortBackendMsg,
@@ -51,6 +51,44 @@ from . import gdn_capture, spec_sample
 # when it fit (23.20 against 23.27 tok/s), so four is both the ceiling and the
 # right answer.
 MAX_WINDOW = 4
+
+
+def offload_prefill_plan(
+    start: int, end: int, *, chunk: Optional[int] = None, boundary: Optional[int] = None
+) -> List[Tuple[int, int, bool]]:
+    """``(pos, n, snapshot)`` chunks for prefilling tokens ``[start, end)`` on
+    the slot-cache path.
+
+    Past the slot budget every chunk streams every expert layer — a full pass
+    over the checkpoint (the 80B: ~40 GiB, 8-12 s) — so a prompt costs
+    ``ceil(N / chunk)`` passes whatever the token math says. Chunking at
+    every 256-token boundary made a 1710-token prompt seven passes (TTFT
+    55.9 s vs 21.0 s with one, measured over HTTP on the 80B) and a 9k-token
+    system prompt 36; at 2048 (``MAXTOKEN_MLX_OFFLOAD_PREFILL_CHUNK``) the
+    latter is 6. Snapshots land at
+    chunk ends, kept on boundary multiples, plus the LAST boundary before the
+    end: that is the restore point the next turn hits, and keeping it fine
+    leaves the follow-up on the short-remainder bank instead of another pass.
+    """
+    import os
+
+    from .prefix_cache import BOUNDARY_TOKENS
+
+    boundary = boundary or BOUNDARY_TOKENS
+    if chunk is None:
+        chunk = int(os.environ.get("MAXTOKEN_MLX_OFFLOAD_PREFILL_CHUNK", "2048"))
+    chunk = max(boundary, (chunk // boundary) * boundary)
+    last_boundary = (end // boundary) * boundary
+    plan: List[Tuple[int, int, bool]] = []
+    pos = start
+    while pos < end:
+        stop = (pos // chunk + 1) * chunk
+        if pos < last_boundary < stop:
+            stop = last_boundary
+        n = min(end - pos, stop - pos)
+        pos += n
+        plan.append((pos - n, n, pos % boundary == 0 and pos < end))
+    return plan
 
 # Memory the prefix store may hold, from what is actually left once the model
 # is resident. It used to be 15% of RAM regardless of the model: on a 32 GB
@@ -661,28 +699,18 @@ class MlxScheduler:
     def _offload_prefill(self, input_ids: List[int], cache, start: int) -> None:
         """Prefill all tokens but the last: per-layer sync/streamed serving,
         with prefix-store snapshots at restore-safe boundaries."""
-        from .prefix_cache import BOUNDARY_TOKENS
-
         mx = self._mx
         state = self.offload_state
         state.speculating = False
-        pos, end = start, len(input_ids) - 1
-        next_boundary = (pos // BOUNDARY_TOKENS + 1) * BOUNDARY_TOKENS
-        while pos < end:
-            n = min(2048, end - pos, next_boundary - pos)
+        # The plan is computed up front and never depends on the prefix store:
+        # tying chunk ends to what got stored once pinned the boundary when the
+        # store was off (--cache-type naive) and handed the model empty arrays.
+        for pos, n, snapshot in offload_prefill_plan(start, len(input_ids) - 1):
             state.begin_token()
             logits = self.model(mx.array(input_ids[pos:pos + n])[None], cache=cache)
             mx.eval(logits)
-            pos += n
-            if pos == next_boundary:
-                # The boundary advances whether or not anything is stored at it.
-                # Tying the advance to the prefix store left next_boundary
-                # pinned as soon as the store was off (--cache-type naive), so
-                # the following chunk clamped to zero tokens and the model was
-                # handed an empty array — every prompt past BOUNDARY_TOKENS.
-                if pos < end and self.prefix_store is not None:
-                    self._snapshot(input_ids[:pos], cache, len(input_ids))
-                next_boundary += BOUNDARY_TOKENS
+            if snapshot and self.prefix_store is not None:
+                self._snapshot(input_ids[:pos + n], cache, len(input_ids))
 
     def _shaped_dist(self, sp: SamplingParams):
         """A function logits-row -> the probability vector the request actually
@@ -817,7 +845,11 @@ class MlxScheduler:
         # trunk's cache, so the drafter enters the request already conditioned on
         # the prompt. A prefix-cache hit skips the tokens it restored, and the
         # head simply starts its history later — a shorter history, never a
-        # wrong one.
+        # wrong one. Measured (Qwen3.8-27B + MTP k=3, 1.7k-token two-turn
+        # chats, sampled 0.7, 4 reps): acceptance with the head seeing only
+        # the ~200-token remainder vs the whole prompt was 2.93 vs 3.17 on
+        # turn 1 and 3.55 vs 3.30 on turn 2 — within turn-to-turn noise, so
+        # snapshotting the head's cache alongside the prefix is not worth it.
         history_sink = None
         if wants_hidden and hasattr(drafter, "extend_history"):
             def history_sink(hidden, chunk_start, chunk_end):
