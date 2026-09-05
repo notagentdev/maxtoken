@@ -34,7 +34,9 @@ the drafter (`--draft-model mtp`, or a path to a sibling artifact's
 `mtp.safetensors`) with distribution-exact rejection sampling — and, on the
 A3B, whole-MoE Metal kernels that run router, top-8, packed gate/up, SwiGLU,
 fused down and the shared expert in four launches per layer for the 2–3-row
-verify windows. Acceptance is text-dependent: ~2.4 tokens per verify on
+verify windows (and three for a single decode row — measured +1%: the wide
+command buffers already hide the stock block's launches, so in situ it is
+bandwidth-bound). Acceptance is text-dependent: ~2.4 tokens per verify on
 English/code, less on free-form German chat — the server logs it, and
 `--enable-cache-report` exposes per-request cache hits to any client.
 

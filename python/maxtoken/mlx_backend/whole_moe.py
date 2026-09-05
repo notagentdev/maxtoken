@@ -59,6 +59,19 @@ def enabled() -> bool:
     return os.environ.get("MAXTOKEN_MLX_WHOLE_MOE", "1") != "0"
 
 
+def m1_enabled() -> bool:
+    """Route single decode rows (B=1, S=1) through the three-launch M1
+    stages too (MAXTOKEN_MLX_WHOLE_MOE_M1=0 keeps the compiled block).
+
+    Measured on Ornith-1.5-35B, interleaved A/B at B=1: 12.31 -> 12.16 ms
+    per token (+1%). The block alone drops 129 -> 76 us per call, but the
+    wide command buffers already hide the stock path's launches, so in situ
+    the block is bandwidth-bound and only ~0.12 ms of the 2 ms shows up.
+    Kept on for the launches it saves under CPU contention; do not expect
+    more from it."""
+    return os.environ.get("MAXTOKEN_MLX_WHOLE_MOE_M1", "1") != "0"
+
+
 def _quantized(mod, *, bits, group_size, wshape, mshape) -> _Storage | None:
     import mlx.core as mx
 
@@ -204,6 +217,8 @@ def install(model) -> int:
             2: kernels.bind_target_m2(made),
             3: kernels.bind_target_m3(made),
         }
+        if m1_enabled():
+            routes[1] = kernels.bind_target_m1(made)
         if not checked:
             # One fixture parity check against the stock forward; the blocks
             # share code and layout, so the first proves the contract and
@@ -220,9 +235,9 @@ def install(model) -> int:
         installed += 1
     if installed:
         logger.info(
-            "whole-MoE verify: %d blocks route 2-3 row windows through "
-            "4 fused launches",
+            "whole-MoE verify: %d blocks route %s through fused launches",
             installed,
+            "1-3 row windows (M1 decode on)" if m1_enabled() else "2-3 row windows",
         )
     for reason, count in reasons.items():
         logger.info(f"whole-MoE verify: {count} blocks skipped ({reason})")
