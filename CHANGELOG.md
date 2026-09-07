@@ -5,6 +5,46 @@ All notable changes to MaxToken. The project forked from
 history before that is upstream's. `0.0.1` was the fork's working version
 before its first tagged release.
 
+## [0.2.1] - 2026-09-07
+
+### Added
+
+- **qwen4_exp feasibility path** (`benchmarks/qwen4_exp/`): Qwen3.8-Flash-Next
+  in its Niwaki-99B 3-bit form loads through mlx-vlm 0.7.0rc0 with MaxToken's
+  stores attached before anything is evaluated — the 13 GiB PLE n-gram table
+  as a memmap row gather (16 rows of 180 B per token), the routed experts
+  (24 layers × 512 × 1.44 MiB) from the FTW mapped store — and serves over a
+  small OpenAI-style server with the web console's endpoints. Measured on the
+  32 GB M1 Max: 16.7–17.5 tok/s decode, 277 tok/s prefill warm, ~3.5 GiB
+  owned memory, coherent output. Upstream FreeToken cannot run this family on
+  such a machine. Not yet in `mt serve`.
+- One `prefill N tok in …` log line per long prompt with the time of every
+  chunk and snapshot — the way to tell a memory stall from a slow kernel.
+
+### Changed
+
+- MLX buffer cache default 4 → 2 GiB. On a paging 32 GB machine the buffers
+  a larger cache keeps but does not touch get swapped out and stall the
+  prefill that next reuses them: a 1536-token chunk on the 27B swung
+  11.7–20.4 s at 4 GiB and holds 11.0–11.7 s at 2 GiB, at the same 137–140
+  tok/s when it does not stall.
+- Prefix cache SSD tier: the host-side snapshot window is bounded by bytes
+  (256 MB, was four 151 MB slots on the 27B), snapshot files are written with
+  `F_NOCACHE` so a prompt's 243 MB of snapshots no longer evict file-backed
+  weights (page-ins per prompt 376–966 MB → 200–237 MB), and the tier
+  accounts its scheduler-thread cost per prompt (debug log). A fresh
+  1.7k-token prompt on the 27B with the tier on: 19–27 s → 13.6–13.9 s to the
+  first token, the level of no prefix cache at all; what remains of the
+  tier's cost is the ~1 s tail chunk that gives the next restart its
+  resume point.
+
+### Fixed
+
+- `benchmarks/bench_mlx_decode.py`'s memory watchdog forked (`vm_stat`
+  through `subprocess`) from a thread beside Metal and aborted the process
+  silently (EXC_BREAKPOINT in libSystem's fork handler); it now samples
+  through `host_statistics64` without forking.
+
 ## [0.2.0] - 2026-09-07
 
 First public release of MaxToken: an Apple-silicon-only MoE serving engine.
@@ -95,4 +135,5 @@ M1 Max; the methodology and the negative results are in
 - Upstream's Linux/CUDA installer, wheel CI, kernel-cache package and
   community assets.
 
+[0.2.1]: https://github.com/notagentdev/maxtoken/releases/tag/v0.2.1
 [0.2.0]: https://github.com/notagentdev/maxtoken/releases/tag/v0.2.0

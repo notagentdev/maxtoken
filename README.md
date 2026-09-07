@@ -27,7 +27,17 @@ Measured on a 32 GB M1 Max (all through the real HTTP serving path):
 | Qwen3-Coder-Next-**80B** | **3.4 GiB** hard budget | ~5 tok/s |
 | Ornith-1.5-**35B**-A3B (18 GiB checkpoint) | 1.3 GiB owned + page cache | 75–77 tok/s |
 | Ornith-1.5-35B-A3B + its **native MTP head** as drafter | + 1.7 GiB head | **89–94 tok/s** |
-| Qwen3.8-**27B** dense hybrid + native MTP head | 14 GiB resident | 32–35 tok/s, prefill 95–99 tok/s |
+| Qwen3.8-**27B** dense hybrid + native MTP head | 14 GiB resident | 32–35 tok/s, prefill ~130 tok/s |
+| Qwen3.8-Flash-Next **Niwaki-99B**-A5B 3-bit (`qwen4_exp`, 34 GiB checkpoint) | ~3.5 GiB owned + page cache | 17 tok/s, prefill 277 tok/s (spike path) |
+
+The Niwaki row is the newest and the least finished: Qwen's `qwen4_exp`
+preview architecture (a 51 B-parameter n-gram "phrase book" beside the MoE
+brain) does not load through mlx-lm, so `benchmarks/qwen4_exp/` runs
+mlx-vlm's implementation with MaxToken's stores attached — the 13 GiB
+n-gram table gathered row by row from disk, the routed experts from the
+mapped store — behind a small OpenAI-style server. Upstream FreeToken pins
+every expert in RAM and cannot run this family on 32 GB at all; integration
+into `mt serve` is the next step.
 
 The speculative rows use the checkpoint's own multi-token-prediction head as
 the drafter (`--draft-model mtp`, or a path to a sibling artifact's
