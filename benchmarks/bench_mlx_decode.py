@@ -33,13 +33,58 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "python")
 sys.path.insert(0, ROOT)
 
 
+def _host_vm_pages() -> tuple[int, int, int, int] | None:
+    """(free, inactive, speculative, wired) page counts via host_statistics64,
+    i.e. WITHOUT forking. The watchdog samples from a thread while MLX's Metal
+    threads hold malloc locks, and a fork() there (which subprocess.run does on
+    macOS) aborts the process in libSystem's atfork handler — seen 2026-09-07
+    as EXC_BREAKPOINT in _os_unfair_lock_unowned_abort, silently, mid-decode."""
+    import ctypes
+    import ctypes.util
+
+    try:
+        libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
+
+        class VmStat64(ctypes.Structure):
+            _fields_ = [
+                ("free_count", ctypes.c_uint32), ("active_count", ctypes.c_uint32),
+                ("inactive_count", ctypes.c_uint32), ("wire_count", ctypes.c_uint32),
+                ("zero_fill_count", ctypes.c_uint64), ("reactivations", ctypes.c_uint64),
+                ("pageins", ctypes.c_uint64), ("pageouts", ctypes.c_uint64),
+                ("faults", ctypes.c_uint64), ("cow_faults", ctypes.c_uint64),
+                ("lookups", ctypes.c_uint64), ("hits", ctypes.c_uint64),
+                ("purges", ctypes.c_uint64), ("purgeable_count", ctypes.c_uint32),
+                ("speculative_count", ctypes.c_uint32), ("decompressions", ctypes.c_uint64),
+                ("compressions", ctypes.c_uint64), ("swapins", ctypes.c_uint64),
+                ("swapouts", ctypes.c_uint64), ("compressor_page_count", ctypes.c_uint32),
+                ("throttled_count", ctypes.c_uint32), ("external_page_count", ctypes.c_uint32),
+                ("internal_page_count", ctypes.c_uint32),
+                ("total_uncompressed_pages_in_compressor", ctypes.c_uint64),
+            ]
+
+        stats = VmStat64()
+        count = ctypes.c_uint32(ctypes.sizeof(VmStat64) // 4)
+        libc.mach_host_self.restype = ctypes.c_uint32
+        host = libc.mach_host_self()
+        if libc.host_statistics64(host, 4, ctypes.byref(stats), ctypes.byref(count)) != 0:
+            return None
+        return stats.free_count, stats.inactive_count, stats.speculative_count, stats.wire_count
+    except (OSError, AttributeError):
+        return None
+
+
 def vm_gb() -> tuple[float, float]:
-    """(wired GB, available GB) from vm_stat. "Available" is free + inactive +
-    speculative: macOS keeps "free" tiny on purpose and lets the file cache hold
-    the rest, so free alone reads as an emergency while there is nothing wrong.
-    What killed the machine was wired memory, which no cache can give back."""
+    """(wired GB, available GB). "Available" is free + inactive + speculative:
+    macOS keeps "free" tiny on purpose and lets the file cache hold the rest,
+    so free alone reads as an emergency while there is nothing wrong. What
+    killed the machine was wired memory, which no cache can give back."""
+    page = os.sysconf("SC_PAGESIZE") if hasattr(os, "sysconf") else 16384
+    pages = _host_vm_pages()
+    if pages is not None:
+        free, inactive, spec, wired = pages
+        return wired * page / 2**30, (free + inactive + spec) * page / 2**30
+    # Fallback only (it forks): keep it out of any thread that runs beside Metal.
     out = subprocess.run(["vm_stat"], capture_output=True, text=True).stdout
-    page = 16384
     vals = {}
     for line in out.splitlines():
         if ":" in line:
