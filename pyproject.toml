@@ -52,6 +52,10 @@ dependencies = [
 ]
 
 [project.urls]
+Homepage = "https://github.com/notagentdev/maxtoken"
+Repository = "https://github.com/notagentdev/maxtoken"
+Issues = "https://github.com/notagentdev/maxtoken/issues"
+Changelog = "https://github.com/notagentdev/maxtoken/blob/main/CHANGELOG.md"
 Upstream = "https://github.com/FlashML-org/FreeToken"
 
 [project.scripts]

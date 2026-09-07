@@ -17,7 +17,7 @@ There is no Linux or CUDA build: the upstream CUDA engine was removed in
 ## Install from source
 
 ```bash
-git clone <this-repo> && cd maxtoken
+git clone https://github.com/notagentdev/maxtoken.git && cd maxtoken
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 ```

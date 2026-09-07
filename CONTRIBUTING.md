@@ -48,7 +48,7 @@ were not actually measured, are closed without review.
 ## Development setup
 
 ```bash
-git clone <this-repo> && cd maxtoken
+git clone https://github.com/notagentdev/maxtoken.git && cd maxtoken
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 python -m pytest tests/ -q

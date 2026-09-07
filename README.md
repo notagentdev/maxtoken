@@ -96,7 +96,7 @@ whole-MoE verify kernels harvest — is largely spent):
 ## Quick start
 
 ```bash
-git clone <this-repo> && cd maxtoken
+git clone https://github.com/notagentdev/maxtoken.git && cd maxtoken
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e .
 
