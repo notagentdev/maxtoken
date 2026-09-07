@@ -165,7 +165,12 @@ class MlxScheduler:
         # still recycles. 0 disables the bound.
         import os as _os_cache
 
-        cache_gb = float(_os_cache.environ.get("MAXTOKEN_MLX_CACHE_LIMIT_GB", "4"))
+        # 2 GiB, not 4: on a 32 GB machine that is already paging, buffers the
+        # cache keeps but does not touch get swapped out and stall the prefill
+        # that next reuses them -- measured on the 27B as a 1536-token chunk
+        # swinging 11.7-20.4 s at 4 GiB against a steady 11.0-12.2 s at 2 GiB,
+        # with no throughput lost (140 tok/s either way when it does not stall).
+        cache_gb = float(_os_cache.environ.get("MAXTOKEN_MLX_CACHE_LIMIT_GB", "2"))
         if cache_gb > 0:
             mx.set_cache_limit(int(cache_gb * (1 << 30)))
             logger.info(f"MLX buffer cache capped at {cache_gb:g} GiB")
@@ -600,6 +605,11 @@ class MlxScheduler:
         # ends there too, at the cost of one extra launch each.
         disk = getattr(self, "prefix_disk", None)
         cuts = disk.cut_points(input_ids, start) if disk is not None else []
+        import os
+        import time as _time
+
+        trace: List[str] = []
+        t_prefill = _time.perf_counter()
         while pos < end:
             # Chunk width is a trade: a wide chunk amortizes the per-chunk work
             # (dequantized matrices, launches) and prefills ~7% faster; a
@@ -622,19 +632,29 @@ class MlxScheduler:
                     n = cut - pos
                     break
             chunk = mx.array(input_ids[pos:pos + n])[None]
+            t0 = _time.perf_counter()
             if on_hidden is None:
                 mx.eval(self.model(chunk, cache=cache))
             else:
                 hidden = text.model(chunk, cache=cache)
                 mx.eval(hidden)
                 on_hidden(hidden, pos, pos + n)
+            t1 = _time.perf_counter()
             pos += n
+            snap_ms = 0.0
             if pos % BOUNDARY_TOKENS == 0:
                 # RAM keeps mid-prompt states only (the end of the request is
                 # donated whole); the disk tier may want this one either way.
                 self._snapshot(input_ids[:pos], cache, len(input_ids), ram=pos < end)
                 next_boundary = pos + BOUNDARY_TOKENS
+                snap_ms = 1e3 * (_time.perf_counter() - t1)
+            trace.append(f"{n}tok {1e3 * (t1 - t0):.0f}ms" + (f"+snap {snap_ms:.0f}ms" if snap_ms else ""))
             yield None
+        if end - start >= int(os.environ.get("MAXTOKEN_MLX_PREFILL_TRACE_MIN", "512")):
+            logger.info(
+                f"prefill {end - start} tok in {_time.perf_counter() - t_prefill:.1f}s: "
+                + ", ".join(trace)
+            )
 
     def _make_generator(self, input_ids: List[int], sp: SamplingParams) -> tuple:
         """(token generator, live cache list | None, cached prefix tokens)."""

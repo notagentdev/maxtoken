@@ -78,7 +78,11 @@ REC_EVERY = 4
 MAX_PENDING_BYTES = 3 << 30
 # Recurrent snapshots kept in host memory until a prompt's prefill ends,
 # for the case where the last block's snapshot was not written eagerly.
-WINDOW_SLOTS = 4
+# Bounded by bytes, not slots: four slots held 600 MB of pageable host
+# memory on the 27B (151 MB each), which on a paging 32 GB machine came
+# back as prefill stalls. One 27B snapshot, or several of a hybrid MoE's
+# ~30 MB ones, fit the budget.
+WINDOW_BYTES = 256 << 20
 
 _ST_DTYPES = {
     "bfloat16": "BF16",
@@ -190,6 +194,18 @@ def write_safetensors(path: str, tensors: Dict[str, Tuple[str, np.ndarray]], met
     raw += b" " * (-len(raw) % 8)
     tmp = f"{path}.tmp"
     with open(tmp, "wb") as f:
+        # Bypass the page cache for the payload: a snapshot is read back
+        # rarely (after a restart, weeks later) but written on every long
+        # prompt, and on a 32 GB machine 243 MB of fresh dirty pages per
+        # prompt evicted file-backed model weights that the next prefill
+        # then re-faulted from the SSD (measured as 1-3 s stalls landing in
+        # whichever chunk ran next).
+        try:
+            import fcntl
+
+            fcntl.fcntl(f.fileno(), fcntl.F_NOCACHE, 1)
+        except (ImportError, AttributeError, OSError):
+            pass
         f.write(struct.pack("<Q", len(raw)))
         f.write(raw)
         for arr in order:
@@ -277,6 +293,14 @@ class DiskPrefixStore:
         self.restored_tokens = 0
         self.written_bytes = 0
         self.skipped_writes = 0
+        # Per-prompt cost accounting on the scheduler thread (reported by
+        # done()): what the tier adds to a prefill's critical path.
+        self._t_dispatch = 0.0
+        self._t_eval = 0.0
+        self._t_copy = 0.0
+        self._copied_bytes = 0
+        self._t_write = 0.0
+        self._write_bytes = 0
         self.disabled: Optional[str] = None
         self._lock_fd: Optional[int] = None
         if not self._acquire_lock():
@@ -578,10 +602,12 @@ class DiskPrefixStore:
         if n == 0 or n % self.block or (prompt_len or n) < self.min_prompt_tokens:
             return
         i = n // self.block
+        t0 = time.perf_counter()
         try:
             self._observe(self.chain(tokens, i), i, cache, prompt_len, restore_point)
         except Exception as exc:  # noqa: BLE001 -- never take the scheduler down
             self._disable(f"snapshot at block {i} failed: {type(exc).__name__}: {exc}")
+        self._t_dispatch += time.perf_counter() - t0
 
     def _observe(self, hashes: List[str], i: int, cache, prompt_len, restore_point: bool) -> None:
         import mlx.core as mx
@@ -641,6 +667,7 @@ class DiskPrefixStore:
                     lo, hi = (j - 1) * self.block, j * self.block
                     tensors[f"k{l}"] = _to_host(k[..., lo:hi, :])
                     tensors[f"v{l}"] = _to_host(v[..., lo:hi, :])
+                    self._copied_bytes += tensors[f"k{l}"][1].nbytes + tensors[f"v{l}"][1].nbytes
                 jobs.append(("kv", hashes[j - 1], j, tensors))
             rec_tensors: Optional[Dict[str, Tuple[str, np.ndarray]]] = None
             if need_rec:
@@ -649,6 +676,7 @@ class DiskPrefixStore:
                     for slot, a in enumerate(st):
                         if a is not None:
                             rec_tensors[f"r{l}.{slot}"] = _to_host(a)
+                            self._copied_bytes += rec_tensors[f"r{l}.{slot}"][1].nbytes
                 if rec_wanted:
                     jobs.append(("rec", h, i, rec_tensors))
                 else:
@@ -685,9 +713,14 @@ class DiskPrefixStore:
         import mlx.core as mx
 
         try:
+            t0 = time.perf_counter()
             if views:
                 mx.eval(*views)
+            t1 = time.perf_counter()
             finish()
+            t2 = time.perf_counter()
+            self._t_eval += t1 - t0
+            self._t_copy += t2 - t1
         except Exception as exc:  # noqa: BLE001 -- never take the scheduler down
             self._disable(f"snapshot flush failed: {type(exc).__name__}: {exc}")
 
@@ -696,7 +729,13 @@ class DiskPrefixStore:
             return
         self._window[h] = (i, tensors)
         self._window_order.append(h)
-        while len(self._window_order) > WINDOW_SLOTS:
+
+        def held() -> int:
+            return sum(
+                arr.nbytes for _, ts in self._window.values() for _, arr in ts.values()
+            )
+
+        while len(self._window_order) > 1 and held() > WINDOW_BYTES:
             old = self._window_order.pop(0)
             self._window.pop(old, None)
 
@@ -708,6 +747,14 @@ class DiskPrefixStore:
             return
         # The prompt's last boundary snapshot may still be in flight.
         self._flush_snapshot()
+        logger.debug(
+            f"prefix disk: prompt {len(prompt_tokens)} tok -- scheduler-thread cost: dispatch "
+            f"{1e3 * self._t_dispatch:.0f} ms, harvest eval {1e3 * self._t_eval:.0f} ms, host copies "
+            f"{1e3 * self._t_copy:.0f} ms ({self._copied_bytes / 2**20:.0f} MB); writer: "
+            f"{1e3 * self._t_write:.0f} ms ({self._write_bytes / 2**20:.0f} MB)"
+        )
+        self._t_dispatch = self._t_eval = self._t_copy = self._t_write = 0.0
+        self._copied_bytes = self._write_bytes = 0
         if not self._window:
             return
         n_full = restore_blocks(len(prompt_tokens), self.block)
@@ -771,6 +818,7 @@ class DiskPrefixStore:
         nbytes = sum(arr.nbytes for _, arr in tensors.values())
         path = self._kv_path(h) if kind == "kv" else self._rec_path(h)
         size = 0
+        t0 = time.perf_counter()
         try:
             size = write_safetensors(
                 path, tensors, {"block": str(idx), "tokens": str(idx * self.block), "kind": kind}
@@ -778,6 +826,8 @@ class DiskPrefixStore:
         except Exception as exc:  # noqa: BLE001 -- disk full, permissions: skip this block
             logger.warning(f"prefix disk: writing {os.path.basename(path)} failed: {exc}")
             self._unlink(f"{path}.tmp")
+        self._t_write += time.perf_counter() - t0
+        self._write_bytes += nbytes
         with self._lock:
             self._pending_bytes -= nbytes
             b = self.blocks.get(h)

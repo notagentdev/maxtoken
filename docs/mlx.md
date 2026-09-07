@@ -324,6 +324,21 @@ uses.
   the request completes in ~5 s (the remaining 166 tokens plus first-use
   kernel work), answer token-identical to the cold one (greedy). The console
   shows the tier's fill and hits; `/admin/cache/status` carries `prefix_disk`.
+  What the tier costs a fresh long prompt, measured on the 27B (1.7k tokens,
+  2026-09-07): its own work on the scheduler thread is ~80 ms (243 MB of
+  host copies, dispatched asynchronously, harvested at the next boundary),
+  the writer runs off-thread; the real price is structural — the prefill
+  ends a chunk at the prompt's last full block so a snapshot exists there,
+  and the 207-token tail chunk then runs at ~90 tok/s instead of the 1536-
+  token chunk's ~137 (fixed per-forward costs), about +1 s. Everything
+  beyond that turned out to be memory pressure, not the tier: with the MLX
+  buffer cache at 4 GiB the big chunk swung 11.7–20.4 s on a paging machine,
+  at the new 2 GiB default it holds 11.1–11.7 s; the tier's host window is
+  now bounded by bytes (256 MB) rather than four 151 MB slots, and its files
+  are written with `F_NOCACHE` so a prompt's 243 MB of snapshots no longer
+  evict file-backed weights that the next prefill re-faults. `mt serve`
+  logs one `prefill N tok in …: <chunk> …` line per long prompt with the
+  per-chunk timings, which is how to tell a stall from a slow kernel.
 - **Speculative decoding** (`--draft-model`, slot-cache offload serving): a
   small same-vocabulary model (e.g. `mlx-community/Qwen3-0.6B-4bit` for Qwen3
   targets) drafts `--draft-tokens` (default 3) per step; the target verifies
