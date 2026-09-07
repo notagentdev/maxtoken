@@ -1,37 +1,37 @@
 # Install
 
+MaxToken runs on Apple silicon via [MLX](https://github.com/ml-explore/mlx).
+There is no Linux or CUDA build: the upstream CUDA engine was removed in
+0.0.1 (see the README).
+
 ## Requirements
 
-- Linux x86_64, NVIDIA GPU, driver r580+ (CUDA 13) — or macOS on Apple silicon
-  via the [MLX backend](mlx.md) (`pip install -e ".[mlx]"`)
-- Python >= 3.10, with [uv](https://docs.astral.sh/uv/) recommended (plain
-  `pip` + `venv` works too)
+- macOS on Apple silicon (M1 or newer). The numbers in this repository were
+  measured on a 32 GB M1 Max; a smaller machine serves smaller checkpoints,
+  or serves a bigger one from the SSD under a hard memory budget
+  (`--moe-cache-rate`, see [mlx.md](mlx.md)).
+- Python >= 3.11.
+- Xcode command-line tools (`xcode-select --install`). MLX ships prebuilt
+  Metal kernels; nothing is compiled at install time.
 
-## Method 1: Install from PyPI
-
-```bash
-uv venv && source .venv/bin/activate
-uv pip install "maxtoken[accel]"
-```
-
-CUDA kernels are JIT-compiled on first use, need a CUDA 13 toolkit with `nvcc` on PATH.
-
-## Method 2: Install from source
+## Install from source
 
 ```bash
-git clone https://github.com/FlashML-org/MaxToken.git && cd MaxToken
-uv venv && source .venv/bin/activate
-uv pip install -e ".[accel]"
+git clone <this-repo> && cd maxtoken
+python3 -m venv .venv && source .venv/bin/activate
+pip install -e .
 ```
+
+`pip install -e ".[dev]"` adds pytest. Installing pulls no CUDA ecosystem:
+no torch, no triton.
 
 ## Verify
 
 ```bash
-source .venv/bin/activate
 mt --version
-mt serve --model ~/path/to/Qwen3.6-35B-A3B
-curl http://127.0.0.1:1919/v1/chat/completions -H 'Content-Type: application/json' \
-  -d '{"model":"Qwen3.6-35B-A3B","messages":[{"role":"user","content":"hi"}]}'
+python -m pytest tests/mlx_backend -q
 ```
 
-Then head to [quickstart.md](quickstart.md).
+Then head to [quickstart.md](quickstart.md). The full macOS guide — serving
+modes, offload budgets, speculative decoding, benchmarks and the measured
+negative results — is [mlx.md](mlx.md).

@@ -1,37 +1,43 @@
 # Supported models
 
-MaxToken loads HF safetensors checkpoints directly (plus native GGUF for
-Gemma-4). The checkpoints below are known-good — the prebuilt kernels are tuned
-for them; other checkpoints of the same architectures work too.
+MaxToken loads MLX checkpoints — the quantized safetensors conversions that
+mlx-lm serves — and everything mlx-lm's model registry knows is a candidate.
+The checkpoints below are the ones this repository was measured on (a 32 GB
+M1 Max, through the real HTTP path; numbers in the README and in
+[mlx.md](mlx.md)):
 
-| Model | HF checkpoints |
-|---|---|
-| DeepSeek-V4 | [deepseek-ai/DeepSeek-V4-Flash-0731](https://huggingface.co/deepseek-ai/DeepSeek-V4-Flash-0731) |
-| GLM-5.2 | [nvidia/GLM-5.2-NVFP4](https://huggingface.co/nvidia/GLM-5.2-NVFP4) |
-| GLM-4.7 | [nvidia/GLM-4.7-NVFP4](https://huggingface.co/nvidia/GLM-4.7-NVFP4) |
-| Qwen3.6 / Qwen3.5 MoE | [Qwen/Qwen3.6-35B-A3B](https://huggingface.co/Qwen/Qwen3.6-35B-A3B) ([-FP8](https://huggingface.co/Qwen/Qwen3.6-35B-A3B-FP8)), [nvidia/Qwen3.6-35B-A3B-NVFP4](https://huggingface.co/nvidia/Qwen3.6-35B-A3B-NVFP4), [Qwen/Qwen3.5-35B-A3B](https://huggingface.co/Qwen/Qwen3.5-35B-A3B) ([-FP8](https://huggingface.co/Qwen/Qwen3.5-35B-A3B-FP8)) |
-| Qwen3.6 dense | [Qwen/Qwen3.6-27B](https://huggingface.co/Qwen/Qwen3.6-27B) ([-FP8](https://huggingface.co/Qwen/Qwen3.6-27B-FP8)), [nvidia/Qwen3.6-27B-NVFP4](https://huggingface.co/nvidia/Qwen3.6-27B-NVFP4) |
-| Qwen3-MoE | [Qwen/Qwen3-30B-A3B](https://huggingface.co/Qwen/Qwen3-30B-A3B) |
-| gpt-oss | [openai/gpt-oss-120b](https://huggingface.co/openai/gpt-oss-120b), [openai/gpt-oss-20b](https://huggingface.co/openai/gpt-oss-20b) |
-| Gemma-4 | [google/gemma-4-26B-A4B-it](https://huggingface.co/google/gemma-4-26B-A4B-it), [nvidia/Gemma-4-26B-A4B-NVFP4](https://huggingface.co/nvidia/Gemma-4-26B-A4B-NVFP4), [google/gemma-4-12B-it](https://huggingface.co/google/gemma-4-12B-it), [nvidia/Gemma-4-31B-IT-NVFP4](https://huggingface.co/nvidia/Gemma-4-31B-IT-NVFP4) .. |
-| MiniMax-M2.5 | [nvidia/MiniMax-M2.5-NVFP4](https://huggingface.co/nvidia/MiniMax-M2.5-NVFP4) |
-| Muse-Glimmer | [meta-models/Muse-Glimmer-30B](https://huggingface.co/meta-models/Muse-Glimmer-30B), [RedHatAI/Muse-Glimmer-30B-NVFP4](https://huggingface.co/RedHatAI/Muse-Glimmer-30B-NVFP4) |
+| Model | Checkpoint | Served as |
+|---|---|---|
+| Ornith-1.5-35B-A3B (Qwen3.5-family hybrid MoE) | [ornith-ai/Ornith-1.5-35B-A3B-MLX-4bit](https://huggingface.co/ornith-ai/Ornith-1.5-35B-A3B-MLX-4bit) | mapped store; native MTP head as drafter |
+| Qwen3-Coder-Next-80B-A3B | [mlx-community/Qwen3-Coder-Next-4bit](https://huggingface.co/mlx-community/Qwen3-Coder-Next-4bit) | slot cache (42 GiB checkpoint on 32 GB) |
+| DeepSeek-V4-Flash (304 B, 2-bit) | [mlx-community/DeepSeek-V4-Flash-0731-OptiQ-2bit](https://huggingface.co/mlx-community/DeepSeek-V4-Flash-0731-OptiQ-2bit) | slot cache; needs `MAXTOKEN_MLX_PREIMPORT=optiq` |
+| Qwen3-30B-A3B | [mlx-community/Qwen3-30B-A3B-4bit](https://huggingface.co/mlx-community/Qwen3-30B-A3B-4bit) | resident / mapped |
+| Qwen3.8-27B (dense hybrid) | a 4-bit conversion that ships `mtp.safetensors` | resident; `--draft-model mtp` |
+| OLMoE-1B-7B | [mlx-community/OLMoE-1B-7B-0125-Instruct-4bit](https://huggingface.co/mlx-community/OLMoE-1B-7B-0125-Instruct-4bit) | test model (small, fast) |
 
-## MoE backends
+Other checkpoints of the same architectures (`qwen3_moe`, `qwen3_next`,
+`qwen3_5_moe`, `olmoe`, …) work the same way; a per-expert or stacked expert
+layout is detected from the weight names. An architecture mlx-lm does not
+register (for example the `qwen4_exp` "Niwaki" family, which needs mlx-vlm
+and a custom loader) does not load.
 
-`mt serve --moe-backend {auto,fused,offload,cpu,hybrid}`:
+## Serving modes
 
-- **fused** — experts resident on GPU (needs the VRAM); never auto-selected.
-- **offload** — experts live in host RAM, an LRU cache of expert slots on GPU;
-  misses stream over PCIe.
-- **cpu** — misses are computed on the CPU instead of fetched.
-- **hybrid** — per step, fetches some misses over PCIe and computes the rest on
-  CPU, overlapped.
-- **auto** — dense models always resolve to `fused`; MoE models resolve to
-  `offload`.
+`mt serve --model <ckpt> [--moe-backend offload] [--moe-cache-*]`:
+
+- **resident** (default) — the whole model in unified memory, plain mlx-lm.
+- **mapped** (`--moe-backend offload`, model fits) — the dense core is
+  resident, the routed experts are a zero-copy memory-mapped store whose
+  residency the OS manages: resident-kernel speed, elastic memory.
+- **slot cache** (`--moe-backend offload` with `--moe-cache-size`, `-rate`
+  or `-auto`) — a hard budget of expert slots in memory, misses read from
+  the SSD; the only way to serve a checkpoint bigger than the machine.
+
+[mlx.md](mlx.md) has the measurements for each mode and the honest negative
+results.
 
 ## Notes
 
-- DeepSeek-V4 checkpoints must keep the `inference/config.json` subdir — the
-  authoritative model args are read from there.
 - Multimodal checkpoints are served text-only.
+- Thinking models must not be greedy-decoded (see mlx.md, "Sampling"): the
+  server fills sampling defaults from the checkpoint's `generation_config.json`.

@@ -227,3 +227,7 @@ benchmarks/cross_framework
 
 # local e2e/bench artifacts (harnesses may run with repo cwd)
 /results/
+
+# local editor / terminal-multiplexer state
+.commandcode/
+.notmux/

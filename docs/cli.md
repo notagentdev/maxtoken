@@ -11,9 +11,7 @@ mt <command> [args]
 | `mt ctl` | Query and manage a running server over HTTP |
 | `mt launch` | Configure and launch a coding agent against a server |
 
-`mt --version` prints the installed version (torch-free; nightly wheels carry a
-`+g<sha>` build stamp, tagged releases a bare version). Every command supports
-`--help`.
+`mt --version` prints the installed version. Every command supports `--help`.
 
 ## mt serve
 
@@ -21,15 +19,17 @@ mt <command> [args]
 mt serve --model <path-or-hf-id> [options]
 ```
 
-`--model` is the only required flag — dtype, attention backend, MoE backend,
-MoE cache size, KV capacity, CUDA-graph sizes and the tool-call/reasoning
-parsers all resolve automatically from the checkpoint and the GPU.
+`--model` is the only required flag; add `--moe-backend offload` for MoE
+checkpoints. Tool-call and reasoning parsers, sampling defaults and the
+context length resolve from the checkpoint. Environment knobs for the MLX
+backend (`MAXTOKEN_MLX_*`) are documented next to the behaviour they tune in
+[mlx.md](mlx.md).
 
 ### Model
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--model-path`, `--model` | required | Local dir, HF repo id, or an FTW dir (auto-detected) |
+| `--model-path`, `--model` | required | Local dir or HF repo id of an MLX checkpoint |
 | `--served-model-name` | basename of `--model` | Model id reported by `/v1/models` |
 
 ### Server & runtime
@@ -38,37 +38,30 @@ parsers all resolve automatically from the checkpoint and the GPU.
 |---|---|---|
 | `--host` | 127.0.0.1 | Bind address |
 | `--port` | 1919 | Bind port |
-| `--max-running-requests` | 4 | Max concurrently running requests |
+| `--max-running-requests` | 4 | Max concurrently running requests (continuous batching on the resident and mapped paths) |
 | `--max-output-tokens` | 32768 | Default output budget for requests that omit one |
-| `--max-seq-len-override` | from checkpoint | Max sequence length |
-| `--max-prefill-length` | 8192 | Chunked-prefill chunk size in tokens |
-| `--cuda-graph-max-bs`, `--graph` | = max running requests | Max batch size captured as CUDA graphs |
-| `--decode-log-interval` | 40 | Scheduler status line every N decode steps |
+| `--max-seq-len-override` | from checkpoint | Context length |
+| `--decode-log-interval` | 40 | Status line (cache miss rate, speculative acceptance) every N decode steps |
 
-### KV cache & memory
+### Experts and memory
 
-| Flag | Default | Meaning |
-|---|---|---|
-| `--memory-ratio` | 0.9 | Fraction of free VRAM the engine may use (weights + MoE cache + KV) |
-| `--num-pages` / `--num-tokens` | auto | KV capacity override in pages / tokens (mutually exclusive; auto sizes from VRAM left after weights and MoE cache) |
-| `--page-size` | 1 | KV page size; DSV4 forces 128, the TRTLLM backend needs 16/32/64, SWA models require 1 |
-| `--cache-type` | radix | `radix` (prefix reuse; SWA/GDN-aware variants picked automatically) or `naive` |
-| `--attention-backend`, `--attn` | auto | `trtllm`/`fi`/`fa`/`triton`/`dsv4_sparse`/`dsa`; `prefill,decode` pair allowed; auto picks per model + GPU |
-
-### MoE offload
-
-See [models.md](models.md#moe-backends) for what each backend does.
+See [mlx.md](mlx.md) for what each mode does and what it costs.
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--moe-backend` | auto | `fused`/`offload`/`cpu`/`hybrid`; auto → offload for MoE, fused for dense |
-| `--moe-cache-size` / `--moe-cache-rate` / `--moe-cache-auto` | auto | GPU expert-cache size as slots / fraction of all experts / sized from free VRAM (mutually exclusive; auto is enabled by default for offload-family backends) |
+| `--moe-backend` | auto (= resident) | `offload`: routed experts from a zero-copy mapped store when the model fits, or from the slot cache below when a `--moe-cache-*` budget is given. The other accepted values (`fused`, `cpu`, `hybrid`) are leftovers of the removed CUDA engine |
+| `--moe-cache-size` / `--moe-cache-rate` / `--moe-cache-auto` | — | Slot-cache budget as slots / fraction of all experts / sized from free memory (mutually exclusive); selects the SSD-backed slot cache |
 | `--kv-reserve-tokens` | 8192 | KV token floor reserved before `--moe-cache-auto` fills experts |
-| `--moe-cpu-threads` | physical cores | CPU worker threads for the cpu/hybrid executor |
-| `--moe-cpu-layers` | all on GPU | With `offload`: which MoE layers decode on CPU (`3,7,11`, a count, or a fraction) |
-| `--moe-hybrid-max-fetch` | auto | With `hybrid`: max experts fetched over PCIe per layer per step; rest computed on CPU |
-| `--moe-prefill-hit-d2d` | off | Prefill: copy cache-hit experts device-side, stream only misses (CUDA >= 13) |
-| `--disable-moe-prefill-overlap` | overlap on | Disable the two-buffer prefill copy overlap |
+| `--cache-type` | radix | `radix` (prefix reuse, hybrid-model aware) or `naive` (off) |
+| `--prefix-cache-dir` | `~/.maxtoken/prefix-cache` | SSD tier of the prefix cache: per-block KV and recurrent snapshots that survive restarts |
+| `--prefix-cache-disk-gb` | 20 | Budget of that tier; `0` disables it |
+
+### Speculative decoding
+
+| Flag | Default | Meaning |
+|---|---|---|
+| `--draft-model` | off | `mtp` uses the checkpoint's own multi-token-prediction head; a path to a sibling artifact's `mtp.safetensors` works for conversions that ship without it; a second model's path drafts with that model |
+| `--draft-tokens` | 3 | Draft depth per round (2 measured best on Ornith-1.5-35B, 3 on Qwen3.8-27B) |
 
 ### API behaviour
 
@@ -77,13 +70,13 @@ See [models.md](models.md#moe-backends) for what each backend does.
 | `--sampling-defaults` | model | Fill unspecified sampling params from the checkpoint's `generation_config.json` (`none` = framework defaults) |
 | `--tool-call-parser` | auto | Tool-call format; auto-inferred from the model family |
 | `--reasoning-parser` | auto | Splits chain-of-thought into `reasoning_content`; auto-inferred; `off` disables |
-| `--enable-cache-report` | off | Report prefix-cache hits in each response's usage block |
+| `--enable-cache-report` | off | Report prefix-cache hits (`cached_tokens`) in each response's usage block |
 
 ## mt shell
 
 ```bash
-mt shell                                    # attach to a running server
-mt shell --model ~/models/Qwen3.6-35B-A3B   # serve + chat in one process
+mt shell                                                          # attach to a running server
+mt shell --model ornith-ai/Ornith-1.5-35B-A3B-MLX-4bit --moe-backend offload   # serve + chat in one process
 ```
 
 - Attach mode talks to `--server URL` (default `http://127.0.0.1:1919`)
@@ -98,10 +91,10 @@ mt ctl [--base-url http://127.0.0.1:1919] [--timeout 10] [--json] <subcommand>
 | Subcommand | Endpoint | Purpose |
 |---|---|---|
 | `health` | `GET /health` | Server status, model, load progress |
-| `stats` | `GET /admin/stats` | Throughput, latency, VRAM, pool occupancy |
+| `stats` | `GET /admin/stats` | Throughput, latency, memory |
 | `generate [prompt] [--max-tokens N] [--ignore-eos]` | `POST /generate` | Raw completion smoke test (no chat template) |
-| `cache` | `GET /admin/cache/status` | Cache pool table |
-| `cache --moe N \| --kv N \| --mamba N \| --swa N [--wait 300]` | `POST /admin/cache/rebuild` | Live pool resizing without a restart (`k`/`m` suffixes; `--kv`/`--swa` in tokens) |
+| `cache` | `GET /admin/cache/status` | Expert-cache table |
+| `cache --moe N [--wait 300]` | `POST /admin/cache/rebuild` | Live resize of the expert slot cache without a restart (`k`/`m` suffixes) |
 | `requests [--since N] [--limit N]` | `GET /admin/requests` | Recent request ring |
 
 ## mt launch

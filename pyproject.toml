@@ -6,9 +6,9 @@ requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-# MaxToken: an independent fork of FlashML's MaxToken. The distribution and
-# branding are maxtoken; the import package stays `maxtoken` so upstream diffs
-# remain readable and no import path breaks.
+# MaxToken: an independent fork of FlashML's FreeToken. The distribution and
+# branding are maxtoken; the module layout follows upstream FreeToken's so
+# diffs against it remain readable.
 name = "maxtoken"
 # Single source of truth: python/maxtoken/version.py (read via the attr directive below).
 dynamic = ["version"]
@@ -16,7 +16,7 @@ description = "Serve MoE models bigger than your memory on Apple silicon — ela
 readme = "README.md"
 requires-python = ">=3.11"
 license = "Apache-2.0"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "notagentdev" }]
 # No License:: classifier: setuptools>=77 rejects mixing one with the SPDX string above.
 classifiers = [
@@ -52,7 +52,7 @@ dependencies = [
 ]
 
 [project.urls]
-Upstream = "https://github.com/FlashML-org/MaxToken"
+Upstream = "https://github.com/FlashML-org/FreeToken"
 
 [project.scripts]
 mt = "maxtoken.cli:main"

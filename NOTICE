@@ -1,0 +1,33 @@
+MaxToken
+Copyright (c) 2026 notagentdev
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product is an independent fork of FreeToken
+(https://github.com/FlashML-org/FreeToken), Copyright the FreeToken
+contributors, Apache License 2.0. The module layout follows upstream
+FreeToken's; the MLX backend, the mapped expert store, the expert slot
+cache, the prefix cache, continuous batching on MLX, the speculative
+decoding paths and the web console were developed in this fork.
+
+This product includes software developed by third parties:
+
+- MTPLX (https://github.com/youssofal/MTPLX), Apache License 2.0.
+  python/maxtoken/mlx_backend/_a3b_whole_moe_kernels.py is vendored verbatim
+  from mtplx/kernels/a3b_whole_moe.py. The small-row verify kernel, the
+  whole-MoE stages and the packed gate/up projection are inspired by MTPLX.
+
+- vLLM (https://github.com/vllm-project/vllm), Apache License 2.0,
+  Copyright contributors to the vLLM project.
+  python/maxtoken/server/anthropic_models.py and anthropic_api.py are adapted
+  from vllm/entrypoints/anthropic.
+
+- LightLLM (https://github.com/ModelTC/lightllm), Apache License 2.0,
+  Copyright 2025 ModelTC Team, and SGLang (https://github.com/sgl-project/sglang),
+  Apache License 2.0, Copyright 2023-2024 SGLang Team.
+  python/maxtoken/server/function_call_parser.py and reasoning_parser.py are
+  adapted from their function-call and reasoning parsers.
+
+Upstream FreeToken itself reused design and code from mini-sglang, SGLang,
+vLLM, FlashInfer, flash-linear-attention, LightLLM (Apache License 2.0) and
+llama.cpp (MIT License); see those projects for their notices.
