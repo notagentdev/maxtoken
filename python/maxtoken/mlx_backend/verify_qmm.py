@@ -46,7 +46,16 @@ logger = init_logger(__name__)
 # Simdgroups per threadgroup: each owns 4 output columns, so a threadgroup
 # covers 4*NSG columns and N must divide by that.
 NSG = max(1, min(24, int(os.environ.get("MAXTOKEN_VERIFY_QMM_NSG", "8") or 8)))
-MROWS = 4          # rows the kernel is compiled for; 2 and 3 are padded up
+# Widest window the kernel is compiled for (one kernel per row count; the
+# lane-indexed write-out needs 4*MROWS <= 32, so 8 is the ceiling). Measured
+# 2026-09-12 on the 27B (M1 Max): rows 5-8 cost ~9-12 ms GPU each in the real
+# forward vs ~40 on the stock path, and stock cliffs at M=6 (T=6..8 ~382 ms).
+# Kept at 4 by default; MAXTOKEN_VERIFY_QMM_MROWS=8 widens it for wider
+# windows (worker MAX_WINDOW / --draft-tokens).
+try:
+    MROWS = max(2, min(8, int(os.environ.get("MAXTOKEN_VERIFY_QMM_MROWS", "4") or 4)))
+except ValueError:
+    MROWS = 4
 PACK = 8           # 4-bit weights per 32-bit word
 # "half": 16-bit products and per-pack partial sums, float accumulation across
 # packs (the default, measured ~10-15% faster on the 27B's shapes). "float":

@@ -21,6 +21,7 @@ worker only renders text and trims at ``matched_stop``.
 from __future__ import annotations
 
 import inspect
+import os
 import time as _time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Dict, Iterator, List, Optional, Tuple
@@ -45,12 +46,17 @@ from . import gdn_capture, spec_sample
 
 # Longest verify window a speculative round will build.
 #
-# Four rows is the widest the small-M quantized matmul kernel compiles for
-# (verify_qmm.py); past it MLX's own multi-row path takes over and the extra
-# rows stop being cheap. A fifth row measured no better than the fourth even
-# when it fit (23.20 against 23.27 tok/s), so four is both the ceiling and the
-# right answer.
-MAX_WINDOW = 4
+# Four rows is the widest the small-M quantized matmul kernel compiles for by
+# default (verify_qmm.py, MAXTOKEN_VERIFY_QMM_MROWS); past it MLX's own
+# multi-row path takes over and the extra rows stop being cheap. A fifth row
+# measured no better than the fourth even when it fit (23.20 against 23.27
+# tok/s), so four is both the ceiling and the right answer. The kernel now
+# compiles up to 8 rows (2026-09-12 lab: ~9-12 ms per extra row on the 27B);
+# MAXTOKEN_MLX_SPEC_MAX_WINDOW widens the window for that A/B.
+try:
+    MAX_WINDOW = max(2, min(8, int(os.environ.get("MAXTOKEN_MLX_SPEC_MAX_WINDOW", "4") or 4)))
+except ValueError:
+    MAX_WINDOW = 4
 
 
 def offload_prefill_plan(
