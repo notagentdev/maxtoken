@@ -147,22 +147,30 @@ class MtpDrafter:
             for k2, v in raw.items()
         }
         # A MoE trunk's head is a MoE block; its sidecar may ship the experts
-        # one by one (transformers layout) while mlx-lm's SwitchGLU owns one
-        # stacked array per projection.
-        renamed = _stack_numbered_experts(renamed)
+        # one by one (transformers-4 layout) or as fused stacks (transformers-5
+        # `experts.gate_up_proj` / `experts.down_proj`, the layout replacement
+        # heads such as shisa-ai's are exported in) while mlx-lm's SwitchGLU
+        # owns one stacked array per projection.
+        renamed = _split_fused_experts(_stack_numbered_experts(renamed))
+        norm_spec = os.environ.get("MAXTOKEN_MLX_MTP_NORM_OFFSET", "")
+        renamed = _offset_norms(renamed, norm_spec)
         cfg = json.load(open(os.path.join(model_dir, "config.json")))
         quant = cfg.get("quantization")
         prequantized = any(k.endswith(".scales") for k in renamed)
         if quant and prequantized:
-            # The head ships quantized in the trunk's own scheme; build the
-            # quantized modules BEFORE loading so the shapes line up. A bf16
-            # sidecar beside a quantized trunk (Ornith-1.5-35B) skips this and
-            # runs in bf16 — the precision its acceptance was validated at.
+            # The head ships quantized — but NOT necessarily in the trunk's
+            # scheme: MTPLX packs every head at INT4/g64 and records that in
+            # `mtplx_mtp_quantization`, while the trunk may be g32 with 8-bit
+            # attention (Qwen3.8-27B "Optimized-Speed"). Build the quantized
+            # modules BEFORE loading so the shapes line up. A bf16 sidecar
+            # beside a quantized trunk (Ornith-1.5-35B) skips this and runs
+            # in bf16 — the precision its acceptance was validated at.
+            scheme = head_quant_scheme(cfg, renamed)
             nn.quantize(
                 head,
-                group_size=int(quant.get("group_size", 64)),
-                bits=int(quant.get("bits", 4)),
-                mode=str(quant.get("mode", "affine")),
+                group_size=scheme["group_size"],
+                bits=scheme["bits"],
+                mode=scheme["mode"],
                 # Only the projections carry weights to quantize; the norms
                 # (and any name that merely CONTAINS "norm") must be skipped by
                 # type, not by name — pre_fc_norm_embedding is an RMSNorm.
@@ -198,7 +206,99 @@ class MtpDrafter:
             f"k={k} (shares the trunk's lm_head and tokenizer)"
         )
         _ = args
-        return cls(head, text, k)
+        drafter = cls(head, text, k)
+        if not norm_spec and os.environ.get("MAXTOKEN_MLX_MTP_NORM_CALIBRATE", "1") != "0":
+            drafter.calibrate_norms(renamed)
+        return drafter
+
+    # -- norm convention ------------------------------------------------------
+
+    def calibrate_norms(self, weights: dict, probe_len: int = 64) -> frozenset:
+        """Pick the RMSNorm convention the sidecar was written in, by measurement.
+
+        Qwen3.5 / Qwen3-Next store every MTP RMSNorm weight zero-centred (the
+        module applies ``1 + w``); mlx-lm's trunk sanitize restores ``+1`` but
+        the head loads separately. Exports differ in which tensors were
+        restored: vLLM/transformers-5 heads (shisa-ai) ship all seven raw,
+        MTPLX artifacts restore q/k/norm always and the other four only when
+        their raw mean is below 0.5 — which left Ornith-1.5's
+        post_attention_layernorm (raw mean 0.87) un-restored in the shipped
+        sidecar. Weight statistics cannot tell a restored 0.87 from a raw
+        0.87, so the loader asks the model instead: the trunk greedily writes
+        a short sequence, and every candidate convention is scored by how
+        well the head predicts the trunk's own next tokens from the trunk's
+        hidden states. Measured on Ornith-1.5-35B (k=2, checkpoint sampler):
+        as shipped 2.35 tok/verify on AIME, with post_attention_layernorm
+        restored 2.66 (91-96 -> 109-118 tok/s); the wrong convention scores
+        near zero agreement, so the pick is unambiguous.
+
+        Returns the set of norm leaves that were shifted by +1 (applied)."""
+        mx = self._mx
+        from mlx.utils import tree_unflatten
+
+        norms = {k: v for k, v in weights.items() if _norm_leaf(k) is not None}
+        if not norms:
+            return frozenset()
+        try:
+            tokens, hiddens = self._probe_sequence(probe_len)
+        except Exception as e:  # pragma: no cover - never block serving on the probe
+            logger.warning(f"MTP head norm calibration skipped: {e!r}")
+            return frozenset()
+        results = []
+        for shift in _norm_candidates():
+            self.head.update(tree_unflatten([
+                (k, (v + 1) if _norm_leaf(k) in shift else v) for k, v in norms.items()
+            ]))
+            results.append((self._probe_score(tokens, hiddens), shift))
+        results.sort(key=lambda r: r[0][0], reverse=True)
+        (best_lp, best_hit), best = results[0]
+        shipped = next(r[0] for r in results if not r[1])
+        self.head.update(tree_unflatten([
+            (k, (v + 1) if _norm_leaf(k) in best else v) for k, v in norms.items()
+        ]))
+        mx.eval(self.head.parameters())
+        self.start([])
+        (run_lp, run_hit), runner = results[1]
+        logger.info(
+            "MTP head norm convention: +1 on %s (probe over %d tokens: mean logp %.2f, "
+            "argmax %.0f%%; as shipped %.2f / %.0f%%; runner-up +1 on %s %.2f / %.0f%%)",
+            sorted(best) or "nothing", len(tokens) - 2, best_lp, 100 * best_hit,
+            shipped[0], 100 * shipped[1], sorted(runner) or "nothing", run_lp, 100 * run_hit,
+        )
+        return best
+
+    def _probe_sequence(self, n: int):
+        """Let the trunk greedily write ``n+2`` tokens from a fixed seed and keep
+        the hidden state that produced each one — tokenizer-free, deterministic."""
+        mx = self._mx
+        from mlx_lm.models.cache import make_prompt_cache
+
+        text = self.trunk
+        cache = make_prompt_cache(text)
+        tok = 0
+        tokens, hiddens = [tok], []
+        for _ in range(n + 1):
+            hidden = text.model(mx.array([[tok]]), cache=cache)
+            logits = _lm_head(text, hidden)
+            tok = int(mx.argmax(logits[0, -1]).item())
+            hiddens.append(hidden)
+            tokens.append(tok)
+        return tokens, hiddens
+
+    def _probe_score(self, tokens, hiddens):
+        """(mean log-prob, argmax agreement) of the head on the trunk's tokens:
+        hidden_i with token_{i+1} must predict token_{i+2}, the chain the
+        decode rounds use."""
+        mx = self._mx
+        self.start(tokens[:1])
+        lp, hits, n = 0.0, 0, len(tokens) - 2
+        for i in range(n):
+            logits, _ = self._step(hiddens[i], mx.array([[tokens[i + 1]]]))
+            row = logits[0, -1].astype(mx.float32)
+            target = tokens[i + 2]
+            lp += float((row[target] - mx.logsumexp(row)).item())
+            hits += int(mx.argmax(row).item() == target)
+        return lp / max(n, 1), hits / max(n, 1)
 
     # -- drafting -------------------------------------------------------------
 
@@ -412,6 +512,47 @@ def _full_attention_layer(layer_cls, args):
     return layer_cls(args, interval - 1)
 
 
+def head_quant_scheme(cfg: dict, weights: dict) -> dict:
+    """The (bits, group_size, mode) a prequantized MTP head was packed with.
+
+    Precedence: the head's own record (``mtplx_mtp_quantization``, written by
+    MTPLX for every packed head), then the contract's group/mode with the
+    trunk's bits, then the trunk's ``quantization`` block. Whatever the
+    metadata says is checked against the packed shapes: a 4-bit weight of
+    ``(out, in/8)`` uint32 next to ``(out, in/group)`` scales pins the group
+    size exactly, and the tensors win over the config when they disagree —
+    the config is what a converter *meant*, the shapes are what it did."""
+    trunk = cfg.get("quantization") or {}
+    own = cfg.get("mtplx_mtp_quantization") or {}
+    contract = cfg.get("mtplx_mtp_contract") or {}
+    scheme = {
+        "bits": int(own.get("bits", trunk.get("bits", 4))),
+        "group_size": int(
+            own.get("group_size", contract.get("mtp_quant_group_size", trunk.get("group_size", 64)))
+        ),
+        "mode": str(own.get("mode", contract.get("mtp_quant_mode", trunk.get("mode", "affine")))),
+    }
+    for name, w in weights.items():
+        if not name.endswith(".weight") or name[: -len(".weight")] + ".scales" not in weights:
+            continue
+        scales = weights[name[: -len(".weight")] + ".scales"]
+        if getattr(w, "ndim", 0) != 2 or getattr(scales, "ndim", 0) != 2:
+            continue
+        in_features = w.shape[1] * 32 // scheme["bits"]
+        if in_features % scales.shape[1]:
+            continue
+        group = in_features // scales.shape[1]
+        if group != scheme["group_size"]:
+            logger.warning(
+                f"MTP head: config says group_size={scheme['group_size']} but "
+                f"{name} is packed at {group} (weight {tuple(w.shape)}, scales "
+                f"{tuple(scales.shape)}, {scheme['bits']}-bit); using {group}"
+            )
+            scheme["group_size"] = group
+        break
+    return scheme
+
+
 def _stack_numbered_experts(weights: dict) -> dict:
     """Fold per-expert tensors into mlx-lm's stacked switch_mlp layout.
 
@@ -446,6 +587,78 @@ def _stack_numbered_experts(weights: dict) -> dict:
         out[f"{prefix}.switch_mlp.{leaf}.{kind}"] = mx.stack(
             [experts[i] for i in range(n)]
         )
+    return out
+
+
+# The seven RMSNorm weights of a Qwen3.5-family MTP block. MTPLX restores the
+# first group unconditionally and the second only when the raw mean is < 0.5.
+_NORM_ALWAYS = ("q_norm", "k_norm", "norm")
+_NORM_LOW_SET = ("input_layernorm", "post_attention_layernorm",
+                 "pre_fc_norm_embedding", "pre_fc_norm_hidden")
+
+
+def _norm_leaf(key: str) -> str | None:
+    """The RMSNorm module name a 1-D ``*.weight`` key belongs to, or None."""
+    if not key.endswith(".weight"):
+        return None
+    leaf = key[: -len(".weight")].rsplit(".", 1)[-1]
+    return leaf if leaf in _NORM_ALWAYS or leaf in _NORM_LOW_SET else None
+
+
+def _norm_candidates():
+    """Conventions worth scoring: as shipped, every subset of the four
+    conditionally-restored norms (an MTPLX artifact may have missed any of
+    them), and the fully raw export (all seven)."""
+    from itertools import combinations
+
+    yield frozenset()
+    for r in range(1, len(_NORM_LOW_SET) + 1):
+        for combo in combinations(_NORM_LOW_SET, r):
+            yield frozenset(combo)
+    yield frozenset(_NORM_LOW_SET + _NORM_ALWAYS)
+
+
+def _offset_norms(weights: dict, spec: str) -> dict:
+    """Explicit override of the calibration (MAXTOKEN_MLX_MTP_NORM_OFFSET):
+    "" = calibrate, "all", "except:a,b", "only:a,b" — names are the RMSNorm
+    module leaves, e.g. post_attention_layernorm. Adds +1 to the named ones."""
+    if not spec:
+        return weights
+    mode, _, names = spec.partition(":")
+    names = {n for n in names.split(",") if n}
+    out = dict(weights)
+    for k, v in weights.items():
+        leaf = _norm_leaf(k)
+        if leaf is None or getattr(v, "ndim", 0) != 1:
+            continue
+        if mode == "all" or (mode == "except" and leaf not in names) or (mode == "only" and leaf in names):
+            out[k] = v + 1
+            logger.info(f"MTP head norm offset +1: {k}")
+    return out
+
+
+def _split_fused_experts(weights: dict) -> dict:
+    """Unfuse transformers-5 stacked experts into mlx-lm's switch_mlp layout.
+
+    ``<prefix>.experts.gate_up_proj`` is ``[E, 2*inter, hidden]`` with the gate
+    rows first (mlx-lm's qwen3_5_moe sanitize splits it the same way) and
+    ``<prefix>.experts.down_proj`` is ``[E, hidden, inter]``. A gate_up stack
+    without its down stack is left untouched so ``update`` reports the
+    missing tensor instead of a half-mapped block.
+    """
+    out = dict(weights)
+    for key in list(out):
+        if not key.endswith(".experts.gate_up_proj"):
+            continue
+        prefix = key[: -len(".experts.gate_up_proj")]
+        down_key = f"{prefix}.experts.down_proj"
+        if down_key not in out:
+            continue
+        gate_up = out.pop(key)
+        mid = gate_up.shape[-2] // 2
+        out[f"{prefix}.switch_mlp.gate_proj.weight"] = gate_up[..., :mid, :]
+        out[f"{prefix}.switch_mlp.up_proj.weight"] = gate_up[..., mid:, :]
+        out[f"{prefix}.switch_mlp.down_proj.weight"] = out.pop(down_key)
     return out
 
 

@@ -53,3 +53,14 @@ def test_generation_defaults_live_in_the_console_tab_not_the_chat():
     # the chat request carries neither field any more
     assert 'temperature: parseFloat($("temp")' not in page
     assert 'max_tokens: parseInt($("maxTok")' not in page
+
+
+def test_the_thinking_switch_sits_in_the_generation_row_and_the_budget_is_a_cap():
+    """"Reasoning budget: off" read as "thinking off" — it is a cap. The switch
+    that actually disables thinking lives beside temperature and the output cap
+    and rides the same /admin/cache/rebuild call."""
+    page = TestClient(app).get("/console").text
+    console, _chat = page.split('id="chatView"', 1)
+    assert 'id="genThink"' in console and '<option value="off">off</option>' in console
+    assert 'thinking: $("genThink").value' in page
+    assert "no cap" in console and "budget off" not in page

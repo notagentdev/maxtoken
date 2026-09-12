@@ -76,6 +76,7 @@ from .generation import (
     split_tool_lists,
     submit_generation,
     with_keepalive,
+    until_disconnect,
 )
 from .request_logger import log_request
 
@@ -175,7 +176,9 @@ async def handle_responses(
         return StreamingResponse(events, media_type="text/event-stream")
 
     try:
-        result = await generate_full(uid, spec, state, source="/v1/responses")
+        result = await until_disconnect(
+            generate_full(uid, spec, state, source="/v1/responses"), request, state, uid
+        )
     except GenerationError as exc:
         return _error_response(400, str(exc), exc.code)
     response = build_responses_response(result, req, response_id, created, cache_report=cache_report)

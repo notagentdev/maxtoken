@@ -40,6 +40,11 @@ class ServerArgs(SchedulerConfig):
     # Cap on tokens a request may spend inside its reasoning block. None = unlimited.
     # A per-request Anthropic `thinking.budget_tokens` overrides it (lower wins).
     max_reasoning_tokens: int | None = None
+    # Thinking default for requests that carry no thinking flag of their own
+    # (enable_thinking / thinking_mode / reasoning_effort / Anthropic thinking):
+    # "on", "off", or None = whatever the checkpoint's chat template does
+    # (Qwen3.5 / Ornith: on). A request's explicit flag always wins.
+    thinking: str | None = None
     # Report the prefix-cache hit in each response's usage block (OpenAI
     # prompt_tokens_details.cached_tokens, Anthropic cache_read_input_tokens, Responses
     # input_tokens_details.cached_tokens). Mirrors sglang's --enable-cache-report.
@@ -297,6 +302,19 @@ def parse_args(
             "until its whole output budget is gone and answering nothing. "
             "Unlimited by default; Anthropic's thinking.budget_tokens overrides "
             "it per request (the lower of the two wins)."
+        ),
+    )
+
+    parser.add_argument(
+        "--thinking",
+        choices=("on", "off"),
+        default=ServerArgs.thinking,
+        help=(
+            "Whether requests that carry no thinking flag of their own think. "
+            "Default: whatever the checkpoint's chat template does (Qwen3.5 / "
+            "Ornith: on). A request's explicit enable_thinking / reasoning_effort "
+            "/ Anthropic thinking block always wins. Changeable at runtime from the "
+            "console's Generation row."
         ),
     )
 

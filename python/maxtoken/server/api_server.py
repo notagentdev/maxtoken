@@ -552,6 +552,9 @@ class CacheRebuildRequest(BaseModel):
     # server default (--max-output-tokens, else 32k).
     temperature: float | None = None
     max_output_tokens: int | None = None
+    # Thinking default for requests without a thinking flag: "on", "off", or
+    # "model" (back to the checkpoint's template / --thinking).
+    thinking: str | None = None
     # Only "if_idle" (reject unless the scheduler is idle) is supported today. "drain" mode
     # is deferred (needs the drain-gate machinery); constraining the Literal makes an
     # unsupported value fail fast with a 422 at the API layer instead of a generic 503.
@@ -657,6 +660,7 @@ async def reload_backend(state: Any) -> tuple[dict, int]:
     state.ready_at = None
     state.context_length_override = None
     state.reasoning_budget_override = None
+    state.thinking_override = None
     state.last_rebuild = None
     state.load_progress = LoadProgress()
     stats = getattr(state, "stats", None)
@@ -671,6 +675,10 @@ async def reload_backend(state: Any) -> tuple[dict, int]:
         event = state.event_map.get(uid)
         if event is not None:
             event.set()
+    if stats is not None:
+        # The console's "This launch" cards count from the relaunch, like the
+        # uptime does; the old workers' requests were retired just above.
+        stats.reset_launch()
     old_workers = list(state.backend_processes)
     state.backend_processes = []
 
@@ -775,6 +783,17 @@ async def cache_rebuild(req: CacheRebuildRequest):
             override["max_tokens"] = int(req.max_output_tokens) or None
             frontend_knobs["max_output_tokens"] = int(req.max_output_tokens)
         state.generation_override = override
+    if req.thinking is not None:
+        mode = str(req.thinking).strip().lower()
+        if mode not in ("on", "off", "model"):
+            return JSONResponse(
+                {"status": "failed", "error": "thinking must be 'on', 'off' or 'model'"},
+                status_code=422,
+            )
+        # Frontend-side like the reasoning budget: folded into the next
+        # request's template kwargs, no engine work.
+        state.thinking_override = None if mode == "model" else (mode == "on")
+        frontend_knobs["thinking"] = mode
     if frontend_knobs and not any((req.moe_cache_size, req.num_pages, req.num_mamba_slots,
                                    req.num_swa_pages, req.swa_full_tokens_ratio, req.max_seq_len)):
         return {"status": "ok", **frontend_knobs}
@@ -1031,14 +1050,18 @@ def _prefix_disk_status(state) -> Dict[str, Any] | None:
 
 
 def _generation_defaults() -> Dict[str, Any]:
-    from .generation import DEFAULT_MAX_OUTPUT_TOKENS
+    from .generation import DEFAULT_MAX_OUTPUT_TOKENS, thinking_default
 
     sampling = effective_sampling()
+    thinking = thinking_default(_GLOBAL_STATE) if _GLOBAL_STATE is not None else None
     return {
         "temperature": float(sampling.get("temperature", 0.0)),
         "top_k": int(sampling.get("top_k", -1)),
         "top_p": float(sampling.get("top_p", 1.0)),
         "max_output_tokens": int(sampling.get("max_tokens") or DEFAULT_MAX_OUTPUT_TOKENS),
+        # "on" / "off" = the server decides for requests without a thinking
+        # flag; "model" = the checkpoint's chat template decides (Qwen3.5: on).
+        "thinking": "model" if thinking is None else ("on" if thinking else "off"),
     }
 
 

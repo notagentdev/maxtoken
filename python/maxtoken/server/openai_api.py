@@ -39,6 +39,8 @@ from .generation import (
     resolve_sampling,
     submit_generation,
     with_keepalive,
+    ClientGone,
+    until_disconnect,
 )
 
 #: Seconds of silence before a stream carries an SSE comment (": keepalive").
@@ -235,7 +237,9 @@ async def handle_chat_completion(
         return StreamingResponse(chunks, media_type="text/event-stream")
 
     try:
-        result = await generate_full(uid, spec, state, source="/v1/chat/completions")
+        result = await until_disconnect(
+            generate_full(uid, spec, state, source="/v1/chat/completions"), request, state, uid
+        )
     except GenerationError as exc:
         return create_error_response(str(exc), code=exc.code)
     message: dict[str, Any] = {"role": "assistant", "content": result.content}
@@ -452,18 +456,31 @@ async def handle_completion(
     for index, prompt in enumerate(prompts):
         uid = state.new_user()
         await state.send_one(TokenizeMsg(uid=uid, text=prompt, sampling_params=_resolve_sampling(req, model_sampling)))
-        text = ""
-        finish_reason = "stop"
-        async for ack in state.wait_for_ack(uid):
-            if getattr(ack, "error", None):
-                return create_error_response(ack.error)
-            prompt_tokens += ack.prompt_tokens_delta
-            completion_tokens += ack.completion_tokens_delta
-            cached_tokens += ack.cached_tokens
-            text += ack.incremental_output
-            if ack.finished:
-                finish_reason = getattr(ack, "finish_reason", None) or "stop"
-                break
+
+        async def _collect(uid: int = uid):
+            nonlocal prompt_tokens, completion_tokens, cached_tokens
+            text = ""
+            finish_reason = "stop"
+            async for ack in state.wait_for_ack(uid):
+                if getattr(ack, "error", None):
+                    return None, None, ack.error
+                prompt_tokens += ack.prompt_tokens_delta
+                completion_tokens += ack.completion_tokens_delta
+                cached_tokens += ack.cached_tokens
+                text += ack.incremental_output
+                if ack.finished:
+                    finish_reason = getattr(ack, "finish_reason", None) or "stop"
+                    break
+            return text, finish_reason, None
+
+        # Same client watch as the chat path: a dropped connection aborts the
+        # engine instead of leaving it generating to max_tokens.
+        try:
+            text, finish_reason, error = await until_disconnect(_collect(), request, state, uid)
+        except ClientGone as exc:
+            return create_error_response(str(exc), code=exc.code)
+        if error:
+            return create_error_response(error)
         choices.append({"index": index, "text": text, "finish_reason": finish_reason, "logprobs": None})
 
     return {

@@ -27,7 +27,8 @@ class StatsTracker:
         self.completed = 0
         # Cumulative prompt/completion tokens since this process started (lifetime for THIS served
         # model). Exposed in /admin/stats so the desktop can diff consecutive polls into per-model
-        # "cost saved by running locally" accounting. Monotonic; resets when the process restarts.
+        # "cost saved by running locally" accounting. Monotonic between resets; start over
+        # when the process restarts or /admin/reload relaunches the engine (see reset_launch).
         self.prompt_tokens_total = 0
         self.completion_tokens_total = 0
         self.kv_used_pages = 0
@@ -37,6 +38,18 @@ class StatsTracker:
         self.swa_used_tokens = 0
         self.swa_total_tokens = 0
         self.vram_bytes = 0
+
+    def reset_launch(self) -> None:
+        """Start the per-launch counters over — what /admin/reload does once the
+        old workers' in-flight requests have been retired. The console's
+        "This launch" / "Tokens processed" cards and the throughput window read
+        these; in-flight bookkeeping (nothing survives a reload anyway) and the
+        pool geometry (re-reported by the new workers) are left alone."""
+        self._decode.clear()
+        self._prefill.clear()
+        self.completed = 0
+        self.prompt_tokens_total = 0
+        self.completion_tokens_total = 0
 
     @property
     def active(self) -> int:
@@ -107,6 +120,12 @@ def derive_model_card(config: Any) -> dict:
         mc = config.model_config
     except Exception:  # noqa: BLE001 -- arch outside the registry (e.g. mlx-lm-only model)
         mc = None
+    if mc is None:
+        # An mlx-lm-only architecture (Ornith / Qwen3.5-MoE on the MLX backend)
+        # has no registry entry; read the checkpoint's config.json so the
+        # console does not call a 256-expert hybrid "dense · mha".
+        return {"id": config.served_model_name, "ctx": config.max_seq_len,
+                **_card_from_config_json(getattr(config, "model_path", None))}
     if getattr(mc, "has_linear_attention", False):
         attn = "hybrid_linear"
     elif getattr(mc, "has_swa_attention", False):
@@ -119,6 +138,34 @@ def derive_model_card(config: Any) -> dict:
         "attn": attn,
         "moe": bool(getattr(mc, "is_moe", False)),
     }
+
+
+def _card_from_config_json(model_path: Any) -> dict:
+    """attn + moe from a checkpoint's config.json (text_config-aware); the
+    conservative "mha"/False when it cannot be read."""
+    import json
+    import os
+
+    card = {"attn": "mha", "moe": False}
+    try:
+        path = str(model_path or "")
+        if not os.path.isdir(path):
+            from huggingface_hub import snapshot_download
+
+            path = snapshot_download(path, local_files_only=True)
+        with open(os.path.join(path, "config.json"), encoding="utf-8") as f:
+            cfg = json.load(f)
+    except Exception:  # noqa: BLE001 -- a card is a nicety, never a failure
+        return card
+    text = cfg.get("text_config") if isinstance(cfg.get("text_config"), dict) else cfg
+    experts = text.get("num_experts") or text.get("num_local_experts") or 0
+    card["moe"] = int(experts or 0) > 1
+    layer_types = text.get("layer_types") or []
+    if any("linear" in str(t) for t in layer_types) or text.get("linear_num_value_heads"):
+        card["attn"] = "hybrid_linear"
+    elif any("sliding" in str(t) for t in layer_types) or text.get("sliding_window"):
+        card["attn"] = "hybrid_swa"
+    return card
 
 
 def _swa_page_size(config: Any) -> int:
@@ -159,6 +206,10 @@ def build_stats(state: Any, p95_ms: int, ttft_mean_ms: int) -> dict:
         "instance_id": getattr(state, "instance_id", None),
         "model": derive_model_card(config),
         "uptime_s": uptime_s,
+        # Engine generation: bumps on /admin/reload, when the per-launch
+        # counters below start over — pollers that diff them can tell a reset
+        # from a wrap.
+        "launch": int(getattr(state, "backend_generation", 0) or 0),
         "kv": kv,
         "mamba": mamba,
         "swa": swa,

@@ -278,9 +278,39 @@ def split_tool_lists(
 # --------------------------------------------------------------------------- #
 # The primitive: submit + generate (consume a GenSpec, drive the engine waist).
 # --------------------------------------------------------------------------- #
+def thinking_default(state: Any) -> bool | None:
+    """The server's thinking default for requests that say nothing about it:
+    the console's runtime switch beats ``--thinking``; None = leave it to the
+    checkpoint's chat template."""
+    override = getattr(state, "thinking_override", None)
+    if override is not None:
+        return bool(override)
+    flag = getattr(getattr(state, "config", None), "thinking", None)
+    if flag in ("on", "off"):
+        return flag == "on"
+    return None
+
+
+def apply_thinking_default(spec: GenSpec, state: Any) -> GenSpec:
+    """Fold the server's thinking default into ``spec`` when the request carries
+    no thinking flag of its own. Idempotent, and applied once at submission so
+    the prompt render, the worker's encode and the reasoning parser all see
+    the same mode — a thinking-off prompt parsed as thinking-on would label
+    the whole answer as reasoning."""
+    from .model_meta import _THINKING_KWARG_KEYS, thinking_toggle_kwargs
+
+    default = thinking_default(state)
+    ctk = spec.chat_template_kwargs or {}
+    if default is None or any(key in ctk for key in _THINKING_KWARG_KEYS):
+        return spec
+    spec.chat_template_kwargs = {**thinking_toggle_kwargs(default), **ctk}
+    return spec
+
+
 async def submit_generation(spec: GenSpec, state: Any) -> int:
     """Enqueue one generation from a GenSpec; return its uid. Every protocol adapter
     calls this — it takes the neutral spec, not a wire request type."""
+    apply_thinking_default(spec, state)
     uid = state.new_user()
     await state.send_one(
         TokenizeMsg(
@@ -339,6 +369,7 @@ async def prerender_error(spec: GenSpec, state: Any) -> GenerationError | None:
     build = getattr(state, "frontend_tokenizer", None)
     if build is None:
         return None
+    apply_thinking_default(spec, state)
     msg = TokenizeMsg(
         uid=0,
         text=spec.messages,
@@ -361,6 +392,7 @@ def _make_reasoning_parser(spec: GenSpec, state: Any) -> ReasoningParser | None:
     """Build a reasoning parser for this generation, or None if the server has no
     reasoning parser configured. ``force_reasoning`` matches the encode-side
     thinking mode so chat-mode content is never mislabeled as reasoning."""
+    apply_thinking_default(spec, state)
     parser_name = getattr(state.config, "reasoning_parser", None)
     if parser_name == "qwen3":
         # The qwen3 chat template opens an implicit <think> (thinking on) unless
@@ -577,6 +609,43 @@ async def generate_full(
             completion_tokens=result.completion_tokens if result else 0,
             error=error,
         )
+
+
+class ClientGone(GenerationError):
+    """The client dropped the connection mid-generation; the engine's work was aborted."""
+
+
+async def until_disconnect(awaitable, request: Any, state: Any, uid: int, poll_s: float = 0.5):
+    """Await a non-stream generation while watching the client.
+
+    The stream paths already abort the engine when the client goes away
+    (``stream_with_cancellation``); a non-stream request had nothing of the
+    kind, so a client-side timeout left the model generating to max_tokens.
+    Measured 2026-09-12 on Qwen3.8-27B: a reviewer app's 120 s timeout
+    abandoned a temperature-0 request that then ran 76 minutes to 32,791
+    tokens, starving every later request. Now the connection is polled every
+    ``poll_s`` while the generation runs; on a drop the generation task is
+    cancelled, the scheduler gets an abort, and ``ClientGone`` is raised (the
+    adapters turn it into an error reply nobody reads). Without a request
+    object (tests, internal callers) this is a plain await."""
+    if request is None or not hasattr(request, "is_disconnected"):
+        return await awaitable
+    task = asyncio.ensure_future(awaitable)
+    try:
+        while True:
+            done, _ = await asyncio.wait({task}, timeout=poll_s)
+            if done:
+                return task.result()
+            if await request.is_disconnected():
+                logger.info("Client disconnected for user %s (non-stream); aborting", uid)
+                task.cancel()
+                abort = getattr(state, "abort_user", None)
+                if abort is not None:
+                    await abort(uid)
+                raise ClientGone("client disconnected", code="client_disconnected")
+    except asyncio.CancelledError:
+        task.cancel()
+        raise
 
 
 async def _generate_events_impl(uid: int, spec: GenSpec, state: Any) -> AsyncIterator[GenEvent]:

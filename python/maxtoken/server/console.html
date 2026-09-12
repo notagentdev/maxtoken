@@ -329,6 +329,15 @@
             <span class="lbl" style="font-size:12px">Max output tokens</span>
             <input type="number" id="genMax" min="1" step="1024" style="width:110px; background:var(--bg-2, #14161c); color:inherit; border:1px solid var(--border, #2a2d36); border-radius:6px; padding:4px 8px; font:12px var(--mono)">
             <span class="hint">the cap per answer, thinking included — 32k leaves room for a long reasoning block plus a file</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:10px; margin-top:8px; flex-wrap:wrap">
+            <span class="lbl" style="font-size:12px">Thinking</span>
+            <select id="genThink" style="background:var(--bg-2, #14161c); color:inherit; border:1px solid var(--border, #2a2d36); border-radius:6px; padding:4px 8px; font:12px var(--mono)">
+              <option value="model">checkpoint default</option>
+              <option value="on">on</option>
+              <option value="off">off</option>
+            </select>
+            <span class="hint">whether a request that sets no thinking flag reasons before answering — Qwen3.5 / Ornith default to on; a request's own enable_thinking / reasoning_effort still wins</span>
             <button class="btn ghost" id="genApply">Apply</button><span id="genMsg"></span>
           </div>
         </div>
@@ -342,11 +351,11 @@
         <div class="sliderrow" id="thinkSlider">
           <div class="top">
             <span class="lbl">Reasoning budget</span>
-            <span class="hint">Stop a request that keeps thinking — answer tokens never count against it</span>
-            <span class="val"><span id="thinkVal">off</span></span>
+            <span class="hint">Cap on thinking tokens per request — a request that keeps thinking is stopped there; answer tokens never count. "no cap" does not turn thinking off: that is the Thinking switch in the Generation row.</span>
+            <span class="val"><span id="thinkVal">no cap</span></span>
           </div>
           <input type="range" id="thinkRange" min="0" max="8" step="1">
-          <div class="scale"><span>off</span><span>applies to the next request — no engine work</span><span>32k</span></div>
+          <div class="scale"><span>no cap</span><span>applies to the next request — no engine work</span><span>32k</span></div>
           <button class="btn ghost" id="thinkApply">Apply</button><span id="thinkMsg"></span>
         </div>
       </div>
@@ -541,11 +550,11 @@ function updateThinkSlider(current) {
   let idx = THINK_STEPS.findIndex(s => s >= v);
   if (idx < 0) idx = THINK_STEPS.length - 1;
   $("thinkRange").value = idx;
-  $("thinkVal").textContent = THINK_STEPS[idx] ? fmtTok(THINK_STEPS[idx]) : "off";
+  $("thinkVal").textContent = THINK_STEPS[idx] ? fmtTok(THINK_STEPS[idx]) : "no cap";
 }
 $("thinkRange").oninput = () => {
   const v = THINK_STEPS[+$("thinkRange").value];
-  $("thinkVal").textContent = v ? fmtTok(v) : "off";
+  $("thinkVal").textContent = v ? fmtTok(v) : "no cap";
   $("syncTxt").textContent = "Modified";
 };
 $("thinkApply").onclick = async () => {
@@ -557,7 +566,7 @@ $("thinkApply").onclick = async () => {
       body: JSON.stringify({ max_reasoning_tokens: v }),
     })).json();
     $("thinkMsg").textContent = r.status === "ok"
-      ? (v ? "budget " + fmtTok(v) : "budget off")
+      ? (v ? "budget " + fmtTok(v) : "no cap")
       : (r.error || r.status);
     $("syncTxt").textContent = r.status === "ok" ? "Synced" : "Failed";
     pollCache();
@@ -577,7 +586,9 @@ function updateGenRow(gen) {
     $("genMax").value = gen.max_output_tokens;
     $("genMaxVal").textContent = fmtTok(gen.max_output_tokens);
   }
+  if (document.activeElement !== $("genThink") && gen.thinking) $("genThink").value = gen.thinking;
 }
+$("genThink").onchange = () => { $("syncTxt").textContent = "Modified"; };
 $("genTemp").oninput = () => {
   $("genTempVal").textContent = "temp " + Number($("genTemp").value).toFixed(2);
   $("syncTxt").textContent = "Modified";
@@ -587,14 +598,15 @@ $("genMax").oninput = () => {
   $("syncTxt").textContent = "Modified";
 };
 $("genApply").onclick = async () => {
-  const body = { temperature: parseFloat($("genTemp").value), max_output_tokens: parseInt($("genMax").value, 10) || 0 };
+  const body = { temperature: parseFloat($("genTemp").value), max_output_tokens: parseInt($("genMax").value, 10) || 0,
+                 thinking: $("genThink").value };
   $("genMsg").textContent = "applying…";
   try {
     const r = await (await fetch("/admin/cache/rebuild", {
       method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body),
     })).json();
     $("genMsg").textContent = r.status === "ok"
-      ? "temp " + body.temperature.toFixed(2) + " · " + (body.max_output_tokens ? fmtTok(body.max_output_tokens) : "default") + " tokens"
+      ? "temp " + body.temperature.toFixed(2) + " · " + (body.max_output_tokens ? fmtTok(body.max_output_tokens) : "default") + " tokens · thinking " + body.thinking
       : (r.error || r.status);
     $("syncTxt").textContent = r.status === "ok" ? "Synced" : "Failed";
     pollCache();

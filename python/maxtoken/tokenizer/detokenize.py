@@ -91,6 +91,38 @@ class DetokenizeManager:
         self.decode_map.pop(uid, None)
 
     def detokenize(self, msgs: List[DetokenizeMsg]) -> List[str]:
+        """Incremental text for each message, in order.
+
+        The per-uid state (offsets, decoded text) advances once per message,
+        but the batched decode below reads every message's slices from the
+        state as it was BEFORE the batch. Two messages for one uid in the same
+        batch therefore both decode from the same offsets and the second
+        re-appends text the first already produced — the client sees
+        ``{"reviewreviewerreviewerId...``. That happens whenever the queue
+        backs up with several tokens of one request (speculative commits of
+        k+1 tokens, or two concurrent streams; measured 2026-09-12: the
+        second of two parallel non-stream requests came back stuttered while
+        a single one was clean). So the batch is decoded in waves: each wave
+        holds at most one message per uid, and a uid's later messages wait
+        for the wave after the state they need."""
+        results: List[str | None] = [None] * len(msgs)
+        remaining = list(enumerate(msgs))
+        while remaining:
+            wave: List[tuple[int, DetokenizeMsg]] = []
+            later: List[tuple[int, DetokenizeMsg]] = []
+            seen: set[int] = set()
+            for index, msg in remaining:
+                if msg.uid in seen:
+                    later.append((index, msg))
+                else:
+                    seen.add(msg.uid)
+                    wave.append((index, msg))
+            for (index, _), text in zip(wave, self._detokenize_wave([m for _, m in wave]), strict=True):
+                results[index] = text
+            remaining = later
+        return [r if r is not None else "" for r in results]
+
+    def _detokenize_wave(self, msgs: List[DetokenizeMsg]) -> List[str]:
         read_ids: List[List[int]] = []
         surr_ids: List[List[int]] = []
         for msg in msgs:

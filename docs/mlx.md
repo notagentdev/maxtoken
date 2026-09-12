@@ -629,6 +629,14 @@ uses.
   graph merely turns that into page-cache thrash (the expert sweep cycles
   40 GiB through ~26 GiB of cache with zero reuse). Beyond-memory models are
   what the expert slot cache (`--moe-cache-*`) is for.
+- **Client disconnects abort the generation** on every path, `stream: false`
+  included. Before 2026-09-12 only the SSE paths watched the connection: a
+  client that gave up on a non-stream request (a 120 s app timeout, say) left
+  the model generating to `max_tokens` — measured 32,791 tokens over 76
+  minutes on Qwen3.8-27B — and every later request queued behind it. Now the
+  connection is polled twice a second while a non-stream generation runs; a
+  drop cancels it and sends the scheduler an abort (`client_disconnected` in
+  the log).
 - **Reasoning budget** (`--max-reasoning-tokens N`, or Anthropic's
   `thinking.budget_tokens` per request — the lower wins): stops a request once
   it has spent N tokens inside its thinking block, reporting
@@ -636,7 +644,14 @@ uses.
   its whole output budget is gone and answering nothing (seen on research-grade
   MoEs). Tokens in the answer never count against it; unlimited by default.
   Adjustable at runtime without a restart — the console has a slider for it,
-  or `POST /admin/cache/rebuild {"max_reasoning_tokens": N}` (0 = off). Unlike the
+  or `POST /admin/cache/rebuild {"max_reasoning_tokens": N}` (0 = no cap). It
+  is a cap, not a switch: whether a request thinks at all is decided by its
+  own flag (`enable_thinking`, `reasoning_effort`, Anthropic's `thinking`
+  block) or, when it carries none, by the checkpoint's chat template — Qwen3.5
+  / Ornith think by default. To change that default server-wide use
+  `--thinking on|off`, the Thinking switch in the console's Generation row, or
+  `POST /admin/cache/rebuild {"thinking": "off"}` (`"model"` hands it back to
+  the template); a request's explicit flag always wins. Unlike the
   other knobs there it needs no engine work: the budget is enforced in the
   frontend, so it applies to the next request immediately.
 - Remaining CUDA-specific flags (`--attention-backend`, `--cuda-graph-*`,

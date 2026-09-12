@@ -184,3 +184,26 @@ def test_route_answers_through_the_app():
         assert r.json()["status"] == "busy"
     finally:
         api._GLOBAL_STATE = prev
+
+
+def test_reload_starts_the_launch_counters_over():
+    """The console's "This launch" / "Tokens processed" cards count from the
+    relaunch, like the uptime — before this they carried the old workers'
+    totals across the reload."""
+    from maxtoken.server.stats import StatsTracker
+
+    state = _state()
+    _wire(state)
+    state.supervise(BackendHandle(processes=[], ack_queue=queue.Queue(), expected_acks=0), 0)
+    assert _wait_serving(state)
+    state.stats = StatsTracker()
+    state.stats.completed = 7
+    state.stats.prompt_tokens_total = 700
+    state.stats.completion_tokens_total = 2100
+    state.stats._decode.append((0.0, 5))
+
+    body, status = _run_reload(state)
+    assert status == 200 and body["status"] == "ok"
+    tr = state.stats
+    assert (tr.completed, tr.prompt_tokens_total, tr.completion_tokens_total) == (0, 0, 0)
+    assert tr.decode_tps() == 0.0
