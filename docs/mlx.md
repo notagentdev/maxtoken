@@ -122,7 +122,7 @@ prompt, 256 decode tokens:
 | Qwen3-30B-A3B-Instruct-2507 | resident | 63.9 | 268 ms | 16.1 GiB |
 | Ornith-1.5-35B-A3B | resident | 66.6 | 205 ms | 18.3 GiB allocated |
 | Ornith-1.5-35B-A3B | **offload, mapped (default)** | **78**⁵ | **209 ms** | ~18 GiB borrowed² (1.3 GiB owned) |
-| Ornith-1.5-35B-A3B + native MTP head, k=2 (2026-09-12, calibrated head) | offload, mapped + `--draft-model` | **109–111** (German chat 75–80) | 0.2–0.4 s | + 1.7 GiB head |
+| Ornith-1.5-35B-A3B + native MTP head, k=2 (2026-09-12, calibrated head; 384 decode tokens, checkpoint sampler, unclamped — not the 256-token clamped run of the other rows) | offload, mapped + `--draft-model` | **109–111** (German chat 75–80) | 0.2–0.4 s | + 1.7 GiB head |
 | Ornith-1.5-35B-A3B | offload, slot cache 60% | 15.1 | 6.9 s | **11.9 GiB** hard budget |
 | Ornith-1.5-35B-A3B | offload, slot cache 35% | 8.9 | 21 s¹ | **7.7 GiB** hard budget |
 | Qwen3-Coder-Next-80B³ | offload, slot cache 20% | 8.4 | 5.1 s | **10.3 GiB** hard budget |
