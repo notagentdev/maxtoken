@@ -26,8 +26,8 @@ Measured on a 32 GB M1 Max (all through the real HTTP serving path):
 | Qwen3-Coder-Next-**80B** (42 GiB checkpoint) | **10 GiB** hard budget | 7.4–10 tok/s |
 | Qwen3-Coder-Next-**80B** | **3.4 GiB** hard budget | ~5 tok/s |
 | Ornith-1.5-**35B**-A3B (18 GiB checkpoint) | 1.3 GiB owned + page cache | 75–77 tok/s |
-| Ornith-1.5-35B-A3B + its **native MTP head** as drafter | + 1.7 GiB head | **89–94 tok/s** |
-| Qwen3.8-**27B** dense hybrid + native MTP head | 14 GiB resident | 32–35 tok/s, prefill ~130 tok/s |
+| Ornith-1.5-35B-A3B + its **native MTP head** as drafter (k=2) | + 1.7 GiB head | **109–111 tok/s** English/math, 75–80 German chat |
+| Qwen3.8-**27B** dense hybrid + native MTP head (k=3) | 14 GiB resident | 32–35 tok/s English/math, 24–27 German chat; prefill 95–120 tok/s served |
 | Qwen3.8-Flash-Next **Niwaki-99B**-A5B 3-bit (`qwen4_exp`, 34 GiB checkpoint) | ~3.5 GiB owned + page cache | 17 tok/s, prefill 277 tok/s (spike path) |
 
 The Niwaki row is the newest and the least finished: Qwen's `qwen4_exp`
@@ -46,9 +46,16 @@ A3B, whole-MoE Metal kernels that run router, top-8, packed gate/up, SwiGLU,
 fused down and the shared expert in four launches per layer for the 2–3-row
 verify windows (and three for a single decode row — measured +1%: the wide
 command buffers already hide the stock block's launches, so in situ it is
-bandwidth-bound). Acceptance is text-dependent: ~2.4 tokens per verify on
-English/code, less on free-form German chat — the server logs it, and
-`--enable-cache-report` exposes per-request cache hits to any client.
+bandwidth-bound). Acceptance is text-dependent: on Ornith at k=2 ~2.7 tokens
+per verify on English/math and ~1.9 on free-form German chat, measured
+2026-09-12 after the head's norm calibration (`MtpDrafter.calibrate_norms`;
+the uncalibrated head accepted 2.4 / 1.5 and served 89–94 / 55–61, which is
+why the draft used to lose on German chat and no longer does) — the server
+logs it, and `--enable-cache-report` exposes per-request cache hits to any
+client. The Ornith, 27B and Niwaki rows were re-measured on 2026-09-11/12;
+the 80B and DeepSeek rows date from before 2026-09-02 and were taken under
+the background-QoS clamp described in [docs/mlx.md](docs/mlx.md), so read
+them as lower bounds.
 
 The 80B range is the spread between a cold server (7.4 tok/s measured over
 HTTP right after start) and a warm one (~10 tok/s once the slot cache has
