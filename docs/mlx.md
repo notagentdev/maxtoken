@@ -568,6 +568,13 @@ uses.
   German chat as well; k=3 still loses (AIME 96–109, German 55–60). The 27B
   served 33.0–35.2 on AIME and 24–27 on German chat the same day; its served
   prefill is 95–120 tok/s (in-process ceiling 137–140 on 1.5k-token chunks).
+  Two parallel streams on the 27B draft path (the ticket-review benchmark,
+  2026-09-12, read from the server's `speculative accept` counters) sum to
+  ~40 tok/s aggregate — 2-s intervals 41–41.5, 1-s peaks 43 — at 17–21 tok/s
+  per stream: `--draft-model` serves round-robin rather than batched, and the
+  second stream fills the first one's host gaps rather than sharing a step.
+  The console's throughput card and `/admin/stats` show this summed
+  sliding-window rate, not the per-request figure.
 
   A round costs ~100 ms: the four-row verify ~80, the three-step draft chain
   ~12 (each step: lm_head 2.3 ms at the bandwidth floor, the head's block 1.1,
