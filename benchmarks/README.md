@@ -18,3 +18,9 @@ cache (sized with `--cache` / `--cache-rate`, else auto):
 python benchmarks/bench_decode_moe.py --model mlx-community/Qwen3-30B-A3B-Instruct-2507-4bit --backend mlx
 python benchmarks/bench_decode_moe.py --model ornith-ai/Ornith-1.5-35B-A3B-MLX-4bit --backend mlx-offload --cache-rate 0.6
 ```
+
+**`system_one/`** — typed, calibrated decisions read from option logits instead
+of generated text: the head, the ticket benchmark built from a third-party
+labelled dataset, and the external suites (SemIf, WANLI, JevBench) used to
+place it. Ornith matches the dense 27B there at a twentieth of the cost.
+See [`system_one/README.md`](system_one/README.md).

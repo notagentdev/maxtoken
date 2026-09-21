@@ -1,0 +1,151 @@
+{
+  "generated": "2026-09-21",
+  "machine": "Apple M1 Max, 32 GB",
+  "mlx_lm": "0.31.3",
+  "systems": {
+    "2b": {
+      "model": "Qwen3.8-2B-Distill-mlx-4bit",
+      "tickets720": {
+        "ticket_type": 0.4667,
+        "queue": 0.275,
+        "headline_mean_type_queue": 0.3708,
+        "priority_excluded_no_signal": 0.35,
+        "ms_per_row": 178
+      },
+      "jevbench_public": {
+        "all_231": 0.6277,
+        "hard_111": 0.4414,
+        "brier": 0.4431,
+        "ece": 0.0439,
+        "p50_s": 0.115,
+        "p95_s": 1.732
+      },
+      "wanli256_mean_family_balanced_accuracy": 0.5492,
+      "authored144_mean_family_balanced_accuracy": 0.6299
+    },
+    "4b": {
+      "model": "Qwen3.5-4B-MTPLX-Optimized-Speed",
+      "tickets720": {
+        "ticket_type": 0.4083,
+        "queue": 0.2542,
+        "headline_mean_type_queue": 0.3312,
+        "priority_excluded_no_signal": 0.375,
+        "ms_per_row": 439
+      },
+      "jevbench_public": {
+        "all_231": 0.7576,
+        "hard_111": 0.6306,
+        "brier": 0.3346,
+        "ece": 0.0741,
+        "p50_s": 0.31,
+        "p95_s": 4.261
+      },
+      "order_reversal_hard111": {
+        "forward": 0.6306,
+        "reversed": 0.5856,
+        "order_robust": 0.6081,
+        "argmax_flips": 50,
+        "mean_tv": 0.3098
+      },
+      "wanli256_mean_family_balanced_accuracy": 0.6321,
+      "authored144_mean_family_balanced_accuracy": 0.8378
+    },
+    "9b": {
+      "model": "Qwen3.8-9B-MLX 4bit",
+      "tickets720": {
+        "ticket_type": 0.5542,
+        "queue": 0.2917,
+        "headline_mean_type_queue": 0.4229,
+        "priority_excluded_no_signal": 0.4083,
+        "ms_per_row": 2159
+      },
+      "jevbench_public": {
+        "all_231": 0.8009,
+        "hard_111": 0.6306,
+        "brier": 0.2896,
+        "ece": 0.0714,
+        "p50_s": 0.535,
+        "p95_s": 7.897
+      },
+      "order_reversal_hard111": {
+        "forward": 0.6306,
+        "reversed": 0.5586,
+        "order_robust": 0.5946,
+        "argmax_flips": 30,
+        "mean_tv": 0.154
+      },
+      "wanli256_mean_family_balanced_accuracy": 0.7028,
+      "authored144_mean_family_balanced_accuracy": 0.8767
+    },
+    "27b": {
+      "model": "Qwen3.8-27B-MTPLX-4bit",
+      "tickets720": {
+        "ticket_type": 0.6875,
+        "queue": 0.2792,
+        "headline_mean_type_queue": 0.4833,
+        "priority_excluded_no_signal": 0.4,
+        "ms_per_row": 12004
+      },
+      "jevbench_public": {
+        "all_231": 0.8701,
+        "hard_111": 0.7568,
+        "brier": 0.1796,
+        "ece": 0.0527,
+        "p50_s": 2.509,
+        "p95_s": 33.471
+      },
+      "order_reversal_hard111": {
+        "forward": 0.7568,
+        "reversed": 0.6937,
+        "order_robust": 0.7252,
+        "argmax_flips": 23,
+        "mean_tv": 0.1341
+      },
+      "wanli256_mean_family_balanced_accuracy": 0.7615,
+      "authored144_mean_family_balanced_accuracy": 0.9286
+    },
+    "ornith": {
+      "model": "ornith-ai/Ornith-1.5-35B-A3B-MLX-4bit",
+      "tickets720": {
+        "ticket_type": 0.6792,
+        "queue": 0.3,
+        "headline_mean_type_queue": 0.4896,
+        "priority_excluded_no_signal": 0.3917,
+        "ms_per_row": 599
+      },
+      "jevbench_public": {
+        "all_231": 0.8398,
+        "hard_111": 0.7027,
+        "brier": 0.2501,
+        "ece": 0.0958,
+        "p50_s": 0.457,
+        "p95_s": 12.069
+      },
+      "order_reversal_hard111": {
+        "forward": 0.7027,
+        "reversed": 0.6306,
+        "order_robust": 0.6667,
+        "argmax_flips": 32,
+        "mean_tv": 0.2834
+      }
+    },
+    "gemma": {
+      "model": "lmstudio-community/gemma-4-E4B-it-MLX-4bit",
+      "jevbench_public": {
+        "all_231": 0.7273,
+        "hard_111": 0.4955,
+        "brier": 0.4689,
+        "ece": 0.2246,
+        "p50_s": 0.201,
+        "p95_s": 2.593
+      },
+      "order_reversal_hard111": {
+        "forward": 0.4955,
+        "reversed": 0.4685,
+        "order_robust": 0.482,
+        "argmax_flips": 23,
+        "mean_tv": 0.1985
+      }
+    }
+  }
+}

@@ -1,0 +1,1121 @@
+{
+  "model": "/Users/dev/projects/free-token-main/downloads/gemma-4-E4B-it-MLX-4bit",
+  "n": 111,
+  "forward_correct": 55,
+  "reverse_correct": 52,
+  "argmax_flips": 23,
+  "mean_tv": 0.19849704445894475,
+  "max_tv": 0.9710565704153851,
+  "rows": [
+    {
+      "id": "hard-opus-a-long_policy-01",
+      "family": "long_policy",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "deny_vacancy_exclusion",
+      "reverse_pred": "deny_vacancy_exclusion",
+      "flipped": false,
+      "tv_distance": 0.02635660504131465
+    },
+    {
+      "id": "hard-opus-a-long_policy-04",
+      "family": "long_policy",
+      "forward_correct": false,
+      "reverse_correct": true,
+      "forward_pred": "vp_and_finance_director",
+      "reverse_pred": "cfo",
+      "flipped": true,
+      "tv_distance": 0.8616713864981875
+    },
+    {
+      "id": "hard-opus-a-long_policy-08",
+      "family": "long_policy",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "not_covered",
+      "reverse_pred": "not_covered",
+      "flipped": false,
+      "tv_distance": 0.0008749525977691519
+    },
+    {
+      "id": "hard-opus-a-long_policy-09",
+      "family": "long_policy",
+      "forward_correct": false,
+      "reverse_correct": true,
+      "forward_pred": "license_exception_lvs",
+      "reverse_pred": "license_required",
+      "flipped": true,
+      "tv_distance": 0.48717626940924674
+    },
+    {
+      "id": "hard-opus-a-long_policy-11",
+      "family": "long_policy",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 0.03933971421793103
+    },
+    {
+      "id": "hard-opus-a-long_policy-13",
+      "family": "long_policy",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 0.0003928874557459494
+    },
+    {
+      "id": "hard-opus-a-long_policy-17",
+      "family": "long_policy",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "database_oncall",
+      "reverse_pred": "database_oncall",
+      "flipped": false,
+      "tv_distance": 0.0010861455144102194
+    },
+    {
+      "id": "hard-opus-a-long_policy-19",
+      "family": "long_policy",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.00013727438636124134
+    },
+    {
+      "id": "hard-opus-a-probability-03",
+      "family": "probability",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.4006405503023416
+    },
+    {
+      "id": "hard-opus-a-probability-04",
+      "family": "probability",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "late",
+      "reverse_pred": "late",
+      "flipped": false,
+      "tv_distance": 0.0014326141827041283
+    },
+    {
+      "id": "hard-opus-a-probability-07",
+      "family": "probability",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "escalated",
+      "reverse_pred": "escalated",
+      "flipped": false,
+      "tv_distance": 0.0015607922432536725
+    },
+    {
+      "id": "hard-opus-a-probability-08",
+      "family": "probability",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.28977634012699127
+    },
+    {
+      "id": "hard-opus-a-temporal_numeric-03",
+      "family": "temporal_numeric",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 5.541063637792831e-05
+    },
+    {
+      "id": "hard-opus-a-temporal_numeric-06",
+      "family": "temporal_numeric",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.0004794261185452342
+    },
+    {
+      "id": "hard-opus-a-temporal_numeric-07",
+      "family": "temporal_numeric",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "sep_25",
+      "reverse_pred": "sep_24",
+      "flipped": true,
+      "tv_distance": 0.8654420303064398
+    },
+    {
+      "id": "hard-opus-a-temporal_numeric-09",
+      "family": "temporal_numeric",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.00025848220684565604
+    },
+    {
+      "id": "hard-opus-a-temporal_numeric-12",
+      "family": "temporal_numeric",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "3",
+      "reverse_pred": "3",
+      "flipped": false,
+      "tv_distance": 0.0005080698244341875
+    },
+    {
+      "id": "hard-opus-b-ambiguous-02",
+      "family": "ambiguous",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "false_positive",
+      "reverse_pred": "cannot_determine",
+      "flipped": true,
+      "tv_distance": 0.9190364227906684
+    },
+    {
+      "id": "hard-opus-b-ambiguous-03",
+      "family": "ambiguous",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "within_limitation",
+      "reverse_pred": "within_limitation",
+      "flipped": false,
+      "tv_distance": 0.022360949442372657
+    },
+    {
+      "id": "hard-opus-b-ambiguous-07",
+      "family": "ambiguous",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "over_limit",
+      "reverse_pred": "over_limit",
+      "flipped": false,
+      "tv_distance": 0.0018031081308436114
+    },
+    {
+      "id": "hard-opus-b-ambiguous-09",
+      "family": "ambiguous",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "compromised",
+      "reverse_pred": "compromised",
+      "flipped": false,
+      "tv_distance": 0.00019995304671738268
+    },
+    {
+      "id": "hard-opus-b-ambiguous-10",
+      "family": "ambiguous",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "ask_user_which_alex",
+      "reverse_pred": "ask_user_which_alex",
+      "flipped": false,
+      "tv_distance": 0.2827419003443197
+    },
+    {
+      "id": "hard-opus-b-ambiguous-11",
+      "family": "ambiguous",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "cannot_determine",
+      "reverse_pred": "cannot_determine",
+      "flipped": false,
+      "tv_distance": 7.496339958379394e-05
+    },
+    {
+      "id": "hard-opus-b-ambiguous-13",
+      "family": "ambiguous",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "cannot_determine",
+      "reverse_pred": "cannot_determine",
+      "flipped": false,
+      "tv_distance": 0.000965056036363876
+    },
+    {
+      "id": "hard-opus-b-multi_hop-03",
+      "family": "multi_hop",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "tier2_department_head",
+      "reverse_pred": "tier2_department_head",
+      "flipped": false,
+      "tv_distance": 0.01803750354974909
+    },
+    {
+      "id": "hard-opus-b-multi_hop-04",
+      "family": "multi_hop",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "chen",
+      "reverse_pred": "no_page_ticket_only",
+      "flipped": true,
+      "tv_distance": 0.5703366718953475
+    },
+    {
+      "id": "hard-opus-b-multi_hop-05",
+      "family": "multi_hop",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "1",
+      "reverse_pred": "3",
+      "flipped": true,
+      "tv_distance": 0.533187370019732
+    },
+    {
+      "id": "hard-opus-b-multi_hop-07",
+      "family": "multi_hop",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "credit_25_percent",
+      "reverse_pred": "credit_50_percent",
+      "flipped": true,
+      "tv_distance": 0.8533734880369508
+    },
+    {
+      "id": "hard-opus-b-multi_hop-08",
+      "family": "multi_hop",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.04241639142856002
+    },
+    {
+      "id": "hard-opus-b-probability-01",
+      "family": "probability",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "merchant_wins",
+      "reverse_pred": "merchant_wins",
+      "flipped": false,
+      "tv_distance": 0.005093360785394907
+    },
+    {
+      "id": "hard-opus-b-probability-02",
+      "family": "probability",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "bad_push",
+      "reverse_pred": "bad_push",
+      "flipped": false,
+      "tv_distance": 0.08445157710229978
+    },
+    {
+      "id": "hard-opus-b-probability-03",
+      "family": "probability",
+      "forward_correct": true,
+      "reverse_correct": false,
+      "forward_pred": "yes",
+      "reverse_pred": "no",
+      "flipped": true,
+      "tv_distance": 0.5310059655384975
+    },
+    {
+      "id": "hard-opus-b-probability-04",
+      "family": "probability",
+      "forward_correct": false,
+      "reverse_correct": true,
+      "forward_pred": "no_show",
+      "reverse_pred": "attended",
+      "flipped": true,
+      "tv_distance": 0.7537107334210305
+    },
+    {
+      "id": "hard-opus-b-probability-06",
+      "family": "probability",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "overturned",
+      "reverse_pred": "overturned",
+      "flipped": false,
+      "tv_distance": 0.0012134368589613587
+    },
+    {
+      "id": "hard-opus-b-tradeoff-01",
+      "family": "tradeoff",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "escalate_to_security",
+      "reverse_pred": "escalate_to_security",
+      "flipped": false,
+      "tv_distance": 0.00041924650291136345
+    },
+    {
+      "id": "hard-opus-b-tradeoff-03",
+      "family": "tradeoff",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "order_c",
+      "reverse_pred": "order_c",
+      "flipped": false,
+      "tv_distance": 0.14069295705121476
+    },
+    {
+      "id": "hard-opus-b-tradeoff-06",
+      "family": "tradeoff",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.21835677325725555
+    },
+    {
+      "id": "hard-opus-b-tradeoff-07",
+      "family": "tradeoff",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "p2_fix_30d",
+      "reverse_pred": "p2_fix_30d",
+      "flipped": false,
+      "tv_distance": 0.005589737029906061
+    },
+    {
+      "id": "hard-opus-b-tradeoff-08",
+      "family": "tradeoff",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 0.0026227179914712906
+    },
+    {
+      "id": "hard-opus-b-tradeoff-12",
+      "family": "tradeoff",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "wait_for_inspection",
+      "reverse_pred": "wait_for_inspection",
+      "flipped": false,
+      "tv_distance": 0.00149695877752265
+    },
+    {
+      "id": "hard-opus-c-long_policy-02",
+      "family": "long_policy",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "erase_but_retain_transaction_records",
+      "reverse_pred": "erase_but_retain_transaction_records",
+      "flipped": false,
+      "tv_distance": 0.00012776717655071934
+    },
+    {
+      "id": "hard-opus-c-long_policy-03",
+      "family": "long_policy",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "eur_300",
+      "reverse_pred": "eur_300",
+      "flipped": false,
+      "tv_distance": 0.0928727895583279
+    },
+    {
+      "id": "hard-opus-c-long_policy-04",
+      "family": "long_policy",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.0005301630226313137
+    },
+    {
+      "id": "hard-opus-c-long_policy-05",
+      "family": "long_policy",
+      "forward_correct": true,
+      "reverse_correct": false,
+      "forward_pred": "1",
+      "reverse_pred": "0",
+      "flipped": true,
+      "tv_distance": 0.6603170771122677
+    },
+    {
+      "id": "hard-opus-c-long_policy-08",
+      "family": "long_policy",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "2",
+      "reverse_pred": "2",
+      "flipped": false,
+      "tv_distance": 0.0035677366449817782
+    },
+    {
+      "id": "hard-opus-c-long_policy-10",
+      "family": "long_policy",
+      "forward_correct": true,
+      "reverse_correct": false,
+      "forward_pred": "credit_minus_restocking_fee",
+      "reverse_pred": "full_credit",
+      "flipped": true,
+      "tv_distance": 0.9300798454687538
+    },
+    {
+      "id": "hard-opus-c-long_policy-11",
+      "family": "long_policy",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.0033574141561985016
+    },
+    {
+      "id": "hard-opus-c-probability-03",
+      "family": "probability",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "kuznets_technik",
+      "reverse_pred": "kuznets_technik",
+      "flipped": false,
+      "tv_distance": 0.06798768971930258
+    },
+    {
+      "id": "hard-opus-c-temporal_numeric-02",
+      "family": "temporal_numeric",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 0.0007420267029374372
+    },
+    {
+      "id": "hard-opus-c-temporal_numeric-03",
+      "family": "temporal_numeric",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "eur_617_00",
+      "reverse_pred": "eur_693_90",
+      "flipped": true,
+      "tv_distance": 0.5360413565161934
+    },
+    {
+      "id": "hard-opus-c-temporal_numeric-04",
+      "family": "temporal_numeric",
+      "forward_correct": false,
+      "reverse_correct": true,
+      "forward_pred": "usd_2303_01",
+      "reverse_pred": "usd_2335_00",
+      "flipped": true,
+      "tv_distance": 0.9710565704153851
+    },
+    {
+      "id": "hard-opus-c-temporal_numeric-06",
+      "family": "temporal_numeric",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "none_declined",
+      "reverse_pred": "none_declined",
+      "flipped": false,
+      "tv_distance": 0.005995067922683006
+    },
+    {
+      "id": "hard-opus-c-temporal_numeric-08",
+      "family": "temporal_numeric",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "eur_506_06",
+      "reverse_pred": "eur_513_69",
+      "flipped": true,
+      "tv_distance": 0.8830834423097258
+    },
+    {
+      "id": "hard-opus-c-temporal_numeric-12",
+      "family": "temporal_numeric",
+      "forward_correct": false,
+      "reverse_correct": true,
+      "forward_pred": "expired_24_month_term",
+      "reverse_pred": "expired_30_month_cap",
+      "flipped": true,
+      "tv_distance": 0.7364981835635263
+    },
+    {
+      "id": "hard-sol-a-adversarial-01",
+      "family": "adversarial",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "deny_missing_approval",
+      "reverse_pred": "deny_missing_approval",
+      "flipped": false,
+      "tv_distance": 0.0004930410694896636
+    },
+    {
+      "id": "hard-sol-a-adversarial-06",
+      "family": "adversarial",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.02278469270095229
+    },
+    {
+      "id": "hard-sol-a-adversarial-07",
+      "family": "adversarial",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "retain_until_2031",
+      "reverse_pred": "retain_until_2031",
+      "flipped": false,
+      "tv_distance": 0.00014187390684128331
+    },
+    {
+      "id": "hard-sol-a-adversarial-08",
+      "family": "adversarial",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.004309066775022075
+    },
+    {
+      "id": "hard-sol-a-adversarial-09",
+      "family": "adversarial",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "2",
+      "reverse_pred": "2",
+      "flipped": false,
+      "tv_distance": 0.0011518735923345957
+    },
+    {
+      "id": "hard-sol-a-adversarial-11",
+      "family": "adversarial",
+      "forward_correct": true,
+      "reverse_correct": false,
+      "forward_pred": "standard_research",
+      "reverse_pred": "ethics_review",
+      "flipped": true,
+      "tv_distance": 0.892295534595295
+    },
+    {
+      "id": "hard-sol-a-multi_hop-01",
+      "family": "multi_hop",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "accept_s2_dusk",
+      "reverse_pred": "accept_s2_dusk",
+      "flipped": false,
+      "tv_distance": 0.23025446571409702
+    },
+    {
+      "id": "hard-sol-a-multi_hop-02",
+      "family": "multi_hop",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "security_primary",
+      "reverse_pred": "security_primary",
+      "flipped": false,
+      "tv_distance": 0.0010131499096104335
+    },
+    {
+      "id": "hard-sol-a-multi_hop-05",
+      "family": "multi_hop",
+      "forward_correct": true,
+      "reverse_correct": false,
+      "forward_pred": "require_director",
+      "reverse_pred": "pay_manager_approved",
+      "flipped": true,
+      "tv_distance": 0.8224815407256756
+    },
+    {
+      "id": "hard-sol-a-multi_hop-07",
+      "family": "multi_hop",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "admit",
+      "reverse_pred": "admit",
+      "flipped": false,
+      "tv_distance": 0.0037353820362113765
+    },
+    {
+      "id": "hard-sol-a-multi_hop-08",
+      "family": "multi_hop",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "local_maintenance",
+      "reverse_pred": "local_maintenance",
+      "flipped": false,
+      "tv_distance": 0.04184665108250485
+    },
+    {
+      "id": "hard-sol-a-multi_hop-09",
+      "family": "multi_hop",
+      "forward_correct": true,
+      "reverse_correct": false,
+      "forward_pred": "require_steward",
+      "reverse_pred": "confirm_l3",
+      "flipped": true,
+      "tv_distance": 0.5116313126782188
+    },
+    {
+      "id": "hard-sol-a-multi_hop-10",
+      "family": "multi_hop",
+      "forward_correct": false,
+      "reverse_correct": true,
+      "forward_pred": "deny_sensitive",
+      "reverse_pred": "approve_45_days",
+      "flipped": true,
+      "tv_distance": 0.8644860351714669
+    },
+    {
+      "id": "hard-sol-a-multi_hop-12",
+      "family": "multi_hop",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "needs_authentication",
+      "reverse_pred": "needs_authentication",
+      "flipped": false,
+      "tv_distance": 0.11233725602505729
+    },
+    {
+      "id": "hard-sol-a-trap-02",
+      "family": "trap",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 0.029306492043360777
+    },
+    {
+      "id": "hard-sol-a-trap-04",
+      "family": "trap",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 2.610751471365802e-05
+    },
+    {
+      "id": "hard-sol-a-trap-05",
+      "family": "trap",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "0",
+      "reverse_pred": "0",
+      "flipped": false,
+      "tv_distance": 0.003754422575696026
+    },
+    {
+      "id": "hard-sol-a-trap-06",
+      "family": "trap",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "keep_open_unresolved",
+      "reverse_pred": "keep_open_unresolved",
+      "flipped": false,
+      "tv_distance": 0.00023240278170533202
+    },
+    {
+      "id": "hard-sol-a-trap-08",
+      "family": "trap",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "late",
+      "reverse_pred": "late",
+      "flipped": false,
+      "tv_distance": 1.0745718384885805e-05
+    },
+    {
+      "id": "hard-sol-a-trap-10",
+      "family": "trap",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "blocked_second_review",
+      "reverse_pred": "blocked_second_review",
+      "flipped": false,
+      "tv_distance": 0.0006693552462593289
+    },
+    {
+      "id": "hard-sol-a-trap-13",
+      "family": "trap",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 1.2398272360769624e-05
+    },
+    {
+      "id": "hard-sol-a-trap-15",
+      "family": "trap",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 0.0008945057779783383
+    },
+    {
+      "id": "hard-sol-b-judge_hard-01",
+      "family": "judge_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.0006373716050802614
+    },
+    {
+      "id": "hard-sol-b-judge_hard-02",
+      "family": "judge_hard",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.00312121927345288
+    },
+    {
+      "id": "hard-sol-b-judge_hard-05",
+      "family": "judge_hard",
+      "forward_correct": true,
+      "reverse_correct": false,
+      "forward_pred": "yes",
+      "reverse_pred": "no",
+      "flipped": true,
+      "tv_distance": 0.6532213324680924
+    },
+    {
+      "id": "hard-sol-b-judge_hard-08",
+      "family": "judge_hard",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.02425667137140408
+    },
+    {
+      "id": "hard-sol-b-judge_hard-10",
+      "family": "judge_hard",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.015112253837287426
+    },
+    {
+      "id": "hard-sol-b-judge_hard-14",
+      "family": "judge_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 2.62806958062356e-06
+    },
+    {
+      "id": "hard-sol-b-judge_hard-15",
+      "family": "judge_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.0007711968864896335
+    },
+    {
+      "id": "hard-sol-b-judge_hard-18",
+      "family": "judge_hard",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.2866377083119005
+    },
+    {
+      "id": "hard-sol-b-long_policy-01",
+      "family": "long_policy",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "reject_entire_claim",
+      "reverse_pred": "reject_entire_claim",
+      "flipped": false,
+      "tv_distance": 0.3411569840973243
+    },
+    {
+      "id": "hard-sol-b-long_policy-02",
+      "family": "long_policy",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "privacy_and_security",
+      "reverse_pred": "privacy_and_security",
+      "flipped": false,
+      "tv_distance": 0.028968448713385442
+    },
+    {
+      "id": "hard-sol-b-long_policy-05",
+      "family": "long_policy",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "delete_profile_omar_april_and_table",
+      "reverse_pred": "delete_profile_omar_april_and_table",
+      "flipped": false,
+      "tv_distance": 0.04471455764723942
+    },
+    {
+      "id": "hard-sol-b-long_policy-06",
+      "family": "long_policy",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "river_arts",
+      "reverse_pred": "river_arts",
+      "flipped": false,
+      "tv_distance": 0.10737370746210217
+    },
+    {
+      "id": "hard-sol-b-routing_hard-01",
+      "family": "routing_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "office_file_repair",
+      "reverse_pred": "office_file_repair",
+      "flipped": false,
+      "tv_distance": 5.994671439957244e-05
+    },
+    {
+      "id": "hard-sol-b-routing_hard-02",
+      "family": "routing_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "ledger_reconciliation",
+      "reverse_pred": "ledger_reconciliation",
+      "flipped": false,
+      "tv_distance": 0.00015376087668683702
+    },
+    {
+      "id": "hard-sol-b-routing_hard-03",
+      "family": "routing_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "network_dns",
+      "reverse_pred": "network_dns",
+      "flipped": false,
+      "tv_distance": 0.00858761098792371
+    },
+    {
+      "id": "hard-sol-b-routing_hard-07",
+      "family": "routing_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "release_notarization",
+      "reverse_pred": "release_notarization",
+      "flipped": false,
+      "tv_distance": 3.995185944033475e-05
+    },
+    {
+      "id": "hard-sol-b-routing_hard-09",
+      "family": "routing_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "source_access",
+      "reverse_pred": "source_access",
+      "flipped": false,
+      "tv_distance": 7.784991880178949e-05
+    },
+    {
+      "id": "hard-sol-b-temporal_numeric-01",
+      "family": "temporal_numeric",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "within_window",
+      "reverse_pred": "within_window",
+      "flipped": false,
+      "tv_distance": 0.16298009886668297
+    },
+    {
+      "id": "hard-sol-b-temporal_numeric-02",
+      "family": "temporal_numeric",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "under_100gb_below",
+      "reverse_pred": "at_least_100gb_below",
+      "flipped": true,
+      "tv_distance": 0.8754619914107025
+    },
+    {
+      "id": "hard-sol-b-temporal_numeric-03",
+      "family": "temporal_numeric",
+      "forward_correct": true,
+      "reverse_correct": false,
+      "forward_pred": "9_credits",
+      "reverse_pred": "12_credits",
+      "flipped": true,
+      "tv_distance": 0.6983587371942122
+    },
+    {
+      "id": "hard-sol-b-temporal_numeric-04",
+      "family": "temporal_numeric",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "narrow_fail",
+      "reverse_pred": "narrow_fail",
+      "flipped": false,
+      "tv_distance": 0.058532574941636994
+    },
+    {
+      "id": "hard-sol-c-judge_hard-03",
+      "family": "judge_hard",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.3311329185962677
+    },
+    {
+      "id": "hard-sol-c-judge_hard-05",
+      "family": "judge_hard",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 0.19168168306350708
+    },
+    {
+      "id": "hard-sol-c-judge_hard-07",
+      "family": "judge_hard",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.12735064700245857
+    },
+    {
+      "id": "hard-sol-c-judge_hard-08",
+      "family": "judge_hard",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.1982196073513478
+    },
+    {
+      "id": "hard-sol-c-judge_hard-09",
+      "family": "judge_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.02761152811581269
+    },
+    {
+      "id": "hard-sol-c-judge_hard-10",
+      "family": "judge_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.010111619514646009
+    },
+    {
+      "id": "hard-sol-c-judge_hard-11",
+      "family": "judge_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 4.957969809993301e-05
+    },
+    {
+      "id": "hard-sol-c-judge_hard-13",
+      "family": "judge_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 0.036868629191303626
+    },
+    {
+      "id": "hard-sol-c-judge_hard-15",
+      "family": "judge_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.018380141584202647
+    },
+    {
+      "id": "hard-sol-c-multi_hop-07",
+      "family": "multi_hop",
+      "forward_correct": true,
+      "reverse_correct": false,
+      "forward_pred": "programme_review",
+      "reverse_pred": "release_draw",
+      "flipped": true,
+      "tv_distance": 0.9075570385321043
+    },
+    {
+      "id": "hard-sol-c-multi_hop-09",
+      "family": "multi_hop",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "bus_substitution",
+      "reverse_pred": "bus_substitution",
+      "flipped": false,
+      "tv_distance": 0.47057056883204496
+    },
+    {
+      "id": "hard-sol-c-multi_hop-11",
+      "family": "multi_hop",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "coverage_excluded",
+      "reverse_pred": "coverage_excluded",
+      "flipped": false,
+      "tv_distance": 0.0004304201829334886
+    },
+    {
+      "id": "hard-sol-c-multi_hop-12",
+      "family": "multi_hop",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "conservation_hold",
+      "reverse_pred": "conservation_hold",
+      "flipped": false,
+      "tv_distance": 0.00047768584706986417
+    },
+    {
+      "id": "hard-sol-c-multi_hop-13",
+      "family": "multi_hop",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "normal_release",
+      "reverse_pred": "normal_release",
+      "flipped": false,
+      "tv_distance": 1.6352079668102704e-06
+    }
+  ]
+}

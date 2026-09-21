@@ -1,0 +1,1723 @@
+{
+  "available_gold": 256,
+  "scored": 256,
+  "evaluated": 256,
+  "coverage": 1.0,
+  "missing": 0,
+  "invalid": 0,
+  "family_results": {
+    "evidence_interpretation": {
+      "n": 256,
+      "accuracy": 0.6328125,
+      "balanced_accuracy": 0.6321021431828545,
+      "macro_f1": 0.6297322842531563,
+      "source_groups": 256,
+      "invalid_or_missing": 0,
+      "all_decisions_correct_group_rate": 0.6328125,
+      "probability_rows": 256,
+      "probability_coverage": 1.0,
+      "nll": 1.0015039087344415,
+      "nll_valid_distributions_only": 1.0015039087344415,
+      "brier": 0.5415571259089169,
+      "brier_valid_distributions_only": 0.5415571259089169,
+      "nll_probability_floor": 1e-12,
+      "risk_coverage": [
+        {
+          "requested_coverage": 0.25,
+          "coverage": 0.25,
+          "n": 64,
+          "threshold": 0.9656751751899719,
+          "error": 0.171875
+        },
+        {
+          "requested_coverage": 0.5,
+          "coverage": 0.5,
+          "n": 128,
+          "threshold": 0.857674777507782,
+          "error": 0.2421875
+        },
+        {
+          "requested_coverage": 0.75,
+          "coverage": 0.75,
+          "n": 192,
+          "threshold": 0.694261372089386,
+          "error": 0.3125
+        },
+        {
+          "requested_coverage": 1,
+          "coverage": 1.0,
+          "n": 256,
+          "threshold": 0.37575656175613403,
+          "error": 0.3671875
+        }
+      ],
+      "reliability_bins": [
+        {
+          "lower": 0.3,
+          "upper": 0.4,
+          "n": 1,
+          "mean_confidence": 0.37575656175613403,
+          "accuracy": 0.0
+        },
+        {
+          "lower": 0.4,
+          "upper": 0.5,
+          "n": 10,
+          "mean_confidence": 0.4615813821554184,
+          "accuracy": 0.5
+        },
+        {
+          "lower": 0.5,
+          "upper": 0.6,
+          "n": 26,
+          "mean_confidence": 0.5500654050937066,
+          "accuracy": 0.46153846153846156
+        },
+        {
+          "lower": 0.6,
+          "upper": 0.7,
+          "n": 30,
+          "mean_confidence": 0.6434902449448904,
+          "accuracy": 0.5333333333333333
+        },
+        {
+          "lower": 0.7,
+          "upper": 0.8,
+          "n": 33,
+          "mean_confidence": 0.7398499792272394,
+          "accuracy": 0.45454545454545453
+        },
+        {
+          "lower": 0.8,
+          "upper": 0.9,
+          "n": 43,
+          "mean_confidence": 0.8473557136779608,
+          "accuracy": 0.6046511627906976
+        },
+        {
+          "lower": 0.9,
+          "upper": 1.0,
+          "n": 113,
+          "mean_confidence": 0.9627610186559964,
+          "accuracy": 0.7787610619469026
+        }
+      ],
+      "accuracy_cluster_bootstrap_95": [
+        0.57421875,
+        0.69140625
+      ]
+    }
+  },
+  "mean_family_balanced_accuracy": 0.6321021431828545,
+  "mean_family_macro_f1": 0.6297322842531563,
+  "analytic_uncertainty": {
+    "n": 0,
+    "rows": []
+  },
+  "errors": [
+    {
+      "id": "7c8720b7d7c27ed4a4f3",
+      "group_id": "019de63bbc9563d5ea6a",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "supported",
+      "correct": false,
+      "confidence": 0.9865944385528564,
+      "nll": 4.513496147764544,
+      "brier": 1.9515745398678144,
+      "status": "distribution",
+      "probabilities": [
+        0.010960075072944164,
+        0.9865944385528564,
+        0.0024455233942717314
+      ]
+    },
+    {
+      "id": "1222a8b6faa94a5698f9",
+      "group_id": "d63475996a7435b50f56",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.9464990496635437,
+      "nll": 3.1799854248529686,
+      "brier": 1.8145593048254862,
+      "status": "distribution",
+      "probabilities": [
+        0.011914662085473537,
+        0.9464990496635437,
+        0.0415862612426281
+      ]
+    },
+    {
+      "id": "bf5b74ce92796ea9a54e",
+      "group_id": "29da9fea61999657d95e",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.7359052896499634,
+      "nll": 1.4316538781174362,
+      "brier": 1.121443411768187,
+      "status": "distribution",
+      "probabilities": [
+        0.23891346156597137,
+        0.02518129162490368,
+        0.7359052896499634
+      ]
+    },
+    {
+      "id": "79284274a39e862aab1a",
+      "group_id": "d0ea33f0f4f2e5d37f47",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.9035659432411194,
+      "nll": 2.351406140296931,
+      "brier": 1.6350322774850954,
+      "status": "distribution",
+      "probabilities": [
+        0.09523515403270721,
+        0.9035659432411194,
+        0.0011988334590569139
+      ]
+    },
+    {
+      "id": "77a124d7c611c2d91d73",
+      "group_id": "1fbf1ce9749cd2c94bb1",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.8450508117675781,
+      "nll": 2.2933586545727613,
+      "brier": 1.5253616974561073,
+      "status": "distribution",
+      "probabilities": [
+        0.8450508117675781,
+        0.05402228981256485,
+        0.10092691332101822
+      ]
+    },
+    {
+      "id": "c92bec3f2dd9e49063c6",
+      "group_id": "d635ae6a45892d1265ea",
+      "family": "evidence_interpretation",
+      "gold_id": "supported",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.5297327637672424,
+      "nll": 0.7603827023407697,
+      "brier": 0.5641941076664866,
+      "status": "distribution",
+      "probabilities": [
+        0.46748748421669006,
+        0.5297327637672424,
+        0.002779782749712467
+      ]
+    },
+    {
+      "id": "953bac9a1b3adac6686b",
+      "group_id": "10d96ff7588b65843ef8",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.9962931275367737,
+      "nll": 7.003714014152797,
+      "brier": 1.9907916492898865,
+      "status": "distribution",
+      "probabilities": [
+        0.9962931275367737,
+        0.002798382891342044,
+        0.0009085015044547617
+      ]
+    },
+    {
+      "id": "889b489e5e812336c1d1",
+      "group_id": "b99c35b38dd7dcb121af",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.6869848370552063,
+      "nll": 1.2504431960678644,
+      "brier": 0.9819142885194079,
+      "status": "distribution",
+      "probabilities": [
+        0.02663728967308998,
+        0.6869848370552063,
+        0.28637784719467163
+      ]
+    },
+    {
+      "id": "f742acf26f377c368a3d",
+      "group_id": "eaa0302df474bab30c24",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.7732715010643005,
+      "nll": 2.0071252714474017,
+      "brier": 1.3557857570813348,
+      "status": "distribution",
+      "probabilities": [
+        0.09235410392284393,
+        0.7732715010643005,
+        0.13437440991401672
+      ]
+    },
+    {
+      "id": "ebe50f76bd880e741564",
+      "group_id": "29c82e092a9e18194945",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.6436758041381836,
+      "nll": 1.0655601359921463,
+      "brier": 0.8440921387963166,
+      "status": "distribution",
+      "probabilities": [
+        0.34453481435775757,
+        0.6436758041381836,
+        0.011789333075284958
+      ]
+    },
+    {
+      "id": "5d95ad65b07cb0470ec6",
+      "group_id": "40b9dec713ca597d0fdb",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "supported",
+      "correct": false,
+      "confidence": 0.6123024821281433,
+      "nll": 0.9905289165591862,
+      "brier": 0.7703434246964915,
+      "status": "distribution",
+      "probabilities": [
+        0.6123024821281433,
+        0.01631730981171131,
+        0.3713802099227905
+      ]
+    },
+    {
+      "id": "cd853e0198cbb5567fa9",
+      "group_id": "49b987c21984337f89d2",
+      "family": "evidence_interpretation",
+      "gold_id": "supported",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.9478260278701782,
+      "nll": 3.1785843928051736,
+      "brier": 1.8169301856457634,
+      "status": "distribution",
+      "probabilities": [
+        0.010529397055506706,
+        0.9478260278701782,
+        0.041644565761089325
+      ]
+    },
+    {
+      "id": "b1a97218b63bde4f99b6",
+      "group_id": "4ffcdc46a660538f460c",
+      "family": "evidence_interpretation",
+      "gold_id": "supported",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.5121443271636963,
+      "nll": 0.919148816812873,
+      "brier": 0.6315835614377243,
+      "status": "distribution",
+      "probabilities": [
+        0.5121443271636963,
+        0.3988583981990814,
+        0.08899732679128647
+      ]
+    },
+    {
+      "id": "6907d91b05e3b9aaf5d6",
+      "group_id": "1a0e69a7b89aaa630663",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "supported",
+      "correct": false,
+      "confidence": 0.9008764028549194,
+      "nll": 2.354387207944032,
+      "brier": 1.6307081696259293,
+      "status": "distribution",
+      "probabilities": [
+        0.9008764028549194,
+        0.004171885550022125,
+        0.09495167434215546
+      ]
+    },
+    {
+      "id": "163b4168a914f7da99be",
+      "group_id": "f1aef4a5f628754f00cb",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.8722622394561768,
+      "nll": 2.1366653053826474,
+      "brier": 1.5387749206350188,
+      "status": "distribution",
+      "probabilities": [
+        0.11804784089326859,
+        0.8722622394561768,
+        0.00968995876610279
+      ]
+    },
+    {
+      "id": "6a6ff1c4bb7c4bfa824b",
+      "group_id": "a4f69ca2df7e18a6bbf7",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.99054354429245,
+      "nll": 5.884501247570425,
+      "brier": 1.9756643322538965,
+      "status": "distribution",
+      "probabilities": [
+        0.006674229633063078,
+        0.002782233525067568,
+        0.99054354429245
+      ]
+    },
+    {
+      "id": "4b25493d9a684255cde8",
+      "group_id": "b774c3674ab5257dc60a",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.9490231275558472,
+      "nll": 3.8023221099961493,
+      "brier": 1.8573265413317273,
+      "status": "distribution",
+      "probabilities": [
+        0.02231888473033905,
+        0.9490231275558472,
+        0.028658010065555573
+      ]
+    },
+    {
+      "id": "b756cc8abd921df0fe8a",
+      "group_id": "b95fe2aea52e1145c3ef",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "supported",
+      "correct": false,
+      "confidence": 0.8587642312049866,
+      "nll": 2.0272609609935115,
+      "brier": 1.4915192917005828,
+      "status": "distribution",
+      "probabilities": [
+        0.13169574737548828,
+        0.009540009312331676,
+        0.8587642312049866
+      ]
+    },
+    {
+      "id": "f1a35954b406e52fb517",
+      "group_id": "3050dd5da587a2ac092b",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.7020021080970764,
+      "nll": 1.2288189156239817,
+      "brier": 0.9931966814146431,
+      "status": "distribution",
+      "probabilities": [
+        0.29263800382614136,
+        0.7020021080970764,
+        0.0053598517552018166
+      ]
+    },
+    {
+      "id": "49fd23a3371e227f8dfb",
+      "group_id": "d3a8984878a64e448816",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "supported",
+      "correct": false,
+      "confidence": 0.9556489586830139,
+      "nll": 3.2953647336011094,
+      "brier": 1.8405821536096567,
+      "status": "distribution",
+      "probabilities": [
+        0.9556489586830139,
+        0.0072964695282280445,
+        0.037054527550935745
+      ]
+    },
+    {
+      "id": "31ca1690920ad7356046",
+      "group_id": "ea88e7de1aa5e71cefa1",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.9192241430282593,
+      "nll": 3.209225353134694,
+      "brier": 1.767459613025349,
+      "status": "distribution",
+      "probabilities": [
+        0.9192241430282593,
+        0.04038788750767708,
+        0.04038788750767708
+      ]
+    },
+    {
+      "id": "791222052f0d2eb3f311",
+      "group_id": "14711601304fdcbd0d9f",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "supported",
+      "correct": false,
+      "confidence": 0.6845569014549255,
+      "nll": 1.253983551962035,
+      "brier": 0.9802248935575412,
+      "status": "distribution",
+      "probabilities": [
+        0.6845569014549255,
+        0.2853657603263855,
+        0.03007732890546322
+      ]
+    },
+    {
+      "id": "50beaae42079cdff15b7",
+      "group_id": "baf828525a1d4833d096",
+      "family": "evidence_interpretation",
+      "gold_id": "supported",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.9464990496635437,
+      "nll": 3.1799854248529686,
+      "brier": 1.8145593048254862,
+      "status": "distribution",
+      "probabilities": [
+        0.011914662085473537,
+        0.9464990496635437,
+        0.0415862612426281
+      ]
+    },
+    {
+      "id": "00fb87dc1821b79af892",
+      "group_id": "4e02ade260d44051c54c",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "contradicted",
+      "correct": false,
+      "confidence": 0.8391011357307434,
+      "nll": 3.050423950724907,
+      "brier": 1.6245498493860018,
+      "status": "distribution",
+      "probabilities": [
+        0.04733885079622269,
+        0.8391011357307434,
+        0.11355997622013092
+      ]
+    },
+    {
+      "id": "5ccae091e9240ce45a23",
+      "group_id": "b527aa7f1154151e03f1",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.6473303437232971,
+      "nll": 1.1848986700501596,
+      "brier": 0.9031808244174272,
+      "status": "distribution",
+      "probabilities": [
+        0.046892452985048294,
+        0.6473303437232971,
+        0.3057771623134613
+      ]
+    },
+    {
+      "id": "e5a5c05278a07d72cf7d",
+      "group_id": "e3367b9c13effce9eff6",
+      "family": "evidence_interpretation",
+      "gold_id": "supported",
+      "predicted_id": "contradicted",
+      "correct": false,
+      "confidence": 0.7759804725646973,
+      "nll": 6.378627775004025,
+      "brier": 1.6481807928305718,
+      "status": "distribution",
+      "probabilities": [
+        0.22232210636138916,
+        0.7759804725646973,
+        0.0016974506434053183
+      ]
+    },
+    {
+      "id": "3db2259cc891928f61ca",
+      "group_id": "5b4781246ba9630e7ff7",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "supported",
+      "correct": false,
+      "confidence": 0.8092672228813171,
+      "nll": 1.8366261933041637,
+      "brier": 1.3625835048515884,
+      "status": "distribution",
+      "probabilities": [
+        0.15935415029525757,
+        0.03137869015336037,
+        0.8092672228813171
+      ]
+    },
+    {
+      "id": "605879711bc2c2902e2e",
+      "group_id": "3145dcd9e7126f6f9480",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.4995180368423462,
+      "nll": 0.8191116673516711,
+      "brier": 0.5657562851699476,
+      "status": "distribution",
+      "probabilities": [
+        0.05965891480445862,
+        0.4408230781555176,
+        0.4995180368423462
+      ]
+    },
+    {
+      "id": "4b851a5664ae73d55e5a",
+      "group_id": "dea48c7f8445cecae79c",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "supported",
+      "correct": false,
+      "confidence": 0.5687015652656555,
+      "nll": 1.1893995436615923,
+      "brier": 0.8233774825155014,
+      "status": "distribution",
+      "probabilities": [
+        0.5687015652656555,
+        0.12689445912837982,
+        0.30440399050712585
+      ]
+    },
+    {
+      "id": "4059bdaf193a5cfb9640",
+      "group_id": "c36a01c4ec26a34df30e",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "supported",
+      "correct": false,
+      "confidence": 0.9216352701187134,
+      "nll": 2.706605705592696,
+      "brier": 1.7204774010169601,
+      "status": "distribution",
+      "probabilities": [
+        0.011601673439145088,
+        0.9216352701187134,
+        0.06676303595304489
+      ]
+    },
+    {
+      "id": "46ff4629085749e514d9",
+      "group_id": "321c2bc3833a99eec5ae",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.8551926612854004,
+      "nll": 2.4064284576141195,
+      "brier": 1.5621946870385046,
+      "status": "distribution",
+      "probabilities": [
+        0.05467063561081886,
+        0.8551926612854004,
+        0.09013664722442627
+      ]
+    },
+    {
+      "id": "f617ad96184927a38238",
+      "group_id": "95844d672ff4ebdd0f2a",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "supported",
+      "correct": false,
+      "confidence": 0.4749179184436798,
+      "nll": 2.244613350301237,
+      "brier": 1.2004955080050292,
+      "status": "distribution",
+      "probabilities": [
+        0.41911354660987854,
+        0.4749179184436798,
+        0.10596850514411926
+      ]
+    },
+    {
+      "id": "a93a479a49cf340dc43d",
+      "group_id": "ccf4b847401b9a4fbbcb",
+      "family": "evidence_interpretation",
+      "gold_id": "supported",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.6433137655258179,
+      "nll": 2.941122817443208,
+      "brier": 1.403371295829954,
+      "status": "distribution",
+      "probabilities": [
+        0.05280640348792076,
+        0.30387988686561584,
+        0.6433137655258179
+      ]
+    },
+    {
+      "id": "af4bf447669103535aee",
+      "group_id": "3a633f916ea3e55566b0",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "supported",
+      "correct": false,
+      "confidence": 0.8122620582580566,
+      "nll": 1.8329322837117799,
+      "brier": 1.3662364489700116,
+      "status": "distribution",
+      "probabilities": [
+        0.02779407612979412,
+        0.8122620582580566,
+        0.15994387865066528
+      ]
+    },
+    {
+      "id": "d948ed89d4bb8559c00a",
+      "group_id": "8b1063077c991ba80d18",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.9888193011283875,
+      "nll": 4.636243649417706,
+      "brier": 1.9584717077380505,
+      "status": "distribution",
+      "probabilities": [
+        0.009694043546915054,
+        0.9888193011283875,
+        0.0014866295969113708
+      ]
+    },
+    {
+      "id": "00b292bd6a22de8e7a8f",
+      "group_id": "e134760045c169af7cc0",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "supported",
+      "correct": false,
+      "confidence": 0.9368079304695129,
+      "nll": 3.190277088031215,
+      "brier": 1.7974677457131045,
+      "status": "distribution",
+      "probabilities": [
+        0.02203161083161831,
+        0.9368079304695129,
+        0.0411604642868042
+      ]
+    },
+    {
+      "id": "b00c9bee87fb42079e46",
+      "group_id": "879d4828a21a7675bdc4",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.5592525601387024,
+      "nll": 1.2061541885509348,
+      "brier": 0.8236733317446945,
+      "status": "distribution",
+      "probabilities": [
+        0.14140118658542633,
+        0.5592525601387024,
+        0.29934629797935486
+      ]
+    },
+    {
+      "id": "863262b68fda6384da94",
+      "group_id": "07af6742b4b4e15c7320",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.767865777015686,
+      "nll": 2.5141402903355385,
+      "brier": 1.457164954905163,
+      "status": "distribution",
+      "probabilities": [
+        0.08093246072530746,
+        0.767865777015686,
+        0.15120172500610352
+      ]
+    },
+    {
+      "id": "cddab650e0151f90ebf4",
+      "group_id": "7b6d020f2db4487e0168",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "supported",
+      "correct": false,
+      "confidence": 0.7235138416290283,
+      "nll": 1.323635658684797,
+      "brier": 1.0620913450167975,
+      "status": "distribution",
+      "probabilities": [
+        0.010320369154214859,
+        0.2661658525466919,
+        0.7235138416290283
+      ]
+    },
+    {
+      "id": "6a7b0ec78ceee5a62cfa",
+      "group_id": "c1947ea7dbaafad55d10",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "supported",
+      "correct": false,
+      "confidence": 0.7448439598083496,
+      "nll": 2.41958059953942,
+      "brier": 1.412409868627063,
+      "status": "distribution",
+      "probabilities": [
+        0.7448439598083496,
+        0.08895891904830933,
+        0.16619715094566345
+      ]
+    },
+    {
+      "id": "cf4813da0d219e3a3f7c",
+      "group_id": "62133783805a84ec464d",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "supported",
+      "correct": false,
+      "confidence": 0.7042046189308167,
+      "nll": 1.9756863344359046,
+      "brier": 1.2624898314589414,
+      "status": "distribution",
+      "probabilities": [
+        0.13866610825061798,
+        0.7042046189308167,
+        0.15712928771972656
+      ]
+    },
+    {
+      "id": "82eff4f71260376192d5",
+      "group_id": "c53b8c7b0c86b3ca1e2d",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.5845195055007935,
+      "nll": 4.2869650696519885,
+      "brier": 1.475749035262322,
+      "status": "distribution",
+      "probabilities": [
+        0.40173396468162537,
+        0.5845195055007935,
+        0.013746581971645355
+      ]
+    },
+    {
+      "id": "1316a514e9235e6dfa91",
+      "group_id": "9d4871023e7a91004020",
+      "family": "evidence_interpretation",
+      "gold_id": "supported",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.8136191368103027,
+      "nll": 1.706262943704307,
+      "brier": 1.331871427355225,
+      "status": "distribution",
+      "probabilities": [
+        0.0048379553481936455,
+        0.8136191368103027,
+        0.18154296278953552
+      ]
+    },
+    {
+      "id": "38da9e61a80990f336f5",
+      "group_id": "ec239c42489955839bbd",
+      "family": "evidence_interpretation",
+      "gold_id": "supported",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.7633455991744995,
+      "nll": 1.5200445096861768,
+      "brier": 1.1934451108369868,
+      "status": "distribution",
+      "probabilities": [
+        0.21870215237140656,
+        0.017952168360352516,
+        0.7633455991744995
+      ]
+    },
+    {
+      "id": "db3b355375321a06942d",
+      "group_id": "7dee7315d9108a0e2377",
+      "family": "evidence_interpretation",
+      "gold_id": "supported",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.9381298422813416,
+      "nll": 3.063866883000361,
+      "brier": 1.789085578371535,
+      "status": "distribution",
+      "probabilities": [
+        0.015163455158472061,
+        0.04670673608779907,
+        0.9381298422813416
+      ]
+    },
+    {
+      "id": "41b11c0929c9fd5f1616",
+      "group_id": "e592653ddd05f5dd1dde",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "contradicted",
+      "correct": false,
+      "confidence": 0.44421398639678955,
+      "nll": 1.5614490023396914,
+      "brier": 0.9413761587383167,
+      "status": "distribution",
+      "probabilities": [
+        0.44421398639678955,
+        0.34595420956611633,
+        0.20983180403709412
+      ]
+    },
+    {
+      "id": "ea901641c944b19551c3",
+      "group_id": "640236197d1eadad3d46",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "supported",
+      "correct": false,
+      "confidence": 0.9947178959846497,
+      "nll": 6.380296062239511,
+      "brier": 1.9860901922512104,
+      "status": "distribution",
+      "probabilities": [
+        0.003587513929232955,
+        0.9947178959846497,
+        0.0016946211690083146
+      ]
+    },
+    {
+      "id": "ef26f32e24ea500c5173",
+      "group_id": "fa78d0dcc28ca87089cc",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.8497095704078674,
+      "nll": 2.037860672275146,
+      "brier": 1.4787712810140812,
+      "status": "distribution",
+      "probabilities": [
+        0.8497095704078674,
+        0.019983254373073578,
+        0.1303071826696396
+      ]
+    },
+    {
+      "id": "8ba6eeb0d74f48318430",
+      "group_id": "aeeec59da9429e754eff",
+      "family": "evidence_interpretation",
+      "gold_id": "supported",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.6097590327262878,
+      "nll": 1.3696915585945268,
+      "brier": 0.9465567033438074,
+      "status": "distribution",
+      "probabilities": [
+        0.1360556185245514,
+        0.25418534874916077,
+        0.6097590327262878
+      ]
+    },
+    {
+      "id": "5eb471b8d596072acead",
+      "group_id": "ead468ac644b722ba6cb",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "supported",
+      "correct": false,
+      "confidence": 0.37575656175613403,
+      "nll": 1.1038138711609438,
+      "brier": 0.6735841145512369,
+      "status": "distribution",
+      "probabilities": [
+        0.3316039741039276,
+        0.37575656175613403,
+        0.29263949394226074
+      ]
+    },
+    {
+      "id": "e6afadcada03bc5747a2",
+      "group_id": "65da6bf3067671205edf",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.6095105409622192,
+      "nll": 2.7450990371185524,
+      "brier": 1.3535836506326673,
+      "status": "distribution",
+      "probabilities": [
+        0.0642419382929802,
+        0.3262474536895752,
+        0.6095105409622192
+      ]
+    },
+    {
+      "id": "c10cf7f1bfa48404b229",
+      "group_id": "5008172ed97001026250",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "contradicted",
+      "correct": false,
+      "confidence": 0.604454517364502,
+      "nll": 1.5034289073901435,
+      "brier": 1.0000703164585514,
+      "status": "distribution",
+      "probabilities": [
+        0.17317910492420197,
+        0.604454517364502,
+        0.22236637771129608
+      ]
+    },
+    {
+      "id": "edc4956b8d04b1e6ef13",
+      "group_id": "2bd47435e09f493a1cee",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.46303674578666687,
+      "nll": 1.144948943167557,
+      "brier": 0.7270392760065514,
+      "status": "distribution",
+      "probabilities": [
+        0.21872305870056152,
+        0.3182401657104492,
+        0.46303674578666687
+      ]
+    },
+    {
+      "id": "2d68f233c4475b8b7067",
+      "group_id": "73e23ad2dede1ff60e29",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.7358652353286743,
+      "nll": 1.5567083733381477,
+      "brier": 1.1671301882522918,
+      "status": "distribution",
+      "probabilities": [
+        0.05330590158700943,
+        0.21082890033721924,
+        0.7358652353286743
+      ]
+    },
+    {
+      "id": "d46285051d1bd655caab",
+      "group_id": "ec15b8b0e9ce558db9a6",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "supported",
+      "correct": false,
+      "confidence": 0.9067678451538086,
+      "nll": 2.4728688347592267,
+      "brier": 1.660735522371834,
+      "status": "distribution",
+      "probabilities": [
+        0.008889639750123024,
+        0.9067678451538086,
+        0.08434254676103592
+      ]
+    },
+    {
+      "id": "68f2c4befeeff13417f9",
+      "group_id": "32d5106059131c730856",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.5538785457611084,
+      "nll": 4.21580974613553,
+      "brier": 1.4635509372174225,
+      "status": "distribution",
+      "probabilities": [
+        0.43136104941368103,
+        0.014760364778339863,
+        0.5538785457611084
+      ]
+    },
+    {
+      "id": "a44900e7152920c94a63",
+      "group_id": "253eb102e443535de63a",
+      "family": "evidence_interpretation",
+      "gold_id": "supported",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.7033140659332275,
+      "nll": 1.601951780120478,
+      "brier": 1.1413082227354663,
+      "status": "distribution",
+      "probabilities": [
+        0.7033140659332275,
+        0.09518319368362427,
+        0.20150284469127655
+      ]
+    },
+    {
+      "id": "e94a0c066b55f1f5afe7",
+      "group_id": "4602220cc4204f7bf6a5",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "supported",
+      "correct": false,
+      "confidence": 0.9378929138183594,
+      "nll": 2.9391194092113366,
+      "brier": 1.776702768861238,
+      "status": "distribution",
+      "probabilities": [
+        0.009194779209792614,
+        0.05291230231523514,
+        0.9378929138183594
+      ]
+    },
+    {
+      "id": "88151c4e6354df70dc43",
+      "group_id": "1cb67d5b82901f6ced60",
+      "family": "evidence_interpretation",
+      "gold_id": "supported",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.9976751208305359,
+      "nll": 7.377327262606399,
+      "brier": 1.9941083868543559,
+      "status": "distribution",
+      "probabilities": [
+        0.001699659158475697,
+        0.9976751208305359,
+        0.0006252698367461562
+      ]
+    },
+    {
+      "id": "28ad58304edd59a6955c",
+      "group_id": "82a970e134211b9ada3a",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.7446454763412476,
+      "nll": 3.1698470179869433,
+      "brier": 1.5177575482834584,
+      "status": "distribution",
+      "probabilities": [
+        0.7446454763412476,
+        0.042010024189949036,
+        0.2133444845676422
+      ]
+    },
+    {
+      "id": "b8884a0f79234a84c8f6",
+      "group_id": "fb3971a4393eaba20a8a",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "supported",
+      "correct": false,
+      "confidence": 0.8039332032203674,
+      "nll": 1.718239101127632,
+      "brier": 1.3200013114124043,
+      "status": "distribution",
+      "probabilities": [
+        0.01668510027229786,
+        0.8039332032203674,
+        0.17938174307346344
+      ]
+    },
+    {
+      "id": "aa935dd0ec5cb3240d6d",
+      "group_id": "5b5b811cd7873cd82ae0",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.7615253925323486,
+      "nll": 1.5224318601402467,
+      "brier": 1.1915742545759183,
+      "status": "distribution",
+      "probabilities": [
+        0.7615253925323486,
+        0.02029396779835224,
+        0.21818065643310547
+      ]
+    },
+    {
+      "id": "57a2b9ceaf7608ab4ca3",
+      "group_id": "6d941b5d330b26984854",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.7240769863128662,
+      "nll": 1.4478575892223158,
+      "brier": 1.1110689194812673,
+      "status": "distribution",
+      "probabilities": [
+        0.040849629789590836,
+        0.23507337272167206,
+        0.7240769863128662
+      ]
+    },
+    {
+      "id": "29bc4275352d33d64ba5",
+      "group_id": "10024a18faa57e5dd083",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "supported",
+      "correct": false,
+      "confidence": 0.9886693358421326,
+      "nll": 4.761395308675357,
+      "brier": 1.9604406002704011,
+      "status": "distribution",
+      "probabilities": [
+        0.002776969224214554,
+        0.9886693358421326,
+        0.008553666062653065
+      ]
+    },
+    {
+      "id": "f7e1eceb2cdef9b61f42",
+      "group_id": "3a0a5069350000dc7b86",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.5204887390136719,
+      "nll": 0.77798710295792,
+      "brier": 0.5636402333282327,
+      "status": "distribution",
+      "probabilities": [
+        0.45932966470718384,
+        0.02018153667449951,
+        0.5204887390136719
+      ]
+    },
+    {
+      "id": "c89c589b82f67f1efed9",
+      "group_id": "7b288a6840c14cd0b50b",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.8668133020401001,
+      "nll": 2.267931735071267,
+      "brier": 1.5559105512370068,
+      "status": "distribution",
+      "probabilities": [
+        0.029660716652870178,
+        0.8668133020401001,
+        0.10352607816457748
+      ]
+    },
+    {
+      "id": "826eb331ffd3ba54531c",
+      "group_id": "f51ced7f62c63da120b7",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.5897977352142334,
+      "nll": 1.2779757311031863,
+      "brier": 0.8855973262607728,
+      "status": "distribution",
+      "probabilities": [
+        0.13160166144371033,
+        0.5897977352142334,
+        0.27860069274902344
+      ]
+    },
+    {
+      "id": "d0959fe5c45eaebf57fc",
+      "group_id": "56473f4b2e0c9e002e4b",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.6573609113693237,
+      "nll": 1.419522163377894,
+      "brier": 1.0171083734130248,
+      "status": "distribution",
+      "probabilities": [
+        0.10080955177545547,
+        0.6573609113693237,
+        0.2418295443058014
+      ]
+    },
+    {
+      "id": "93e84321a7b72620a4e9",
+      "group_id": "5eed55e24f102d21400a",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.528252124786377,
+      "nll": 1.1381817164085908,
+      "brier": 0.7638108507571018,
+      "status": "distribution",
+      "probabilities": [
+        0.528252124786377,
+        0.15134675800800323,
+        0.32040107250213623
+      ]
+    },
+    {
+      "id": "ae0a1a5391f7e4bfdf07",
+      "group_id": "da59d1382262b886a4f5",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "supported",
+      "correct": false,
+      "confidence": 0.9899874329566956,
+      "nll": 4.885063062804184,
+      "brier": 1.9650209781945296,
+      "status": "distribution",
+      "probabilities": [
+        0.00245393393561244,
+        0.9899874329566956,
+        0.0075586470775306225
+      ]
+    },
+    {
+      "id": "f1a4fbc0bdc842e5c24c",
+      "group_id": "d26ad3ab5f3516ba7853",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.6220058798789978,
+      "nll": 1.2248058173000531,
+      "brier": 0.8926750843343232,
+      "status": "distribution",
+      "probabilities": [
+        0.6220058798789978,
+        0.0841793343424797,
+        0.2938147485256195
+      ]
+    },
+    {
+      "id": "5233012849097b376452",
+      "group_id": "5d04a02ce4b3350c3da7",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "contradicted",
+      "correct": false,
+      "confidence": 0.7270007133483887,
+      "nll": 1.3188278652860135,
+      "brier": 1.0651923953087539,
+      "status": "distribution",
+      "probabilities": [
+        0.2674486041069031,
+        0.7270007133483887,
+        0.005550718400627375
+      ]
+    },
+    {
+      "id": "234b1833c251c148eca6",
+      "group_id": "ac79e4aeb08ad5a3db3a",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "supported",
+      "correct": false,
+      "confidence": 0.9202904105186462,
+      "nll": 2.958065906632465,
+      "brier": 1.7465638772957792,
+      "status": "distribution",
+      "probabilities": [
+        0.027790358290076256,
+        0.05191923677921295,
+        0.9202904105186462
+      ]
+    },
+    {
+      "id": "167e42ab2a86c086659e",
+      "group_id": "90a8571a5f4d63ba874d",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.5600550770759583,
+      "nll": 0.8297201700144725,
+      "brier": 0.6315787065131866,
+      "status": "distribution",
+      "probabilities": [
+        0.4361713230609894,
+        0.0037736210506409407,
+        0.5600550770759583
+      ]
+    },
+    {
+      "id": "f46e5cea5cc773cc1e55",
+      "group_id": "b9b4b0675c17fc891205",
+      "family": "evidence_interpretation",
+      "gold_id": "supported",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.7815622091293335,
+      "nll": 1.6214605372952573,
+      "brier": 1.2551032075369353,
+      "status": "distribution",
+      "probabilities": [
+        0.19760987162590027,
+        0.7815622091293335,
+        0.02082793042063713
+      ]
+    },
+    {
+      "id": "519f6a551c8cd714f169",
+      "group_id": "cdaf601e245dcdae5ca8",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.8023303151130676,
+      "nll": 2.0952349494209304,
+      "brier": 1.418359830313804,
+      "status": "distribution",
+      "probabilities": [
+        0.12304133176803589,
+        0.07462834566831589,
+        0.8023303151130676
+      ]
+    },
+    {
+      "id": "1c8b84e950d241ee2678",
+      "group_id": "b2d29e35ed2ff47b0a63",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.5761169195175171,
+      "nll": 1.551444725608302,
+      "brier": 0.9978660402619082,
+      "status": "distribution",
+      "probabilities": [
+        0.5761169195175171,
+        0.21194155514240265,
+        0.21194155514240265
+      ]
+    },
+    {
+      "id": "deb602ea441444e63376",
+      "group_id": "347a71c1d48136f366c4",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.6097590327262878,
+      "nll": 1.9946915171079784,
+      "brier": 1.1828161637930261,
+      "status": "distribution",
+      "probabilities": [
+        0.25418534874916077,
+        0.1360556185245514,
+        0.6097590327262878
+      ]
+    },
+    {
+      "id": "37c1c1b7b9bc7d63a414",
+      "group_id": "898ab1397f78b1234fe6",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "supported",
+      "correct": false,
+      "confidence": 0.7633455991744995,
+      "nll": 4.020044371323945,
+      "brier": 1.5949450788590949,
+      "status": "distribution",
+      "probabilities": [
+        0.21870215237140656,
+        0.017952168360352516,
+        0.7633455991744995
+      ]
+    },
+    {
+      "id": "339be17478fd505de052",
+      "group_id": "49fc31e988abeb4d1af4",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "contradicted",
+      "correct": false,
+      "confidence": 0.8122620582580566,
+      "nll": 1.8329322837117799,
+      "brier": 1.3662364489700116,
+      "status": "distribution",
+      "probabilities": [
+        0.15994387865066528,
+        0.02779407612979412,
+        0.8122620582580566
+      ]
+    },
+    {
+      "id": "ccad37627cd9fb80e8c3",
+      "group_id": "e3c4b7bb6abd4b0f9ed7",
+      "family": "evidence_interpretation",
+      "gold_id": "supported",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.6206701993942261,
+      "nll": 0.9769554702838287,
+      "brier": 0.7740475190276581,
+      "status": "distribution",
+      "probabilities": [
+        0.6206701993942261,
+        0.37645548582077026,
+        0.0028742735739797354
+      ]
+    },
+    {
+      "id": "7371bc37a5d8c3123e62",
+      "group_id": "66f64834e748bce1e492",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "contradicted",
+      "correct": false,
+      "confidence": 0.6473303437232971,
+      "nll": 1.1848986700501596,
+      "brier": 0.9031808244174272,
+      "status": "distribution",
+      "probabilities": [
+        0.046892452985048294,
+        0.6473303437232971,
+        0.3057771623134613
+      ]
+    },
+    {
+      "id": "849595efd94be98c7da2",
+      "group_id": "d22edccd7cc883520720",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "contradicted",
+      "correct": false,
+      "confidence": 0.9830724000930786,
+      "nll": 4.392072686226943,
+      "brier": 1.941855105243127,
+      "status": "distribution",
+      "probabilities": [
+        0.012375053018331528,
+        0.004552528727799654,
+        0.9830724000930786
+      ]
+    },
+    {
+      "id": "44e3cc8a823c330237ac",
+      "group_id": "f3c4d05d33cd68629275",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "contradicted",
+      "correct": false,
+      "confidence": 0.5592525601387024,
+      "nll": 1.9561541338616193,
+      "brier": 1.1395635545325515,
+      "status": "distribution",
+      "probabilities": [
+        0.14140118658542633,
+        0.5592525601387024,
+        0.29934629797935486
+      ]
+    },
+    {
+      "id": "329ea452c7b54c0b93c6",
+      "group_id": "ac50dd963bb03ae162e9",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.7108647227287292,
+      "nll": 2.841273246838453,
+      "brier": 1.4452921322009051,
+      "status": "distribution",
+      "probabilities": [
+        0.05835132300853729,
+        0.23078398406505585,
+        0.7108647227287292
+      ]
+    },
+    {
+      "id": "06bcc5d48dfcdbbfb9b6",
+      "group_id": "f0c235782bcbccef81aa",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "supported",
+      "correct": false,
+      "confidence": 0.8711382746696472,
+      "nll": 2.1379546905866444,
+      "brier": 1.5371100904131767,
+      "status": "distribution",
+      "probabilities": [
+        0.8711382746696472,
+        0.11789572983980179,
+        0.010966010391712189
+      ]
+    },
+    {
+      "id": "bce88982f2617ff2961f",
+      "group_id": "417b3e8705b13b922503",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "supported",
+      "correct": false,
+      "confidence": 0.8976249694824219,
+      "nll": 2.3580029085155116,
+      "brier": 1.625523799984717,
+      "status": "distribution",
+      "probabilities": [
+        0.007765977643430233,
+        0.8976249694824219,
+        0.09460897743701935
+      ]
+    },
+    {
+      "id": "aad50ccc8e3b74364471",
+      "group_id": "c628ccd80d46eb264efd",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.9792018532752991,
+      "nll": 4.396017658463669,
+      "brier": 1.9344073186285224,
+      "status": "distribution",
+      "probabilities": [
+        0.008471756242215633,
+        0.012326329946517944,
+        0.9792018532752991
+      ]
+    },
+    {
+      "id": "710a83c7f9cced481026",
+      "group_id": "f05034cd120a032118d6",
+      "family": "evidence_interpretation",
+      "gold_id": "supported",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.8749284148216248,
+      "nll": 2.25861330963236,
+      "brier": 1.5678518081376678,
+      "status": "distribution",
+      "probabilities": [
+        0.020576344802975655,
+        0.8749284148216248,
+        0.10449528694152832
+      ]
+    },
+    {
+      "id": "56f0645542b8dcf54589",
+      "group_id": "21b792a5ea1030440d36",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "contradicted",
+      "correct": false,
+      "confidence": 0.5501836538314819,
+      "nll": 0.8475031499201569,
+      "brier": 0.6297883065973253,
+      "status": "distribution",
+      "probabilities": [
+        0.021332932636141777,
+        0.4284834563732147,
+        0.5501836538314819
+      ]
+    },
+    {
+      "id": "c5dc5b289ab9ceaead78",
+      "group_id": "fca33c5f612cc40578eb",
+      "family": "evidence_interpretation",
+      "gold_id": "contradicted",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.8439652919769287,
+      "nll": 1.9196440871443603,
+      "brier": 1.4405559211474601,
+      "status": "distribution",
+      "probabilities": [
+        0.8439652919769287,
+        0.14665915071964264,
+        0.009375608526170254
+      ]
+    },
+    {
+      "id": "2ea043db8426be5a9d09",
+      "group_id": "c52eb6faac361c6941fc",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "supported",
+      "correct": false,
+      "confidence": 0.5793864727020264,
+      "nll": 1.0457856131679741,
+      "brier": 0.7611387055657906,
+      "status": "distribution",
+      "probabilities": [
+        0.5793864727020264,
+        0.06919784098863602,
+        0.35141563415527344
+      ]
+    },
+    {
+      "id": "19192166b68f06ac2afc",
+      "group_id": "f727d5e59e0bc9fa5229",
+      "family": "evidence_interpretation",
+      "gold_id": "insufficient",
+      "predicted_id": "contradicted",
+      "correct": false,
+      "confidence": 0.49486470222473145,
+      "nll": 0.7034708826135083,
+      "brier": 0.5001582275655307,
+      "status": "distribution",
+      "probabilities": [
+        0.49486470222473145,
+        0.49486470222473145,
+        0.010270589031279087
+      ]
+    },
+    {
+      "id": "743909f6c95a8eb68a6d",
+      "group_id": "82d46ecf7cdd7fc1a097",
+      "family": "evidence_interpretation",
+      "gold_id": "supported",
+      "predicted_id": "insufficient",
+      "correct": false,
+      "confidence": 0.9673014283180237,
+      "nll": 3.5332452682788476,
+      "brier": 1.8781175106061836,
+      "status": "distribution",
+      "probabilities": [
+        0.0034886347129940987,
+        0.029209967702627182,
+        0.9673014283180237
+      ]
+    }
+  ],
+  "limitations": [
+    "All gold rows count in accuracy, including missing/invalid/unparsed predictions.",
+    "Native decisions have no probability estimates; one-hot distributions are not fabricated.",
+    "Risk/coverage is descriptive; tied confidence values remain together.",
+    "Analytic event hard-label accuracy measures modal-class agreement, not observed-event accuracy."
+  ]
+}

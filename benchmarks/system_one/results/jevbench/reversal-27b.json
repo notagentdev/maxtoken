@@ -1,0 +1,1121 @@
+{
+  "model": "downloads/Qwen3.8-27B-MTPLX-4bit",
+  "n": 111,
+  "forward_correct": 84,
+  "reverse_correct": 77,
+  "argmax_flips": 23,
+  "mean_tv": 0.1340978128483904,
+  "max_tv": 0.5724894776940346,
+  "rows": [
+    {
+      "id": "hard-opus-a-long_policy-01",
+      "family": "long_policy",
+      "forward_correct": true,
+      "reverse_correct": false,
+      "forward_pred": "pay_subject_to_15000_sublimit",
+      "reverse_pred": "pay_subject_to_10000_sublimit",
+      "flipped": true,
+      "tv_distance": 0.2463532704859972
+    },
+    {
+      "id": "hard-opus-a-long_policy-04",
+      "family": "long_policy",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "vp_and_finance_director",
+      "reverse_pred": "vp_and_finance_director",
+      "flipped": false,
+      "tv_distance": 0.21544009004719555
+    },
+    {
+      "id": "hard-opus-a-long_policy-08",
+      "family": "long_policy",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "parts_covered_labour_charged",
+      "reverse_pred": "parts_covered_labour_charged",
+      "flipped": false,
+      "tv_distance": 0.04406134830787778
+    },
+    {
+      "id": "hard-opus-a-long_policy-09",
+      "family": "long_policy",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "license_required",
+      "reverse_pred": "license_required",
+      "flipped": false,
+      "tv_distance": 0.01173881976865232
+    },
+    {
+      "id": "hard-opus-a-long_policy-11",
+      "family": "long_policy",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.15515341982245445
+    },
+    {
+      "id": "hard-opus-a-long_policy-13",
+      "family": "long_policy",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.1461677849292755
+    },
+    {
+      "id": "hard-opus-a-long_policy-17",
+      "family": "long_policy",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "database_oncall",
+      "reverse_pred": "database_oncall",
+      "flipped": false,
+      "tv_distance": 0.014841708121821284
+    },
+    {
+      "id": "hard-opus-a-long_policy-19",
+      "family": "long_policy",
+      "forward_correct": true,
+      "reverse_correct": false,
+      "forward_pred": "no",
+      "reverse_pred": "yes",
+      "flipped": true,
+      "tv_distance": 0.5271098725497723
+    },
+    {
+      "id": "hard-opus-a-probability-03",
+      "family": "probability",
+      "forward_correct": true,
+      "reverse_correct": false,
+      "forward_pred": "yes",
+      "reverse_pred": "no",
+      "flipped": true,
+      "tv_distance": 0.20578505098819733
+    },
+    {
+      "id": "hard-opus-a-probability-04",
+      "family": "probability",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "late",
+      "reverse_pred": "late",
+      "flipped": false,
+      "tv_distance": 0.11088704317808151
+    },
+    {
+      "id": "hard-opus-a-probability-07",
+      "family": "probability",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "escalated",
+      "reverse_pred": "escalated",
+      "flipped": false,
+      "tv_distance": 0.11718384549021721
+    },
+    {
+      "id": "hard-opus-a-probability-08",
+      "family": "probability",
+      "forward_correct": false,
+      "reverse_correct": true,
+      "forward_pred": "yes",
+      "reverse_pred": "no",
+      "flipped": true,
+      "tv_distance": 0.21353138983249664
+    },
+    {
+      "id": "hard-opus-a-temporal_numeric-03",
+      "family": "temporal_numeric",
+      "forward_correct": true,
+      "reverse_correct": false,
+      "forward_pred": "yes",
+      "reverse_pred": "no",
+      "flipped": true,
+      "tv_distance": 0.3475816026329994
+    },
+    {
+      "id": "hard-opus-a-temporal_numeric-06",
+      "family": "temporal_numeric",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 0.010545697063207626
+    },
+    {
+      "id": "hard-opus-a-temporal_numeric-07",
+      "family": "temporal_numeric",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "sep_26",
+      "reverse_pred": "sep_26",
+      "flipped": false,
+      "tv_distance": 0.1522095836699009
+    },
+    {
+      "id": "hard-opus-a-temporal_numeric-09",
+      "family": "temporal_numeric",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 0.025012383237481117
+    },
+    {
+      "id": "hard-opus-a-temporal_numeric-12",
+      "family": "temporal_numeric",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "3",
+      "reverse_pred": "3",
+      "flipped": false,
+      "tv_distance": 0.08691538870334625
+    },
+    {
+      "id": "hard-opus-b-ambiguous-02",
+      "family": "ambiguous",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "real_incident",
+      "reverse_pred": "real_incident",
+      "flipped": false,
+      "tv_distance": 0.06533046369440854
+    },
+    {
+      "id": "hard-opus-b-ambiguous-03",
+      "family": "ambiguous",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "time_barred",
+      "reverse_pred": "time_barred",
+      "flipped": false,
+      "tv_distance": 0.141536183655262
+    },
+    {
+      "id": "hard-opus-b-ambiguous-07",
+      "family": "ambiguous",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "within_policy",
+      "reverse_pred": "within_policy",
+      "flipped": false,
+      "tv_distance": 0.02978422911837697
+    },
+    {
+      "id": "hard-opus-b-ambiguous-09",
+      "family": "ambiguous",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "legitimate",
+      "reverse_pred": "legitimate",
+      "flipped": false,
+      "tv_distance": 0.08480062987655401
+    },
+    {
+      "id": "hard-opus-b-ambiguous-10",
+      "family": "ambiguous",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "ask_user_which_alex",
+      "reverse_pred": "ask_user_which_alex",
+      "flipped": false,
+      "tv_distance": 0.1296427920460701
+    },
+    {
+      "id": "hard-opus-b-ambiguous-11",
+      "family": "ambiguous",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "cannot_determine",
+      "reverse_pred": "cannot_determine",
+      "flipped": false,
+      "tv_distance": 0.013486872659996152
+    },
+    {
+      "id": "hard-opus-b-ambiguous-13",
+      "family": "ambiguous",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "cannot_determine",
+      "reverse_pred": "cannot_determine",
+      "flipped": false,
+      "tv_distance": 0.022152560195536353
+    },
+    {
+      "id": "hard-opus-b-multi_hop-03",
+      "family": "multi_hop",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "tier3_cfo",
+      "reverse_pred": "tier3_cfo",
+      "flipped": false,
+      "tv_distance": 0.21410983428359032
+    },
+    {
+      "id": "hard-opus-b-multi_hop-04",
+      "family": "multi_hop",
+      "forward_correct": true,
+      "reverse_correct": false,
+      "forward_pred": "bjorn",
+      "reverse_pred": "no_page_ticket_only",
+      "flipped": true,
+      "tv_distance": 0.25867139687761664
+    },
+    {
+      "id": "hard-opus-b-multi_hop-05",
+      "family": "multi_hop",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "4",
+      "reverse_pred": "3",
+      "flipped": true,
+      "tv_distance": 0.29659772850573063
+    },
+    {
+      "id": "hard-opus-b-multi_hop-07",
+      "family": "multi_hop",
+      "forward_correct": true,
+      "reverse_correct": false,
+      "forward_pred": "credit_20_percent",
+      "reverse_pred": "credit_25_percent",
+      "flipped": true,
+      "tv_distance": 0.3219398306682706
+    },
+    {
+      "id": "hard-opus-b-multi_hop-08",
+      "family": "multi_hop",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 0.03853126987814903
+    },
+    {
+      "id": "hard-opus-b-probability-01",
+      "family": "probability",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "merchant_wins",
+      "reverse_pred": "merchant_wins",
+      "flipped": false,
+      "tv_distance": 0.05064161214977503
+    },
+    {
+      "id": "hard-opus-b-probability-02",
+      "family": "probability",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "bad_push",
+      "reverse_pred": "bad_push",
+      "flipped": false,
+      "tv_distance": 0.15481791645288467
+    },
+    {
+      "id": "hard-opus-b-probability-03",
+      "family": "probability",
+      "forward_correct": true,
+      "reverse_correct": false,
+      "forward_pred": "yes",
+      "reverse_pred": "no",
+      "flipped": true,
+      "tv_distance": 0.5724894776940346
+    },
+    {
+      "id": "hard-opus-b-probability-04",
+      "family": "probability",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "attended",
+      "reverse_pred": "attended",
+      "flipped": false,
+      "tv_distance": 0.2249741330742836
+    },
+    {
+      "id": "hard-opus-b-probability-06",
+      "family": "probability",
+      "forward_correct": true,
+      "reverse_correct": false,
+      "forward_pred": "upheld",
+      "reverse_pred": "overturned",
+      "flipped": true,
+      "tv_distance": 0.25864312797784805
+    },
+    {
+      "id": "hard-opus-b-tradeoff-01",
+      "family": "tradeoff",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "escalate_to_security",
+      "reverse_pred": "escalate_to_security",
+      "flipped": false,
+      "tv_distance": 0.1723932872992009
+    },
+    {
+      "id": "hard-opus-b-tradeoff-03",
+      "family": "tradeoff",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "order_b",
+      "reverse_pred": "order_b",
+      "flipped": false,
+      "tv_distance": 0.022436093306168914
+    },
+    {
+      "id": "hard-opus-b-tradeoff-06",
+      "family": "tradeoff",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 0.14360855519771576
+    },
+    {
+      "id": "hard-opus-b-tradeoff-07",
+      "family": "tradeoff",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "p0_fix_24h",
+      "reverse_pred": "p0_fix_24h",
+      "flipped": false,
+      "tv_distance": 0.1126812065631384
+    },
+    {
+      "id": "hard-opus-b-tradeoff-08",
+      "family": "tradeoff",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 0.0879605058580637
+    },
+    {
+      "id": "hard-opus-b-tradeoff-12",
+      "family": "tradeoff",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "refund_now",
+      "reverse_pred": "refund_now",
+      "flipped": false,
+      "tv_distance": 0.0072083193736034445
+    },
+    {
+      "id": "hard-opus-c-long_policy-02",
+      "family": "long_policy",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "erase_but_retain_transaction_records",
+      "reverse_pred": "erase_but_retain_transaction_records",
+      "flipped": false,
+      "tv_distance": 0.16732741030864418
+    },
+    {
+      "id": "hard-opus-c-long_policy-03",
+      "family": "long_policy",
+      "forward_correct": true,
+      "reverse_correct": false,
+      "forward_pred": "eur_400",
+      "reverse_pred": "eur_0",
+      "flipped": true,
+      "tv_distance": 0.2745450623333454
+    },
+    {
+      "id": "hard-opus-c-long_policy-04",
+      "family": "long_policy",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.03412927594035864
+    },
+    {
+      "id": "hard-opus-c-long_policy-05",
+      "family": "long_policy",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "2",
+      "reverse_pred": "3",
+      "flipped": true,
+      "tv_distance": 0.25238221511244774
+    },
+    {
+      "id": "hard-opus-c-long_policy-08",
+      "family": "long_policy",
+      "forward_correct": false,
+      "reverse_correct": true,
+      "forward_pred": "2",
+      "reverse_pred": "1",
+      "flipped": true,
+      "tv_distance": 0.44413055083714426
+    },
+    {
+      "id": "hard-opus-c-long_policy-10",
+      "family": "long_policy",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "credit_minus_restocking_fee",
+      "reverse_pred": "credit_minus_restocking_fee",
+      "flipped": false,
+      "tv_distance": 0.1049911854788661
+    },
+    {
+      "id": "hard-opus-c-long_policy-11",
+      "family": "long_policy",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.1622483804821968
+    },
+    {
+      "id": "hard-opus-c-probability-03",
+      "family": "probability",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "kuznets_technik",
+      "reverse_pred": "kuznets_technik",
+      "flipped": false,
+      "tv_distance": 0.061995248310267925
+    },
+    {
+      "id": "hard-opus-c-temporal_numeric-02",
+      "family": "temporal_numeric",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 0.0
+    },
+    {
+      "id": "hard-opus-c-temporal_numeric-03",
+      "family": "temporal_numeric",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "eur_688_00",
+      "reverse_pred": "eur_693_90",
+      "flipped": true,
+      "tv_distance": 0.455312542617321
+    },
+    {
+      "id": "hard-opus-c-temporal_numeric-04",
+      "family": "temporal_numeric",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "usd_2303_01",
+      "reverse_pred": "usd_2303_33",
+      "flipped": true,
+      "tv_distance": 0.23112700507044792
+    },
+    {
+      "id": "hard-opus-c-temporal_numeric-06",
+      "family": "temporal_numeric",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "none_declined",
+      "reverse_pred": "none_declined",
+      "flipped": false,
+      "tv_distance": 0.32111737690865993
+    },
+    {
+      "id": "hard-opus-c-temporal_numeric-08",
+      "family": "temporal_numeric",
+      "forward_correct": true,
+      "reverse_correct": false,
+      "forward_pred": "eur_498_81",
+      "reverse_pred": "eur_497_40",
+      "flipped": true,
+      "tv_distance": 0.16408970579504967
+    },
+    {
+      "id": "hard-opus-c-temporal_numeric-12",
+      "family": "temporal_numeric",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "expired_30_month_cap",
+      "reverse_pred": "expired_30_month_cap",
+      "flipped": false,
+      "tv_distance": 0.12587850913405418
+    },
+    {
+      "id": "hard-sol-a-adversarial-01",
+      "family": "adversarial",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "deny_missing_approval",
+      "reverse_pred": "deny_missing_approval",
+      "flipped": false,
+      "tv_distance": 0.013434360385872424
+    },
+    {
+      "id": "hard-sol-a-adversarial-06",
+      "family": "adversarial",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 0.010545697063207626
+    },
+    {
+      "id": "hard-sol-a-adversarial-07",
+      "family": "adversarial",
+      "forward_correct": true,
+      "reverse_correct": false,
+      "forward_pred": "retain_until_2031",
+      "reverse_pred": "delete_now",
+      "flipped": true,
+      "tv_distance": 0.5309509374201298
+    },
+    {
+      "id": "hard-sol-a-adversarial-08",
+      "family": "adversarial",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.021420514211058617
+    },
+    {
+      "id": "hard-sol-a-adversarial-09",
+      "family": "adversarial",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "2",
+      "reverse_pred": "2",
+      "flipped": false,
+      "tv_distance": 0.028595613344805315
+    },
+    {
+      "id": "hard-sol-a-adversarial-11",
+      "family": "adversarial",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "standard_research",
+      "reverse_pred": "standard_research",
+      "flipped": false,
+      "tv_distance": 0.0033720724168233573
+    },
+    {
+      "id": "hard-sol-a-multi_hop-01",
+      "family": "multi_hop",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "accept_s2_dusk",
+      "reverse_pred": "accept_s2_dusk",
+      "flipped": false,
+      "tv_distance": 0.040666083921678364
+    },
+    {
+      "id": "hard-sol-a-multi_hop-02",
+      "family": "multi_hop",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "heron_q2",
+      "reverse_pred": "heron_q2",
+      "flipped": false,
+      "tv_distance": 0.04163665883243084
+    },
+    {
+      "id": "hard-sol-a-multi_hop-05",
+      "family": "multi_hop",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "require_director",
+      "reverse_pred": "require_director",
+      "flipped": false,
+      "tv_distance": 0.03397921333089471
+    },
+    {
+      "id": "hard-sol-a-multi_hop-07",
+      "family": "multi_hop",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "admit",
+      "reverse_pred": "admit",
+      "flipped": false,
+      "tv_distance": 0.011653946712613106
+    },
+    {
+      "id": "hard-sol-a-multi_hop-08",
+      "family": "multi_hop",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "local_maintenance",
+      "reverse_pred": "local_maintenance",
+      "flipped": false,
+      "tv_distance": 0.23732538160402328
+    },
+    {
+      "id": "hard-sol-a-multi_hop-09",
+      "family": "multi_hop",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "require_steward",
+      "reverse_pred": "require_steward",
+      "flipped": false,
+      "tv_distance": 0.06403324380517006
+    },
+    {
+      "id": "hard-sol-a-multi_hop-10",
+      "family": "multi_hop",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "reduce_to_30_days",
+      "reverse_pred": "reduce_to_30_days",
+      "flipped": false,
+      "tv_distance": 0.1741303103044629
+    },
+    {
+      "id": "hard-sol-a-multi_hop-12",
+      "family": "multi_hop",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "needs_authentication",
+      "reverse_pred": "needs_authentication",
+      "flipped": false,
+      "tv_distance": 0.2819495464209467
+    },
+    {
+      "id": "hard-sol-a-trap-02",
+      "family": "trap",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 0.005554558709263802
+    },
+    {
+      "id": "hard-sol-a-trap-04",
+      "family": "trap",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 0.00477630621753633
+    },
+    {
+      "id": "hard-sol-a-trap-05",
+      "family": "trap",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "0",
+      "reverse_pred": "0",
+      "flipped": false,
+      "tv_distance": 0.11370828689541668
+    },
+    {
+      "id": "hard-sol-a-trap-06",
+      "family": "trap",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "keep_open_unresolved",
+      "reverse_pred": "keep_open_unresolved",
+      "flipped": false,
+      "tv_distance": 0.002043237444013357
+    },
+    {
+      "id": "hard-sol-a-trap-08",
+      "family": "trap",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "late",
+      "reverse_pred": "late",
+      "flipped": false,
+      "tv_distance": 0.0004913487027806696
+    },
+    {
+      "id": "hard-sol-a-trap-10",
+      "family": "trap",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "blocked_second_review",
+      "reverse_pred": "blocked_second_review",
+      "flipped": false,
+      "tv_distance": 0.0014683661429444328
+    },
+    {
+      "id": "hard-sol-a-trap-13",
+      "family": "trap",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 0.0016684956208337098
+    },
+    {
+      "id": "hard-sol-a-trap-15",
+      "family": "trap",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 0.1838269978761673
+    },
+    {
+      "id": "hard-sol-b-judge_hard-01",
+      "family": "judge_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.1148788072168827
+    },
+    {
+      "id": "hard-sol-b-judge_hard-02",
+      "family": "judge_hard",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.01134110614657402
+    },
+    {
+      "id": "hard-sol-b-judge_hard-05",
+      "family": "judge_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.07151482254266739
+    },
+    {
+      "id": "hard-sol-b-judge_hard-08",
+      "family": "judge_hard",
+      "forward_correct": false,
+      "reverse_correct": true,
+      "forward_pred": "yes",
+      "reverse_pred": "no",
+      "flipped": true,
+      "tv_distance": 0.21512596309185028
+    },
+    {
+      "id": "hard-sol-b-judge_hard-10",
+      "family": "judge_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 0.0
+    },
+    {
+      "id": "hard-sol-b-judge_hard-14",
+      "family": "judge_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 0.034154216293245554
+    },
+    {
+      "id": "hard-sol-b-judge_hard-15",
+      "family": "judge_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.0
+    },
+    {
+      "id": "hard-sol-b-judge_hard-18",
+      "family": "judge_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 0.002645016647875309
+    },
+    {
+      "id": "hard-sol-b-long_policy-01",
+      "family": "long_policy",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "reject_entire_claim",
+      "reverse_pred": "reject_entire_claim",
+      "flipped": false,
+      "tv_distance": 0.20861218310892582
+    },
+    {
+      "id": "hard-sol-b-long_policy-02",
+      "family": "long_policy",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "deny_current_export",
+      "reverse_pred": "deny_current_export",
+      "flipped": false,
+      "tv_distance": 0.04127221298404038
+    },
+    {
+      "id": "hard-sol-b-long_policy-05",
+      "family": "long_policy",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "delete_profile_omar_april_and_table",
+      "reverse_pred": "delete_profile_omar_april_and_table",
+      "flipped": false,
+      "tv_distance": 0.18086215015500784
+    },
+    {
+      "id": "hard-sol-b-long_policy-06",
+      "family": "long_policy",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "east_ward",
+      "reverse_pred": "east_ward",
+      "flipped": false,
+      "tv_distance": 0.39677588269114494
+    },
+    {
+      "id": "hard-sol-b-routing_hard-01",
+      "family": "routing_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "office_file_repair",
+      "reverse_pred": "office_file_repair",
+      "flipped": false,
+      "tv_distance": 0.0001777234883775236
+    },
+    {
+      "id": "hard-sol-b-routing_hard-02",
+      "family": "routing_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "ledger_reconciliation",
+      "reverse_pred": "ledger_reconciliation",
+      "flipped": false,
+      "tv_distance": 0.0029780054592265515
+    },
+    {
+      "id": "hard-sol-b-routing_hard-03",
+      "family": "routing_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "network_dns",
+      "reverse_pred": "network_dns",
+      "flipped": false,
+      "tv_distance": 0.0020846691622864455
+    },
+    {
+      "id": "hard-sol-b-routing_hard-07",
+      "family": "routing_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "release_notarization",
+      "reverse_pred": "release_notarization",
+      "flipped": false,
+      "tv_distance": 0.0007180054135460523
+    },
+    {
+      "id": "hard-sol-b-routing_hard-09",
+      "family": "routing_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "source_access",
+      "reverse_pred": "source_access",
+      "flipped": false,
+      "tv_distance": 0.0046837308327667415
+    },
+    {
+      "id": "hard-sol-b-temporal_numeric-01",
+      "family": "temporal_numeric",
+      "forward_correct": false,
+      "reverse_correct": true,
+      "forward_pred": "within_window",
+      "reverse_pred": "late_by_under_2h",
+      "flipped": true,
+      "tv_distance": 0.47382109984755516
+    },
+    {
+      "id": "hard-sol-b-temporal_numeric-02",
+      "family": "temporal_numeric",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "under_100gb_below",
+      "reverse_pred": "at_least_100gb_below",
+      "flipped": true,
+      "tv_distance": 0.46028515696525574
+    },
+    {
+      "id": "hard-sol-b-temporal_numeric-03",
+      "family": "temporal_numeric",
+      "forward_correct": false,
+      "reverse_correct": true,
+      "forward_pred": "12_credits",
+      "reverse_pred": "9_credits",
+      "flipped": true,
+      "tv_distance": 0.40252093225717545
+    },
+    {
+      "id": "hard-sol-b-temporal_numeric-04",
+      "family": "temporal_numeric",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "clear_fail",
+      "reverse_pred": "narrow_fail",
+      "flipped": true,
+      "tv_distance": 0.23010088503360748
+    },
+    {
+      "id": "hard-sol-c-judge_hard-03",
+      "family": "judge_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 0.007900680415332317
+    },
+    {
+      "id": "hard-sol-c-judge_hard-05",
+      "family": "judge_hard",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 0.0518798828125
+    },
+    {
+      "id": "hard-sol-c-judge_hard-07",
+      "family": "judge_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 0.21512337774038315
+    },
+    {
+      "id": "hard-sol-c-judge_hard-08",
+      "family": "judge_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 0.08865827322006226
+    },
+    {
+      "id": "hard-sol-c-judge_hard-09",
+      "family": "judge_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "yes",
+      "reverse_pred": "yes",
+      "flipped": false,
+      "tv_distance": 0.11311843991279602
+    },
+    {
+      "id": "hard-sol-c-judge_hard-10",
+      "family": "judge_hard",
+      "forward_correct": false,
+      "reverse_correct": false,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 0.12245935201644897
+    },
+    {
+      "id": "hard-sol-c-judge_hard-11",
+      "family": "judge_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 0.003983627073466778
+    },
+    {
+      "id": "hard-sol-c-judge_hard-13",
+      "family": "judge_hard",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "no",
+      "reverse_pred": "no",
+      "flipped": false,
+      "tv_distance": 0.09240172803401947
+    },
+    {
+      "id": "hard-sol-c-judge_hard-15",
+      "family": "judge_hard",
+      "forward_correct": true,
+      "reverse_correct": false,
+      "forward_pred": "yes",
+      "reverse_pred": "no",
+      "flipped": true,
+      "tv_distance": 0.3807971142232418
+    },
+    {
+      "id": "hard-sol-c-multi_hop-07",
+      "family": "multi_hop",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "programme_review",
+      "reverse_pred": "programme_review",
+      "flipped": false,
+      "tv_distance": 0.029885168187320232
+    },
+    {
+      "id": "hard-sol-c-multi_hop-09",
+      "family": "multi_hop",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "bus_substitution",
+      "reverse_pred": "bus_substitution",
+      "flipped": false,
+      "tv_distance": 0.0673819420626387
+    },
+    {
+      "id": "hard-sol-c-multi_hop-11",
+      "family": "multi_hop",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "coverage_excluded",
+      "reverse_pred": "coverage_excluded",
+      "flipped": false,
+      "tv_distance": 0.1493734116666019
+    },
+    {
+      "id": "hard-sol-c-multi_hop-12",
+      "family": "multi_hop",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "conservation_hold",
+      "reverse_pred": "conservation_hold",
+      "flipped": false,
+      "tv_distance": 0.03574185725301504
+    },
+    {
+      "id": "hard-sol-c-multi_hop-13",
+      "family": "multi_hop",
+      "forward_correct": true,
+      "reverse_correct": true,
+      "forward_pred": "normal_release",
+      "reverse_pred": "normal_release",
+      "flipped": false,
+      "tv_distance": 0.010137831268366426
+    }
+  ]
+}
