@@ -226,7 +226,7 @@ class MappedExpertStore:
             base = np.memmap(
                 self.path,
                 dtype=np_dt,
-                mode="c",  # copy-on-write: file-backed clean pages, OS-evictable
+                mode="r",  # read-only shared mapping: stays file-backed page cache under GPU access (mode "c" turned touched pages into anonymous GPU copies, measured 2026-09-26)
                 offset=meta["offset"],
                 shape=tuple(meta["shape"]),
             )

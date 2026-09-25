@@ -108,7 +108,15 @@ whole-MoE verify kernels harvest — is largely spent):
 - The one structural advantage the Mac has is the one MaxToken is built
   around: unified memory lets file-backed weights be mapped zero-copy and
   residency be OS-elastic — a shape of elasticity a discrete-VRAM GPU cannot
-  offer at all.
+  offer at all. The mapping mode decides whether that holds: the expert
+  store is mapped read-only shared (`mode="r"`). A copy-on-write mapping
+  (`mode="c"`, what 0.2.1 shipped) looked identical in the process footprint
+  but turned every page the GPU touched into anonymous driver-owned memory —
+  a ~17 GiB duplicate of the store that the kernel then compressed: 13.6 s
+  TTFT on the first request after every start, tens of GB of compressor
+  churn, and "20 tok/s" stalls whenever anything else wanted RAM. Measured
+  2026-09-26 on the 32 GB M1 Max: read-only shared mapping gives 0.3 s cold
+  TTFT and zero compressions across a start plus three requests.
 
 ## Quick start
 

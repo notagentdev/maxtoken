@@ -20,7 +20,17 @@ The backend has three serving modes:
   speed**, zero copies, no cache management. Residency is OS-managed: hot
   experts live in the page cache, cold ones fault in from SSD once, and under
   memory pressure clean pages are evicted (never swapped) — graceful
-  degradation instead of OOM. The repack lives under
+  degradation instead of OOM. This only holds for a read-only *shared*
+  mapping (`np.memmap(mode="r")`). Up to 0.2.1 the store was mapped
+  copy-on-write (`mode="c"`): the process footprint looked the same, but the
+  first GPU touch turned every page into anonymous, driver-owned memory
+  (visible only in `ioreg`'s "Alloc system memory" and in `vm_stat`'s
+  compressor, not in `top`/`footprint`) — a ~17 GiB duplicate of the store on
+  a 32 GB machine, compressed and decompressed on every memory-pressure
+  event. Measured 2026-09-26 (Ornith-35B, M1 Max 32 GB): first request after
+  a start 13.6 s TTFT and ~72 GB of compressions per start with `"c"`; 0.3 s
+  TTFT and zero compressions with `"r"`, warm decode unchanged within the
+  prompt-to-prompt spread. The repack lives under
   `~/.cache/maxtoken/mlx-ftw/` (`MAXTOKEN_MLX_FTW_DIR` overrides) and costs
   one streaming copy of the expert weights on first serve.
   `MAXTOKEN_MLX_MLOCK=1` pins the whole store into memory (use only when it
