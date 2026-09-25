@@ -124,6 +124,19 @@ def _prefix_free(token_lists: Sequence[Sequence[int]]) -> bool:
     )
 
 
+def _disambiguate(token_lists: Sequence[Sequence[int]], stop: int) -> List[List[int]]:
+    """Close only the candidates that are a strict prefix of another.
+
+    "1" is a token prefix of "10", so the two are not mutually exclusive and
+    "1" would absorb the other's mass. Appending the end-of-turn token to the
+    shorter one separates them. Candidates nobody shadows stay untouched, which
+    keeps them leaves at the root and costs no extra forward pass.
+    """
+    longer = {tuple(t[:i]) for t in token_lists for i in range(1, len(t))}
+    return [list(t) + [stop] if tuple(t) in longer else list(t)
+            for t in token_lists]
+
+
 def _expand(cache: Sequence[Any], batch: int) -> List[Any]:
     """Replicate a batch-1 prompt cache across `batch` rows."""
     out = []
@@ -354,38 +367,49 @@ class SystemOne:
     # -- scoring -----------------------------------------------------------
 
     def _score(self, question: Question, cache, last_logits: mx.array) -> List[float]:
-        """Total log-probability of each candidate continuation."""
+        """Total log-probability of each allowed answer, read off a token trie."""
         if question.slots:
             token_lists = [[s] for s in self.slot_ids(len(question.descriptions))]
         else:
-            token_lists = [self._tokens_for(c) for c in question.descriptions]
-            if not _prefix_free(token_lists):
-                # "1" is a token prefix of "10", so scoring it as a bare token
-                # hands it every continuation's mass and it wins whichever way
-                # the model leans. Closing each candidate with the end-of-turn
-                # token makes the set mutually exclusive again.
-                stop = self._stop_token()
-                token_lists = [list(t) + [stop] for t in token_lists]
-        logprobs = last_logits - mx.logsumexp(last_logits, keepdims=True)
+            token_lists = _disambiguate(
+                [self._tokens_for(c) for c in question.descriptions],
+                self._stop_token())
+        return self._walk_trie(token_lists, cache, last_logits)
 
-        if all(len(t) == 1 for t in token_lists):
-            # The fast path: one forward pass answered the whole question.
-            ids = mx.array([t[0] for t in token_lists])
-            return logprobs[ids].tolist()
+    def _walk_trie(self, token_lists: Sequence[Sequence[int]], cache,
+                   last_logits: mx.array) -> List[float]:
+        """Score every candidate path, one forward pass per divergence node.
 
-        scores = []
-        for tokens in token_lists:
-            total = float(logprobs[tokens[0]].item())
-            if len(tokens) > 1:
-                fork = _fork(cache)
-                out = self._forward(tokens[:-1], fork)
-                step = out - mx.logsumexp(out, axis=-1, keepdims=True)
-                rows = mx.array(tokens[1:])
-                total += float(
-                    mx.take_along_axis(step, rows[:, None], axis=-1).sum().item()
-                )
-            scores.append(total)
-        return scores
+        Candidates that share a prefix share the passes that cover it, so a set
+        of single-token answers costs nothing beyond the logits already in hand
+        and 0..10 costs two passes rather than eleven. The returned scores are
+        exact path log-probabilities, not an approximation of them.
+        """
+        totals = [0.0] * len(token_lists)
+
+        def descend(indices: List[int], depth: int, logits: mx.array, node_cache):
+            logprobs = logits - mx.logsumexp(logits, keepdims=True)
+            branches: Dict[int, List[int]] = {}
+            for i in indices:
+                branches.setdefault(token_lists[i][depth], []).append(i)
+            # One read covers every branch at this node.
+            ids = mx.array(list(branches))
+            scores = logprobs[ids].tolist()
+            for (token, rows), score in zip(branches.items(), scores):
+                for i in rows:
+                    totals[i] += score
+                deeper = [i for i in rows if len(token_lists[i]) > depth + 1]
+                if not deeper:
+                    continue
+                if node_cache is None:
+                    raise ValueError(
+                        "multi-token candidates need a cache to continue from")
+                fork = _fork(node_cache)
+                out = self._forward([token], fork)
+                descend(deeper, depth + 1, out[-1], fork)
+
+        descend(list(range(len(token_lists))), 0, last_logits, cache)
+        return totals
 
     def _answer(self, question: Question, scores: Sequence[float]) -> Answer:
         t = max(self.temperature, 1e-3)

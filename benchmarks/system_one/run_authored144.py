@@ -9,6 +9,7 @@ measures our head on their fixture, not a replication of their system.
 """
 
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -23,7 +24,9 @@ GOLD = Path("/Users/dev/projects/semif/benchmarks/data/authored144.jsonl")
 def main(model_path: str, out_path: str, gold: Path = GOLD) -> None:
     rows = [json.loads(line) for line in Path(gold).read_text().splitlines() if line.strip()]
     print(f"{len(rows)} rows; loading {model_path} ...", flush=True)
-    head = SystemOne.load(model_path)
+    slots = os.environ.get("SYSTEM_ONE_SLOTS", "1") != "0"
+    head = SystemOne.load(model_path, use_slots=slots)
+    print(f"answer slots: {slots}", flush=True)
 
     out = Path(out_path)
     correct = 0

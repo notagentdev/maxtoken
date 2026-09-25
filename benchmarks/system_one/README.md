@@ -134,3 +134,36 @@ fold with T ≈ 1.75–2.20, i.e. the model is overconfident — but Jev's publi
 0.0606 is not reached. About half of that calibration gap is a scalar; the rest
 is not. Note that pooling the two folds reports a *lower* ECE than either fold,
 because opposite-direction miscalibration cancels in the bins; trust the folds.
+
+## Letter slots or the answer strings themselves
+
+`SYSTEM_ONE_SLOTS=0` scores the option strings directly instead of `A`/`B`/`C`,
+over a token trie: one forward pass per divergence node rather than one per
+candidate, and only a candidate that is a strict prefix of another is closed
+with the end-of-turn token. Verified against per-candidate scoring on an
+11-value score question: identical to 0.000e+00, distribution summing to
+1.000000.
+
+It was built on the expectation that removing the letter indirection would
+help. Measured on the 720-decision ticket fixture, it does the opposite
+depending on the model:
+
+| | ticket_type | queue | headline | ms/row |
+|---|---|---|---|---|
+| Qwen3.5-4B, slots | 0.408 | 0.254 | 0.331 | 439 |
+| Qwen3.5-4B, trie | **0.487** | 0.267 | **0.377** | 1165 |
+| Ornith-35B-A3B, slots | **0.679** | **0.300** | **0.490** | **599** |
+| Ornith-35B-A3B, trie | 0.546 | 0.267 | 0.406 | 1453 |
+
+The trie gains the weak model 4.6 points and costs the strong one 8.4. The
+prediction histograms say why: against 60 true cases per class Ornith answers
+`Request` 97 times with slots and 111 times with the strings, i.e. it falls
+back towards the class prior carried by the answer words themselves. Letter
+slots break that prior — the meaning lives in the prompt's option list and is
+never scored — which helps a model that reads the context and hurts one that
+cannot reliably map a letter to a meaning.
+
+Slots therefore stay the default: they win on the best model and are 2.4x
+faster. The trie is kept because it lifts the 16-option ceiling and scores
+arbitrary answer strings exactly, and because the choice is now measured
+rather than assumed.
