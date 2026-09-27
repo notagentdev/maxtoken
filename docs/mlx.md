@@ -493,6 +493,15 @@ uses.
   columns. The real 27B forward drops from 92.20 to 69.93 ms at T=2 — the
   extra window token from 36.6 ms to 14.3 — which moves the k=1 break-even
   from 1.68 accepted tokens to 1.23, under the measured 1.52.
+  Since 2026-09-27 the kernel also covers **6-bit affine** weights (a pack is
+  three 32-bit words holding 16 values, value *i* at bits `[6i, 6i+6)` of the
+  little-endian stream — MLX's layout, verified against `mx.dequantize`); the
+  4-bit kernel is a separate compiled variant and unchanged. Measured on
+  MiMo-V2.6-Qwen-9B-MTPLX 6-bit with its MTP head, same 600-token request:
+  the stock 6-bit path made a 3-row verify cost 69 ms against 25.7 ms for a
+  single decode row, so the draft LOST (38.9 tok/s bare, 36 at k=2, 34 at
+  k=3); with the kernel the verify costs 34.7 ms at k=2 and 42.5 at k=3, for
+  **66.4 and 70.1 tok/s** (accept 2.65 / 3.41).
 
   *No replay forward*: a rejected round used to roll the caches back and
   recompute the committed prefix in a forward of its own, 56 ms to produce

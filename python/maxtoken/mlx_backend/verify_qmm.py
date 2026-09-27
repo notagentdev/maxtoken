@@ -203,6 +203,130 @@ def _kernel(m: int, group_size: int, dtype, nsg: int):
     return kernel
 
 
+
+def _pack_block6(m: int, math: str) -> str:
+    """The 6-bit analogue of ``_pack_block``: one pack is three 32-bit words
+    per column holding 16 values, value i at bits [6i, 6i+6) of the 96-bit
+    little-endian stream (MLX's layout for bits=6, verified against
+    ``mx.dequantize``). Values 5 and 10 straddle a word boundary."""
+    def field(j: int, t: int) -> str:
+        o = 6 * t
+        wi, sh = o // 32, o % 32
+        if sh <= 26:
+            return f"((p{j}_{wi} >> {sh}u) & 0x3Fu)"
+        return f"(((p{j}_{wi} >> {sh}u) | (p{j}_{wi + 1} << {32 - sh}u)) & 0x3Fu)"
+
+    if math == "float":
+        lines = []
+        for t in range(16):
+            for j in range(4):
+                lines.append(f"{{ float w{j} = float({field(j, t)}) * s{j} + b{j};")
+                for r in range(m):
+                    lines.append(f"  acc[{j} * {m} + {r}] += float(v{r}[{t}]) * w{j}; }}"
+                                 if r == m - 1 else
+                                 f"  acc[{j} * {m} + {r}] += float(v{r}[{t}]) * w{j};")
+        return "\n        ".join(lines)
+    n_acc = 4 * m
+    lines = [f"half hacc[{n_acc}];", "_Pragma(\"unroll\")",
+             f"for (int i = 0; i < {n_acc}; ++i) {{ hacc[i] = half(0.0); }}"]
+    for r in range(m):
+        lines.append(f"half h{r}[16];")
+        lines.append("_Pragma(\"unroll\")")
+        lines.append(f"for (int i = 0; i < 16; ++i) {{ h{r}[i] = half(float(v{r}[i])); }}")
+    for t in range(16):
+        for j in range(4):
+            lines.append(f"{{ half w{j} = half({field(j, t)}) * hs{j} + hb{j};")
+            for r in range(m):
+                end = " }" if r == m - 1 else ""
+                lines.append(f"  hacc[{j} * {m} + {r}] = fma(h{r}[{t}], w{j}, hacc[{j} * {m} + {r}]);{end}")
+    lines += ["_Pragma(\"unroll\")", f"for (int i = 0; i < {n_acc}; ++i) {{ acc[i] += float(hacc[i]); }}"]
+    return "\n        ".join(lines)
+
+
+def _kernel6(m: int, group_size: int, dtype, nsg: int):
+    """6-bit affine variant of ``_kernel``: same geometry (a simdgroup owns 4
+    columns, lanes stride over packs), but a pack is 16 values in 3 words and
+    each row loads a Vec16 of activations per pack. Compiled and cached
+    separately; the 4-bit kernel is untouched."""
+    import mlx.core as mx
+
+    key = (6, m, group_size, dtype, nsg, MATH)
+    cached = _KERNELS.get(key)
+    if cached is not None:
+        return cached
+
+    xloads = "\n        ".join(
+        f"Vec16 v{r} = xv[({r} * K + k_base) / 16];" for r in range(m)
+    )
+    wloads = "\n            ".join(
+        f"uint32_t p{j}_{wi} = w_q[(n0 + {j}) * K_by_word + pack * 3 + {wi}];"
+        for j in range(4) for wi in range(3)
+    )
+    n_acc = 4 * m
+    if MATH == "float":
+        sb = "\n            ".join(
+            f"float s{j} = float(scales[(n0 + {j}) * K_by_gs + gi]);\n"
+            f"            float b{j} = float(biases[(n0 + {j}) * K_by_gs + gi]);"
+            for j in range(4)
+        )
+    else:
+        sb = "\n            ".join(
+            f"half hs{j} = half(float(scales[(n0 + {j}) * K_by_gs + gi]));\n"
+            f"            half hb{j} = half(float(biases[(n0 + {j}) * K_by_gs + gi]));"
+            for j in range(4)
+        )
+    source = f"""
+        using namespace metal;
+        constexpr int GS = {group_size};
+        constexpr int NSG = {nsg};
+
+        uint sg   = simdgroup_index_in_threadgroup;
+        uint lane = thread_index_in_simdgroup;
+
+        int K = int(K_size);
+        int N = int(N_size);
+        int K_by_pack = K / 16;
+        int K_by_word = (K * 3) / 16;
+        int K_by_gs   = K / GS;
+        int n0 = (int(threadgroup_position_in_grid.y) * NSG + int(sg)) * 4;
+        if (n0 + 3 >= N) {{ return; }}
+
+        float acc[{n_acc}];
+        _Pragma("unroll")
+        for (int i = 0; i < {n_acc}; ++i) {{ acc[i] = 0.0f; }}
+
+        using Vec16 = vec<T, 16>;
+        const device Vec16 *xv = (const device Vec16*)x;
+
+        for (int pack = int(lane); pack < K_by_pack; pack += 32) {{
+            int k_base = pack * 16;
+            int gi = k_base / GS;
+            {wloads}
+            {xloads}
+            {sb}
+            {_pack_block6(m, MATH)}
+        }}
+
+        _Pragma("unroll")
+        for (int i = 0; i < {n_acc}; ++i) {{ acc[i] = simd_sum(acc[i]); }}
+
+        if (lane < {n_acc}) {{
+            int j   = int(lane) / {m};
+            int row = int(lane) - j * {m};
+            y[row * N + n0 + j] = T(acc[int(lane)]);
+        }}
+    """
+    tag = {mx.bfloat16: "bf16", mx.float16: "fp16"}.get(dtype, "unk")
+    kernel = mx.fast.metal_kernel(
+        name=f"ft_verify_qmm6_m{m}_gs{group_size}_nsg{nsg}_{MATH}_{tag}",
+        input_names=["x", "w_q", "scales", "biases", "K_size", "N_size"],
+        output_names=["y"],
+        source=source,
+    )
+    _KERNELS[key] = kernel
+    return kernel
+
+
 def _kernel_splitk(m: int, group_size: int, dtype, nsg: int, splits: int):
     """The same tile geometry, but each threadgroup owns one K-SEGMENT.
 
@@ -301,7 +425,7 @@ def eligible(m: int, K: int, N: int, bits: int, group_size: int, dtype) -> bool:
     import mlx.core as mx
 
     return (
-        int(bits) == 4
+        int(bits) in (4, 6)
         and int(group_size) in (32, 64, 128)
         and dtype in (mx.bfloat16, mx.float16)
         and 2 <= int(m) <= MROWS
@@ -310,8 +434,8 @@ def eligible(m: int, K: int, N: int, bits: int, group_size: int, dtype) -> bool:
     )
 
 
-def verify_qmm(x2, w_q, scales, biases, *, group_size: int):
-    """(M, K) x (N, K)^T -> (M, N) for M in 2..4, 4-bit affine."""
+def verify_qmm(x2, w_q, scales, biases, *, group_size: int, bits: int = 4):
+    """(M, K) x (N, K)^T -> (M, N) for M in 2..4, 4-bit or 6-bit affine."""
     import mlx.core as mx
 
     M = int(x2.shape[0])
@@ -320,6 +444,18 @@ def verify_qmm(x2, w_q, scales, biases, *, group_size: int):
     # Deep-K shapes (the MLP's down projection) run a few percent faster with
     # half the simdgroups per threadgroup; everything else prefers NSG.
     nsg = min(NSG, 4) if K >= 12288 else NSG
+    if int(bits) == 6:
+        kernel = _kernel6(M, group_size, x2.dtype, nsg)
+        cols = 4 * nsg
+        (y,) = kernel(
+            inputs=[mx.contiguous(x2), w_q, scales, biases, K, N],
+            template=[("T", x2.dtype)],
+            grid=(32 * nsg, N // cols, 1),
+            threadgroup=(32 * nsg, 1, 1),
+            output_shapes=[(M, N)],
+            output_dtypes=[x2.dtype],
+        )
+        return y
     if SPLITK > 1 and K >= SPLITK_MIN_K:
         kernel = _kernel_splitk(M, group_size, x2.dtype, nsg, SPLITK)
         cols = 4 * nsg
@@ -363,7 +499,7 @@ def install() -> dict[str, int]:
 
     def patched(self, x):
         if x.ndim >= 2 and 2 <= x.shape[-2] <= MROWS and x.size == x.shape[-1] * x.shape[-2]:
-            K = int(self.weight.shape[1]) * PACK
+            K = int(self.weight.shape[1]) * 32 // int(self.bits)  # == PACK for 4-bit
             N = int(self.weight.shape[0])
             m = int(x.shape[-2])
             if (
@@ -373,7 +509,7 @@ def install() -> dict[str, int]:
             ):
                 y = verify_qmm(
                     x.reshape(m, K), self.weight, self.scales, self.biases,
-                    group_size=int(self.group_size),
+                    group_size=int(self.group_size), bits=int(self.bits),
                 )
                 stats["kernel"] += 1
                 y = y.reshape(*x.shape[:-1], N)
@@ -385,7 +521,7 @@ def install() -> dict[str, int]:
     _PATCHED["original"] = original
     _PATCHED["stats"] = stats
     logger.info(
-        f"verify qmm: small-M kernel installed (M=2..{MROWS}, 4-bit affine, "
+        f"verify qmm: small-M kernel installed (M=2..{MROWS}, 4-bit and 6-bit affine, "
         f"{MATH} math, NSG={NSG})"
     )
     return stats

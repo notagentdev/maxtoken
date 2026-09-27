@@ -28,6 +28,7 @@ Measured on a 32 GB M1 Max (all through the real HTTP serving path):
 | Ornith-1.5-**35B**-A3B (18 GiB checkpoint) | 1.3 GiB owned + page cache | 75–77 tok/s |
 | Ornith-1.5-35B-A3B + its **native MTP head** as drafter (k=2) | + 1.7 GiB head | **109–111 tok/s** English/math, 75–80 German chat |
 | Qwen3.8-**27B** dense hybrid + native MTP head (k=3) | 14 GiB resident | 32–35 tok/s English/math, 24–27 German chat, single stream; two parallel streams ~40 tok/s aggregate (peaks 43) at 17–21 each; prefill 95–120 tok/s served |
+| MiMo-V2.6-Qwen-**9B**-MTPLX **6-bit** + its MTP head (k=3) | 8.5 GiB resident | **70–74 tok/s** English/math, ~43 German chat (38.9 without the draft; 36 with it before the 6-bit small-M verify kernel) |
 | Qwen3.8-Flash-Next **Niwaki-99B**-A5B 3-bit (`qwen4_exp`, 34 GiB checkpoint) | ~3.5 GiB owned + page cache | 17 tok/s, prefill 277 tok/s (spike path) |
 
 The Niwaki row is the newest and the least finished: Qwen's `qwen4_exp`

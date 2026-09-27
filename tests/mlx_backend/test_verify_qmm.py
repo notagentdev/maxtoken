@@ -33,15 +33,16 @@ def _rel_error(a, b):
 @pytest.mark.parametrize("shape", [(5120, 5120), (2048, 4096), (2560, 2560)])
 @pytest.mark.parametrize("group_size", [32, 64])
 @pytest.mark.parametrize("m", [2, 3, 4])
-def test_matches_stock_quantized_linear(shape, group_size, m):
+@pytest.mark.parametrize("bits", [4, 6])
+def test_matches_stock_quantized_linear(shape, group_size, m, bits):
     K, N = shape
-    lin = nn.QuantizedLinear(K, N, bias=False, group_size=group_size, bits=4)
+    lin = nn.QuantizedLinear(K, N, bias=False, group_size=group_size, bits=bits)
     mx.eval(lin.parameters())
-    assert eligible(m, K, N, 4, group_size, mx.bfloat16)
+    assert eligible(m, K, N, bits, group_size, mx.bfloat16)
 
     x = mx.random.normal((m, K)).astype(mx.bfloat16)
     mx.eval(x)
-    got = verify_qmm(x, lin.weight, lin.scales, lin.biases, group_size=group_size)
+    got = verify_qmm(x, lin.weight, lin.scales, lin.biases, group_size=group_size, bits=bits)
     mx.eval(got)
     assert got.shape == (m, N)
     assert _rel_error(lin(x), got) < 0.02
@@ -52,17 +53,19 @@ def test_rejects_what_it_cannot_do():
     assert not eligible(1, 5120, 5120, 4, 64, mx.bfloat16), "M=1 belongs to stock qmv"
     assert not eligible(MROWS + 1, 5120, 5120, 4, 64, mx.bfloat16), "M>4 not compiled"
     assert not eligible(2, 5120, 5120, 8, 64, mx.bfloat16), "8-bit not implemented"
+    assert not eligible(2, 5120, 5120, 5, 64, mx.bfloat16), "5-bit not implemented"
     assert not eligible(2, 5120, 5120, 4, 17, mx.bfloat16), "group size unsupported"
     assert not eligible(2, 100, 5120, 4, 64, mx.bfloat16), "K must divide by 64"
     assert not eligible(2, 5120, 100, 4, 64, mx.bfloat16), "N must fill whole tiles"
     assert not eligible(2, 5120, 5120, 4, 64, mx.float32), "float32 has no Vec8 path"
 
 
-def test_patch_routes_only_small_m_and_restores():
+@pytest.mark.parametrize("bits", [4, 6])
+def test_patch_routes_only_small_m_and_restores(bits):
     """Installed, the patch must change small-M results not at all, leave M=1
     and prefill-sized calls on the stock path, and come off cleanly."""
     K = N = 2560
-    lin = nn.QuantizedLinear(K, N, bias=False, group_size=64, bits=4)
+    lin = nn.QuantizedLinear(K, N, bias=False, group_size=64, bits=bits)
     mx.eval(lin.parameters())
     xs = {m: mx.random.normal((m, K)).astype(mx.bfloat16) for m in (1, 2, 4, 8)}
     mx.eval(list(xs.values()))
